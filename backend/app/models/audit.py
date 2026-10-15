@@ -29,6 +29,9 @@ class AuditAction(StrEnum):
     EMPLOYEE_BLOCKED = "employees.blocked"
     EMPLOYEE_UNBLOCKED = "employees.unblocked"
     EMPLOYEE_PASSWORD_RESET = "employees.password_reset"
+    # Reference data; target_type names the reference (country, vac_operator, …).
+    REFERENCE_CREATED = "reference.created"
+    REFERENCE_UPDATED = "reference.updated"
 
 
 class AuditEvent(Base):

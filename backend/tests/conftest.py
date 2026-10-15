@@ -89,7 +89,23 @@ def migrated_database() -> str:
     command.downgrade(config, "base")
     command.upgrade(config, "head")
     command.check(config)  # models and migrations describe the same schema
+    asyncio.run(_snapshot_reference(TEST_DATABASE_URL))
     return TEST_DATABASE_URL
+
+
+# Shared reference data seeded by migrations, parents first. Tests may change it, so it is
+# restored from a snapshot after each test.
+REFERENCE_TABLES = ("countries", "vac_operators", "country_rules", "visa_centers")
+
+
+async def _snapshot_reference(url: str) -> None:
+    conn = await asyncpg.connect(make_url(url).set(drivername="postgresql").render_as_string(False))
+    try:
+        await conn.execute("CREATE SCHEMA test_snapshot")
+        for table in REFERENCE_TABLES:
+            await conn.execute(f"CREATE TABLE test_snapshot.{table} AS TABLE public.{table}")
+    finally:
+        await conn.close()
 
 
 @pytest.fixture
@@ -103,6 +119,9 @@ async def owner_engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
         await conn.execute(
             text("TRUNCATE audit_events, user_recovery_codes, user_sessions, users, tenants")
         )
+        await conn.execute(text(f"TRUNCATE {', '.join(REFERENCE_TABLES)}"))
+        for table in REFERENCE_TABLES:
+            await conn.execute(text(f"INSERT INTO {table} SELECT * FROM test_snapshot.{table}"))
     await engine.dispose()
 
 

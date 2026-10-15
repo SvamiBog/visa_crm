@@ -5,8 +5,10 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { apiGet } from "./api";
 import { homePath, useMe, type Role } from "./auth";
 import { Shell } from "./components/Shell";
+import { ReferencePage } from "./pages/admin/ReferencePage";
 import { SpecialistsPage } from "./pages/admin/SpecialistsPage";
 import { AuditPage } from "./pages/AuditPage";
+import { CountriesPage } from "./pages/cabinet/CountriesPage";
 import { EmployeesPage } from "./pages/cabinet/EmployeesPage";
 import { HomePage } from "./pages/cabinet/HomePage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
@@ -102,6 +104,26 @@ export default function App() {
           <RequireUser roles={["admin"]}>
             <Shell area="admin">
               <AuditPage scope="admin" />
+            </Shell>
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/admin/reference"
+        element={
+          <RequireUser roles={["admin"]}>
+            <Shell area="admin">
+              <ReferencePage />
+            </Shell>
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/app/countries"
+        element={
+          <RequireUser roles={["specialist", "employee"]}>
+            <Shell area="cabinet">
+              <CountriesPage />
             </Shell>
           </RequireUser>
         }

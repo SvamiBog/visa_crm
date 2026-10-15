@@ -1,0 +1,153 @@
+"""Shared reference data: countries and appointment rules (справочник стран и правил записи).
+
+Common to the whole platform, so no tenant_id: every workspace reads it, only the admin
+changes it (Row-Level Security in migration 0009 allows writes in the system scope only).
+"""
+
+import uuid
+from datetime import datetime
+from enum import StrEnum
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    SmallInteger,
+    String,
+    UniqueConstraint,
+    func,
+    text,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.db import Base
+
+
+def _enum(cls: type[StrEnum], name: str) -> Enum:
+    return Enum(cls, name=name, values_callable=lambda e: [m.value for m in e])
+
+
+class BookingType(StrEnum):
+    """How a client gets an appointment for a destination in a submission country."""
+
+    WAITING_LIST = "waiting_list"  # лист ожидания: a registrar puts the client in a queue
+    WINDOWED_APPLICATION = "windowed_application"  # заявка с окном (France: 60 days)
+    DIRECT_SLOT = "direct_slot"  # прямой слот on the visa center's site
+    EMBASSY = "embassy"  # appointment directly with the embassy
+
+
+class VacIdentifierType(StrEnum):
+    """What the visa center calls the client's number in its queue."""
+
+    VAC_ID = "vac_id"  # ID: Poland, Latvia, Italy
+    APPLICATION_NUMBER = "application_number"  # Germany, Austria, Belgium, …
+    FORM_NUMBER = "form_number"  # embassy form number: France
+    USERNAME = "username"  # Greece
+
+
+class VacOperator(Base):
+    """Visa center operator: VFS Global, TLScontact, BLS…"""
+
+    __tablename__ = "vac_operators"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # Stable key for code that works per operator (slot connectors, stage 6).
+    code: Mapped[str] = mapped_column(String(32), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
+    is_active: Mapped[bool] = mapped_column(server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Country(Base):
+    __tablename__ = "countries"
+    __table_args__ = (
+        CheckConstraint("code ~ '^[A-Z]{2}$'", name="code_iso_alpha2"),
+        CheckConstraint(
+            "consultation_minutes IS NULL OR consultation_minutes BETWEEN 5 AND 600",
+            name="consultation_minutes_range",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # ISO 3166-1 alpha-2.
+    code: Mapped[str] = mapped_column(String(2), unique=True)
+    name_ru: Mapped[str] = mapped_column(String(100))
+    name_en: Mapped[str] = mapped_column(String(100))
+    # Typical consultation length for this destination: about an hour for the UK,
+    # 15–30 minutes for Schengen.
+    consultation_minutes: Mapped[int | None] = mapped_column(SmallInteger)
+    is_active: Mapped[bool] = mapped_column(server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CountryRule(Base):
+    """Appointment rules for one pair «destination × submission country»."""
+
+    __tablename__ = "country_rules"
+    __table_args__ = (
+        UniqueConstraint("destination_id", "submission_id", name="uq_country_rules_pair"),
+        CheckConstraint("destination_id <> submission_id", name="different_countries"),
+        CheckConstraint(
+            "(booking_type = 'windowed_application') = (window_days IS NOT NULL)",
+            name="window_days_only_for_windowed",
+        ),
+        CheckConstraint(
+            "window_days IS NULL OR window_days BETWEEN 1 AND 365", name="window_days_range"
+        ),
+        CheckConstraint(
+            "appeal_deadline_days IS NULL "
+            "OR (appeals_accepted AND appeal_deadline_days BETWEEN 1 AND 365)",
+            name="appeal_deadline_needs_appeals",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    destination_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("countries.id", ondelete="RESTRICT"), index=True
+    )
+    submission_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("countries.id", ondelete="RESTRICT"), index=True
+    )
+    booking_type: Mapped[BookingType] = mapped_column(_enum(BookingType, "booking_type"))
+    window_days: Mapped[int | None] = mapped_column(SmallInteger)
+    # NULL: no operator, the embassy takes applications itself.
+    vac_operator_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("vac_operators.id", ondelete="RESTRICT"), index=True
+    )
+    # «→ Germany»: the destination does not accept here; another country represents it.
+    represented_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("countries.id", ondelete="RESTRICT")
+    )
+    identifier_type: Mapped[VacIdentifierType | None] = mapped_column(
+        _enum(VacIdentifierType, "vac_identifier_type")
+    )
+    # Does the consulate in the submission country accept appeals? NULL: not known yet.
+    appeals_accepted: Mapped[bool | None]
+    appeal_deadline_days: Mapped[int | None] = mapped_column(SmallInteger)
+    # False for pairs not confirmed by an operator's catalogue or the specialist («?»).
+    is_verified: Mapped[bool] = mapped_column(server_default=text("false"))
+    notes: Mapped[str | None] = mapped_column(String(1000))
+    is_active: Mapped[bool] = mapped_column(server_default=text("true"))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    visa_centers: Mapped[list["VisaCenter"]] = relationship(
+        order_by="VisaCenter.city_ru", lazy="selectin"
+    )
+
+
+class VisaCenter(Base):
+    """Where applications for a rule are submitted: each city has its own queue."""
+
+    __tablename__ = "visa_centers"
+    __table_args__ = (UniqueConstraint("rule_id", "city_ru", name="uq_visa_centers_rule_city"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    rule_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("country_rules.id", ondelete="CASCADE"), index=True
+    )
+    city_ru: Mapped[str] = mapped_column(String(100))
+    city_en: Mapped[str] = mapped_column(String(100))
+    is_active: Mapped[bool] = mapped_column(server_default=text("true"))

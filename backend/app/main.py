@@ -7,6 +7,8 @@ from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.employees import router as employees_router
 from app.api.health import router as health_router
+from app.api.reference import admin_router as admin_reference_router
+from app.api.reference import router as reference_router
 from app.api.two_factor import router as two_factor_router
 from app.api.workspace import router as workspace_router
 from app.core.audit import client_ip
@@ -34,6 +36,8 @@ def create_app() -> FastAPI:
         workspace_router,
         audit_router,
         employees_router,
+        reference_router,
+        admin_reference_router,
     ):
         app.include_router(router, prefix="/api")
 
