@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.admin import router as admin_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.employees import router as employees_router
 from app.api.health import router as health_router
 from app.api.two_factor import router as two_factor_router
 from app.api.workspace import router as workspace_router
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
         admin_router,
         workspace_router,
         audit_router,
+        employees_router,
     ):
         app.include_router(router, prefix="/api")
 

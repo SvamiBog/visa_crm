@@ -65,8 +65,8 @@ async def test_admin_updates_specialist_and_it_is_logged(client: AsyncClient, ma
     assert event["action"] == "admin.specialist_updated"
     assert event["details"] == {
         "changed": ["modules", "name", "tax_rate"],
-        "modules_on": ["clients", "slots"],
-        "modules_off": [],
+        "modules_on": ["slots"],
+        "modules_off": ["cases", "tasks", "country_rules", "analytics"],
     }
 
 

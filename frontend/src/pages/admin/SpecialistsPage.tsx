@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { IssuedPasswordCard, type IssuedPassword } from "../../components/IssuedPasswordCard";
 import { ModulePicker, useModules } from "../../components/ModulePicker";
 
 type Specialist = {
@@ -22,9 +23,6 @@ type Currency = (typeof CURRENCIES)[number];
 // НПД in Belarus; the admin changes it per specialist.
 const DEFAULT_TAX_RATE = "10";
 const KEY = ["admin", "specialists"] as const;
-
-/** A temporary password is shown once: the admin passes it to the specialist. */
-type IssuedPassword = { email: string; password: string };
 
 export function SpecialistsPage() {
   const { t } = useTranslation();
@@ -119,8 +117,7 @@ export function SpecialistsPage() {
                 <tr>
                   <th>{t("admin.colName")}</th>
                   <th>{t("admin.colEmail")}</th>
-                  <th>{t("admin.colCurrency")}</th>
-                  <th>{t("admin.colTax")}</th>
+                  <th>{t("admin.colAccounting")}</th>
                   <th>{t("admin.colModules")}</th>
                   <th>{t("admin.colStatus")}</th>
                   <th>{t("admin.colLastLogin")}</th>
@@ -132,8 +129,9 @@ export function SpecialistsPage() {
                   <tr key={s.tenant_id}>
                     <td>{s.name}</td>
                     <td>{s.email}</td>
-                    <td>{s.base_currency}</td>
-                    <td>{Number(s.tax_rate)}%</td>
+                    <td className="nowrap">
+                      {s.base_currency} · {Number(s.tax_rate)}%
+                    </td>
                     <td className="nowrap">
                       {t("admin.modulesCount", {
                         on: s.modules.length,
@@ -266,36 +264,6 @@ function NewSpecialistForm({
         </button>
       </div>
     </form>
-  );
-}
-
-function IssuedPasswordCard({ issued, onClose }: { issued: IssuedPassword; onClose: () => void }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(issued.password);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  return (
-    <section className="card issued" role="status">
-      <h2 className="h2">{t("admin.issuedTitle")}</h2>
-      <p>{t("admin.issuedText", { email: issued.email })}</p>
-      <div className="issued-row">
-        <code className="issued-password">{issued.password}</code>
-        <button type="button" className="btn btn-sm" onClick={() => void copy()}>
-          {copied ? t("admin.copied") : t("admin.copy")}
-        </button>
-      </div>
-      <p className="muted small">{t("admin.issuedWarning")}</p>
-      <button type="button" className="btn btn-sm" onClick={onClose}>
-        {t("admin.issuedDone")}
-      </button>
-    </section>
   );
 }
 

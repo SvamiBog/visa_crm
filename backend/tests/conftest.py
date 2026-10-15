@@ -21,6 +21,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core import db, two_factor
 from app.core.config import get_settings
+from app.core.modules import DEFAULT_MODULES
 from app.core.security import hash_password
 from app.core.two_factor import seal_secret
 from app.main import create_app
@@ -128,6 +129,7 @@ async def client(owner_engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
 def make_user(owner_engine: AsyncEngine) -> MakeUser:
     """Create a user (and a tenant for non-admins). Returns the tenant id.
 
+    Workspaces get the default (core) modules, like ones the admin creates.
     Admins and specialists get two-factor login on with the test secret (helpers.login
     passes the second step), unless they still have a temporary password.
     """
@@ -147,8 +149,8 @@ def make_user(owner_engine: AsyncEngine) -> MakeUser:
             if role != "admin" and tenant_id is None:
                 tenant_id = uuid.uuid4()
                 await conn.execute(
-                    text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
-                    {"id": tenant_id, "name": f"Workspace of {email}"},
+                    text("INSERT INTO tenants (id, name, modules) VALUES (:id, :name, :modules)"),
+                    {"id": tenant_id, "name": f"Workspace of {email}", "modules": DEFAULT_MODULES},
                 )
             await conn.execute(
                 text(

@@ -23,6 +23,7 @@ const MENU: Record<Area, MenuItem[]> = {
     { key: "nav.clients", module: "clients" },
     { key: "nav.queues", module: "cases" },
     { key: "nav.analytics", module: "analytics" },
+    { key: "nav.employees", to: "/app/employees", roles: ["specialist"] },
     { key: "nav.audit", to: "/app/audit", roles: ["specialist"] },
   ],
 };
@@ -75,6 +76,11 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
           <Link to="/change-password" className="sidebar-link">
             {t("auth.changePassword")}
           </Link>
+          {me.data && !me.data.two_factor_enabled && (
+            <Link to="/setup-two-factor" className="sidebar-link">
+              {t("twoFactor.turnOn")}
+            </Link>
+          )}
           <LanguageSwitch className="sidebar-link" />
           <button
             type="button"

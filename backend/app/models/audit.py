@@ -24,6 +24,11 @@ class AuditAction(StrEnum):
     SPECIALIST_UNBLOCKED = "admin.specialist_unblocked"
     SPECIALIST_PASSWORD_RESET = "admin.specialist_password_reset"
     SPECIALIST_UPDATED = "admin.specialist_updated"
+    EMPLOYEE_CREATED = "employees.created"
+    EMPLOYEE_UPDATED = "employees.updated"
+    EMPLOYEE_BLOCKED = "employees.blocked"
+    EMPLOYEE_UNBLOCKED = "employees.unblocked"
+    EMPLOYEE_PASSWORD_RESET = "employees.password_reset"
 
 
 class AuditEvent(Base):
