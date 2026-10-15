@@ -1,0 +1,7 @@
+{
+  "app.title": "VisaCRM",
+  "health.checking": "Checking the server…",
+  "health.ok": "Server is up",
+  "health.error": "Server is unreachable",
+  "lang.switch": "Русский"
+}

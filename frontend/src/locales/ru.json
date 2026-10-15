@@ -1,0 +1,7 @@
+{
+  "app.title": "VisaCRM",
+  "health.checking": "Проверяю связь с сервером…",
+  "health.ok": "Сервер работает",
+  "health.error": "Сервер недоступен",
+  "lang.switch": "English"
+}
