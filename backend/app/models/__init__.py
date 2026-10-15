@@ -1,5 +1,6 @@
 # Import every model module here so Alembic autogenerate sees all tables.
 from app.models.audit import AuditAction, AuditEvent
+from app.models.contact import Contact, ContactNote, ContactRelation, Messenger
 from app.models.dictionaries import (
     Hall,
     LeadChannel,
@@ -29,10 +30,14 @@ __all__ = [
     "AuditAction",
     "AuditEvent",
     "BookingType",
+    "Contact",
+    "ContactNote",
+    "ContactRelation",
     "Country",
     "CountryRule",
     "Hall",
     "LeadChannel",
+    "Messenger",
     "Partner",
     "PartnerTerms",
     "PartnerTermsType",
