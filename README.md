@@ -23,6 +23,7 @@ cd backend
 cp .env.example .env
 uv sync
 uv run alembic upgrade head
+uv run python -m app.cli create-admin you@example.com   # первый админ, спросит пароль
 uv run uvicorn app.main:app --reload    # http://localhost:8000/api/health
 
 cd ../frontend

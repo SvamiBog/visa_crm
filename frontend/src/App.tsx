@@ -1,26 +1,70 @@
-import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { apiGet } from "./api";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { homePath, useMe, type Role } from "./auth";
+import { Shell } from "./components/Shell";
+import { SpecialistsPage } from "./pages/admin/SpecialistsPage";
+import { HomePage } from "./pages/cabinet/HomePage";
+import { ChangePasswordPage } from "./pages/ChangePasswordPage";
+import { LoginPage } from "./pages/LoginPage";
 
-type Health = { status: string; env: string };
+function Loading() {
+  const { t } = useTranslation();
+  return <div className="center-screen muted">{t("common.loading")}</div>;
+}
+
+/** Lets a page through only for a logged-in user with one of the given roles. */
+function RequireUser({ roles, children }: { roles?: Role[]; children: ReactNode }) {
+  const me = useMe();
+  const location = useLocation();
+  if (me.isPending) return <Loading />;
+  if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (me.data.must_change_password && location.pathname !== "/change-password") {
+    return <Navigate to="/change-password" replace />;
+  }
+  if (roles && !roles.includes(me.data.role)) return <Navigate to={homePath(me.data)} replace />;
+  return children;
+}
+
+function RootRedirect() {
+  const me = useMe();
+  if (me.isPending) return <Loading />;
+  return <Navigate to={me.data ? homePath(me.data) : "/login"} replace />;
+}
 
 export default function App() {
-  const { t, i18n } = useTranslation();
-  const health = useQuery({ queryKey: ["health"], queryFn: () => apiGet<Health>("/health") });
-
-  const status = health.isPending
-    ? t("health.checking")
-    : health.isError
-      ? t("health.error")
-      : `${t("health.ok")} · ${health.data.env}`;
-
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: 32 }}>
-      <h1>{t("app.title")}</h1>
-      <p>{status}</p>
-      <button onClick={() => void i18n.changeLanguage(i18n.language === "ru" ? "en" : "ru")}>
-        {t("lang.switch")}
-      </button>
-    </main>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/change-password"
+        element={
+          <RequireUser>
+            <ChangePasswordPage />
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <RequireUser roles={["admin"]}>
+            <Shell area="admin">
+              <SpecialistsPage />
+            </Shell>
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/app"
+        element={
+          <RequireUser roles={["specialist", "employee"]}>
+            <Shell area="cabinet">
+              <HomePage />
+            </Shell>
+          </RequireUser>
+        }
+      />
+      <Route path="*" element={<RootRedirect />} />
+    </Routes>
   );
 }
