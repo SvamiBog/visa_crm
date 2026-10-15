@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Картотека клиентов — VisaCRM</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Onest',system-ui,sans-serif;background:#F4F5F8;color:#17202E}
+a{color:#2453D6;text-decoration:none}a:hover{color:#1A3FA8}
+.nav-a{display:flex;align-items:center;gap:10px;padding:0 12px;min-height:44px;border-radius:8px;color:#C9D1E2;font-size:14px}
+.nav-a:hover{background:#1E2940;color:#FFFFFF}
+.nav-on{background:#2A3A5E;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #E3E6EC;border-radius:12px;padding:18px 20px;box-sizing:border-box;min-width:0}
+.chip{display:inline-block;font-size:12px;line-height:18px;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.st-gray{background:#EEF0F4;color:#3A4356}
+.st-blue{background:#E6EDFC;color:#1A3FA8}
+.st-orange{background:#FCEBD8;color:#8A4A0B}
+.st-green{background:#E2F3E9;color:#146C43}
+.st-red{background:#FBE5E2;color:#A1281C}
+.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th{font-size:12px;font-weight:500;color:#5E6778;text-align:left;padding:10px 8px;border-bottom:1px solid #E3E6EC;white-space:nowrap}
+.tbl td{padding:12px 8px;border-bottom:1px solid #EEF0F4;vertical-align:middle}
+.tbl tr:hover td{background:#F8F9FC}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #D3D8E1;background:#FFFFFF;color:#17202E;font-family:inherit;font-size:14px;cursor:pointer;box-sizing:border-box}
+.btn:hover{border-color:#2453D6;color:#2453D6}
+.btn-p{background:#2453D6;border-color:#2453D6;color:#FFFFFF}
+.btn-p:hover{background:#1A3FA8;color:#FFFFFF}
+.tab{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:999px;border:1px solid #D3D8E1;background:#FFFFFF;color:#17202E;font-family:inherit;font-size:14px;cursor:pointer}
+.tab-on{background:#17202E;border-color:#17202E;color:#FFFFFF}
+.seg{min-height:40px;padding:0 14px;border:0;background:transparent;font-family:inherit;font-size:14px;color:#3A4356;cursor:pointer;border-radius:6px}
+.seg-on{background:#FFFFFF;color:#17202E;font-weight:600;box-shadow:0 0 0 1px #D3D8E1}
+.sel{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#5E6778}
+.sel select{min-height:40px;border:1px solid #D3D8E1;border-radius:8px;padding:0 10px;font-family:inherit;font-size:14px;color:#17202E;background:#FFFFFF}
+.kcard{display:block;background:#FFFFFF;border:1px solid #E3E6EC;border-radius:10px;padding:12px;color:#17202E}
+.kcard:hover{border-color:#2453D6}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh">
+  <nav aria-label="Основное меню" style="flex: 1 1 232px; background: #121A2B; padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 12px 20px; color: #FFFFFF; font-weight: 700; font-size: 18px">
+      <span style="width: 30px; height: 30px; border-radius: 8px; background: #2453D6; display: inline-flex; align-items: center; justify-content: center; font-size: 14px">V</span>VisaCRM
+    </div>
+    <a class="nav-a" href="Main.dc.html">Главная</a>
+    <a class="nav-a nav-on" href="Clients.dc.html">Клиенты</a>
+    <a class="nav-a" href="Analytics.dc.html#queues">Очереди и записи</a>
+    <a class="nav-a" href="Analytics.dc.html#centers">Визовые центры</a>
+    <a class="nav-a" href="Analytics.dc.html">Аналитика</a>
+    <div style="margin-top: 16px; padding: 12px; border-top: 1px solid #24314D; color: #8D97AD; font-size: 12px">Этап 1 · демо-данные</div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 24px 28px 40px; box-sizing: border-box">
+    <div style="max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px">
+
+      <header style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between">
+        <div>
+          <h1 style="margin: 0; font-size: 26px; font-weight: 700">Клиенты</h1>
+          <div style="color: #5E6778; font-size: 14px; margin-top: 4px">Контакты, консультации и кейсы в одной базе</div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px">
+          <a class="btn" href="ClientCard.dc.html">Импорт из таблиц</a>
+          <a class="btn" href="ClientCard.dc.html">+ Консультация</a>
+          <a class="btn btn-p" href="ClientCard.dc.html">+ Новый клиент</a>
+        </div>
+      </header>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+          <button type="button" class="{{t.cls}}" onClick="{{t.pick}}">{{t.label}} <span style="opacity: .7">{{t.count}}</span></button>
+        </sc-for>
+        <div style="margin-left: auto; display: flex; gap: 4px; background: #E9ECF1; padding: 3px; border-radius: 8px">
+          <button type="button" class="{{listCls}}" onClick="{{showList}}">Список</button>
+          <button type="button" class="{{boardCls}}" onClick="{{showBoard}}">Канбан</button>
+        </div>
+      </div>
+
+      <div class="card" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px">
+        <label style="display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 1px solid #D3D8E1; border-radius: 8px; flex: 2 1 240px; box-sizing: border-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5E6778" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+          <span style="position: absolute; left: -9999px">Поиск</span>
+          <input type="search" placeholder="Имя, телефон, Telegram, ID в ВЦ" style="border: 0; outline: none; font-family: inherit; font-size: 14px; flex: 1; min-width: 0">
+        </label>
+        <label class="sel" style="flex: 1 1 140px">Страна<select><option>Все</option><option>Польша</option><option>Латвия</option><option>Италия</option><option>Франция</option></select></label>
+        <label class="sel" style="flex: 1 1 140px">Этап<select><option>Все</option><option>Ожидание записи</option><option>Сбор документов</option><option>Апелляция</option><option>Подача</option><option>Рассмотрение</option></select></label>
+        <label class="sel" style="flex: 1 1 140px">Канал<select><option>Все</option><option>Instagram</option><option>Сарафан</option><option>Партнёр</option></select></label>
+        <label class="sel" style="flex: 1 1 140px">Регистратор<select><option>Все</option><option>Дмитрий Р.</option><option>Елена В.</option></select></label>
+      </div>
+
+      <sc-if value="{{isList}}" hint-placeholder-val="{{ true }}">
+        <div class="card" style="padding: 6px 12px 12px">
+          <div style="overflow-x: auto">
+            <table class="tbl">
+              <thead><tr><th>Клиент</th><th>Страна · цель</th><th>Этап</th><th>Следующее событие</th><th style="text-align: right">Остаток</th><th>Канал</th></tr></thead>
+              <tbody>
+                <sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
+                  <tr>
+                    <td>
+                      <a href="ClientCard.dc.html" style="font-weight: 600">{{r.name}}</a>
+                      <div style="font-size: 12px; color: #5E6778">{{r.tg}}</div>
+                    </td>
+                    <td>{{r.country}} <span style="color: #5E6778">· {{r.goal}}</span></td>
+                    <td><span class="chip {{r.cls}}">{{r.stage}}</span></td>
+                    <td style="font-size: 13px">{{r.next}}</td>
+                    <td style="text-align: right; white-space: nowrap">{{r.due}}</td>
+                    <td style="color: #5E6778">{{r.channel}}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <div style="font-size: 12px; color: #5E6778; padding: 12px 8px 0">Показано {{shown}} из {{total}} · демо-данные</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isBoard}}" hint-placeholder-val="{{ false }}">
+        <div style="overflow-x: auto">
+          <div style="display: grid; grid-template-columns: repeat(6, minmax(200px, 1fr)); gap: 12px; min-width: 1200px">
+            <sc-for list="{{columns}}" as="c" hint-placeholder-count="6">
+              <div style="background: #E9ECF1; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; padding: 4px 4px 6px">{{c.title}}<span style="color: #5E6778; font-weight: 400">{{c.count}}</span></div>
+                <sc-for list="{{c.items}}" as="r" hint-placeholder-count="2">
+                  <a class="kcard" href="ClientCard.dc.html">
+                    <div style="font-weight: 600; font-size: 14px">{{r.name}}</div>
+                    <div style="font-size: 12px; color: #5E6778; margin: 2px 0 8px">{{r.country}} · {{r.goal}}</div>
+                    <span class="chip {{r.cls}}">{{r.stage}}</span>
+                    <div style="font-size: 12px; margin-top: 8px">{{r.next}}</div>
+                  </a>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1080}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'all', view: 'list' };
+  }
+  renderVals() {
+    var self = this;
+    var all = [
+      { name: 'Ковалёва Анна', tg: '@anna_k_visa', country: 'Польша', goal: 'туризм', stage: 'В очереди · 120 дн.', cls: 'st-orange', next: 'ДР 14.10 · бронь до 20.10', due: '750 BYN', channel: 'Партнёр', group: 'work', col: 'wait' },
+      { name: 'Семёнов Игорь', tg: '@semenov_i', country: 'Италия', goal: 'бизнес', stage: 'Подача 11.10', cls: 'st-blue', next: 'Подача завтра в 10:30', due: '540 BYN', channel: 'Instagram', group: 'work', col: 'submit' },
+      { name: 'Орлова Дарья +2', tg: '@dasha_orl', country: 'Польша', goal: 'гостевая', stage: 'Подача 13.10', cls: 'st-blue', next: 'Не хватает 1 документа', due: '—', channel: 'Сарафан', group: 'work', col: 'submit' },
+      { name: 'Жукова Полина', tg: '@polina_zh', country: 'Франция', goal: 'туризм', stage: 'Заявка · попытка 2', cls: 'st-orange', next: '60-й день 12.10', due: '270 BYN', channel: 'Instagram', group: 'work', col: 'wait' },
+      { name: 'Ким Артём', tg: '@kim_art', country: 'Латвия', goal: 'туризм', stage: 'Подача 14.10', cls: 'st-blue', next: 'Документы готовы', due: '—', channel: 'Друзья', group: 'work', col: 'submit' },
+      { name: 'Белова Анна', tg: '@belova_a', country: 'Венгрия', goal: 'туризм', stage: 'Сбор документов', cls: 'st-gray', next: 'Не хватает 2 документов', due: '900 BYN', channel: 'Партнёр', group: 'work', col: 'docs' },
+      { name: 'Мельник Сергей', tg: '@melnik_s', country: 'Испания', goal: 'туризм', stage: 'Рассмотрение', cls: 'st-blue', next: 'Подан 01.10 · ждём ответ', due: '—', channel: 'Сарафан', group: 'work', col: 'review' },
+      { name: 'Тарасов Денис', tg: '@tarasov_d', country: 'Греция', goal: 'туризм', stage: 'Отказ → апелляция', cls: 'st-red', next: 'Срок апелляции до 25.10', due: '—', channel: 'Сарафан', group: 'work', col: 'result' },
+      { name: 'Лисицына Ольга', tg: '@olga_lis', country: 'Италия', goal: 'туризм', stage: 'Думает', cls: 'st-gray', next: 'Напомнить сегодня', due: '—', channel: 'Instagram', group: 'think', col: 'consult' },
+      { name: 'Петрова Ирина', tg: '@irina_p', country: 'Германия', goal: 'гостевая', stage: 'Консультация 02.10', cls: 'st-gray', next: 'Решение не принято', due: '—', channel: 'От клиента', group: 'consult', col: 'consult' },
+      { name: 'Ахмедова Лейла', tg: '@leyla_a', country: 'Чехия', goal: 'учёба', stage: 'Консультация 08.10', cls: 'st-gray', next: 'Отправить расчёт стоимости', due: '—', channel: 'Instagram', group: 'consult', col: 'consult' },
+      { name: 'Гусева Марина', tg: '@gusm', country: 'Литва', goal: 'гостевая', stage: 'Виза · мульти 1 год', cls: 'st-green', next: 'Истекает 09.2027', due: '—', channel: 'Instagram', group: 'archive', col: 'result' }
+    ];
+    var tabDefs = [
+      { id: 'all', label: 'Все', count: 132 },
+      { id: 'work', label: 'В работе', count: 47 },
+      { id: 'consult', label: 'Консультации', count: 38 },
+      { id: 'think', label: 'Думают', count: 21 },
+      { id: 'archive', label: 'Архив', count: 26 }
+    ];
+    var tab = this.state.tab;
+    var rows = all.filter(function (r) { return tab === 'all' || r.group === tab; });
+    var current = tabDefs.filter(function (t) { return t.id === tab; })[0];
+    var colDefs = [
+      { id: 'consult', title: 'Консультация' },
+      { id: 'wait', title: 'Ожидание записи' },
+      { id: 'docs', title: 'Сбор документов' },
+      { id: 'submit', title: 'Подача' },
+      { id: 'review', title: 'Рассмотрение' },
+      { id: 'result', title: 'Результат' }
+    ];
+    var columns = colDefs.map(function (c) {
+      var items = rows.filter(function (r) { return r.col === c.id; });
+      return { title: c.title, count: items.length, items: items };
+    });
+    var isList = this.state.view === 'list';
+    return {
+      tabs: tabDefs.map(function (t) {
+        return Object.assign({}, t, {
+          cls: t.id === tab ? 'tab tab-on' : 'tab',
+          pick: function () { self.setState({ tab: t.id }); }
+        });
+      }),
+      rows: rows,
+      columns: columns,
+      shown: rows.length,
+      total: current.count,
+      isList: isList,
+      isBoard: !isList,
+      listCls: isList ? 'seg seg-on' : 'seg',
+      boardCls: isList ? 'seg' : 'seg seg-on',
+      showList: function () { self.setState({ view: 'list' }); },
+      showBoard: function () { self.setState({ view: 'board' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Аналитика — VisaCRM</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Onest',system-ui,sans-serif;background:#F4F5F8;color:#17202E}
+a{color:#2453D6;text-decoration:none}a:hover{color:#1A3FA8}
+.nav-a{display:flex;align-items:center;gap:10px;padding:0 12px;min-height:44px;border-radius:8px;color:#C9D1E2;font-size:14px}
+.nav-a:hover{background:#1E2940;color:#FFFFFF}
+.nav-on{background:#2A3A5E;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #E3E6EC;border-radius:12px;padding:18px 20px;box-sizing:border-box;min-width:0}
+.h2{margin:0;font-size:17px;font-weight:700}
+.sub{margin:4px 0 14px;font-size:13px;color:#5E6778}
+.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th{font-size:12px;font-weight:500;color:#5E6778;text-align:left;padding:8px;border-bottom:1px solid #E3E6EC;white-space:nowrap}
+.tbl td{padding:11px 8px;border-bottom:1px solid #EEF0F4;vertical-align:middle}
+.tbl tr:hover td{background:#F8F9FC}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.track{height:10px;background:#EEF0F4;border-radius:4px;min-width:120px}
+.sel{display:flex;align-items:center;gap:8px;font-size:13px;color:#5E6778}
+.sel select{min-height:40px;border:1px solid #D3D8E1;border-radius:8px;padding:0 10px;font-family:inherit;font-size:14px;color:#17202E;background:#FFFFFF}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh">
+  <nav aria-label="Основное меню" style="flex: 1 1 232px; background: #121A2B; padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 12px 20px; color: #FFFFFF; font-weight: 700; font-size: 18px">
+      <span style="width: 30px; height: 30px; border-radius: 8px; background: #2453D6; display: inline-flex; align-items: center; justify-content: center; font-size: 14px">V</span>VisaCRM
+    </div>
+    <a class="nav-a" href="Main.dc.html">Главная</a>
+    <a class="nav-a" href="Clients.dc.html">Клиенты</a>
+    <a class="nav-a" href="#queues">Очереди и записи</a>
+    <a class="nav-a" href="#centers">Визовые центры</a>
+    <a class="nav-a nav-on" href="Analytics.dc.html">Аналитика</a>
+    <div style="margin-top: 16px; padding: 12px; border-top: 1px solid #24314D; color: #8D97AD; font-size: 12px">Этап 1 · демо-данные</div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 24px 28px 40px; box-sizing: border-box">
+    <div style="max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px">
+
+      <header style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between">
+        <div>
+          <h1 style="margin: 0; font-size: 26px; font-weight: 700">Аналитика</h1>
+          <div style="color: #5E6778; font-size: 14px; margin-top: 4px">Считается из карточек клиентов — сводные таблицы вручную больше не нужны</div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px">
+          <label class="sel">Период<select><option>Май — октябрь 2026</option><option>Этот месяц</option><option>Квартал</option><option>Год</option></select></label>
+          <label class="sel">Страна<select><option>Все страны</option><option>Польша</option><option>Италия</option><option>Латвия</option></select></label>
+        </div>
+      </header>
+
+      <section aria-label="Итоги периода" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px">
+        <sc-for list="{{totals}}" as="k" hint-placeholder-count="5">
+          <div class="card" style="display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 13px; color: #5E6778">{{k.label}}</span>
+            <span style="font-size: 28px; font-weight: 700; line-height: 1.1">{{k.value}}</span>
+            <span style="font-size: 12px; color: #5E6778">{{k.note}}</span>
+          </div>
+        </sc-for>
+      </section>
+
+      <section class="card" aria-labelledby="ch">
+        <h2 id="ch" class="h2">Instagram даёт больше всего консультаций, но в работу доходит только 14%</h2>
+        <p class="sub">Каналы прихода: консультации → кейсы → визы → прибыль</p>
+        <div style="overflow-x: auto">
+          <table class="tbl">
+            <thead><tr><th>Канал</th><th class="num">Консультаций</th><th class="num">В работу</th><th>Конверсия в работу</th><th class="num">Визы</th><th class="num">Прибыль, BYN</th></tr></thead>
+            <tbody>
+              <sc-for list="{{channels}}" as="c" hint-placeholder-count="5">
+                <tr>
+                  <td style="font-weight: 600">{{c.name}}</td>
+                  <td class="num">{{c.consult}}</td>
+                  <td class="num">{{c.work}}</td>
+                  <td title="{{c.tip}}">
+                    <div style="display: flex; align-items: center; gap: 10px">
+                      <div class="track" style="flex: 1"><div style="height: 10px; border-radius: 4px; background: #2453D6; width: {{c.width}}"></div></div>
+                      <span style="width: 40px; text-align: right; font-weight: 600">{{c.rate}}</span>
+                    </div>
+                  </td>
+                  <td class="num">{{c.visas}}</td>
+                  <td class="num">{{c.profit}}</td>
+                </tr>
+              </sc-for>
+              <tr><td style="font-weight: 700">Итого</td><td class="num" style="font-weight: 700">95</td><td class="num" style="font-weight: 700">36</td><td style="font-weight: 700">38%</td><td class="num" style="font-weight: 700">31</td><td class="num" style="font-weight: 700">31 680</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="ct">
+        <h2 id="ct" class="h2">31 виза из 33 подач: оба отказа — Польша и Венгрия</h2>
+        <p class="sub">Подачи и выдачи по странам</p>
+        <div style="display: flex; gap: 16px; font-size: 13px; margin-bottom: 8px">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #2453D6"></span>Виза</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #D06A12"></span>Отказ</span>
+        </div>
+        <div style="overflow-x: auto">
+          <table class="tbl">
+            <thead><tr><th>Страна</th><th class="num">Подач</th><th>Виза / отказ</th><th class="num">Одобрение</th><th class="num">Многократных</th><th class="num">Рассмотрение, дн.</th></tr></thead>
+            <tbody>
+              <sc-for list="{{countries}}" as="c" hint-placeholder-count="6">
+                <tr>
+                  <td style="font-weight: 600">{{c.name}}</td>
+                  <td class="num">{{c.subs}}</td>
+                  <td title="{{c.tip}}">
+                    <div style="display: flex; gap: 2px; height: 14px; min-width: 160px; max-width: 320px">
+                      <div style="background: #2453D6; border-radius: 4px; width: {{c.okW}}"></div>
+                      <sc-if value="{{c.hasRef}}" hint-placeholder-val="{{ false }}"><div style="background: #D06A12; border-radius: 4px; width: {{c.refW}}"></div></sc-if>
+                    </div>
+                  </td>
+                  <td class="num" style="font-weight: 600">{{c.rate}}</td>
+                  <td class="num">{{c.multi}}</td>
+                  <td class="num">{{c.days}}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="rs">
+        <h2 id="rs" class="h2">«Мульти» делится по сроку: 9 виз на 1–5 лет и 4 — до 3 месяцев</h2>
+        <p class="sub">Итоги кейсов за период: тип визы, отказы, апелляции и те, кто записан, но не подался</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; margin-bottom: 12px">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #2453D6"></span>Виза</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #D06A12"></span>Отказ</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #8A93A6"></span>Не подались</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{results}}" as="r" hint-placeholder-count="9">
+            <div title="{{r.tip}}" style="display: grid; grid-template-columns: minmax(150px, 230px) minmax(0, 1fr) 40px; gap: 12px; align-items: center; font-size: 14px">
+              <span>{{r.name}}</span>
+              <div class="track"><div style="height: 10px; border-radius: 4px; background: {{r.color}}; width: {{r.width}}"></div></div>
+              <span style="text-align: right; font-weight: 600">{{r.n}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <section id="centers" class="card" aria-labelledby="vc">
+        <h2 id="vc" class="h2">Визовые центры и консульства</h2>
+        <p class="sub">Решение о визе принимает консульство, а центр отвечает за запись и сроки. Поэтому одобрение считается по стране, а ожидание и проблемы — по центру.</p>
+        <div style="overflow-x: auto">
+          <table class="tbl">
+            <thead><tr><th>Центр · город</th><th>Страна</th><th class="num">Подач</th><th class="num">Одобрение</th><th class="num">Ожидание записи</th><th class="num">До паспорта</th><th>Замечания визовика</th></tr></thead>
+            <tbody>
+              <sc-for list="{{centers}}" as="v" hint-placeholder-count="6">
+                <tr>
+                  <td style="font-weight: 600; white-space: nowrap">{{v.center}}</td>
+                  <td>{{v.country}}</td>
+                  <td class="num">{{v.subs}}</td>
+                  <td class="num">{{v.rate}}</td>
+                  <td class="num">{{v.wait}}</td>
+                  <td class="num">{{v.days}}</td>
+                  <td style="font-size: 13px; color: #3A4356">{{v.note}}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        <div style="font-size: 12px; color: #5E6778; margin-top: 10px">Позже: обезличенная сводка по всем визовикам платформы — сравнение центров на большом объёме.</div>
+      </section>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; align-items: start">
+        <section id="queues" class="card" aria-labelledby="qu">
+          <h2 id="qu" class="h2">Дольше всех ждут гостевую в Польшу — 128 дней</h2>
+          <p class="sub">Среднее ожидание в листе ожидания, дней · сейчас в очереди 21 человек и 2 заявки Франции</p>
+          <div style="display: flex; flex-direction: column; gap: 12px">
+            <sc-for list="{{queues}}" as="q" hint-placeholder-count="5">
+              <div title="{{q.tip}}">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 4px">
+                  <span>{{q.name}} <span style="color: #5E6778">· {{q.count}}</span></span>
+                  <span><span style="font-weight: 600">{{q.avg}}</span> <span style="color: #5E6778">{{q.range}}</span></span>
+                </div>
+                <div class="track"><div style="height: 10px; border-radius: 4px; background: #2453D6; width: {{q.width}}"></div></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-size: 12px; color: #5E6778; margin-top: 12px">Сняты с очереди за период: 4 человека</div>
+        </section>
+
+        <section class="card" aria-labelledby="pr">
+          <h2 id="pr" class="h2">Лучший месяц — сентябрь, 7 020 BYN прибыли</h2>
+          <p class="sub">Прибыль по месяцам, BYN · октябрь — по 10-е число</p>
+          <div style="display: flex; align-items: flex-end; gap: 14px; height: 210px; padding-top: 10px; border-bottom: 1px solid #D3D8E1">
+            <sc-for list="{{months}}" as="m" hint-placeholder-count="6">
+              <div title="{{m.tip}}" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 6px">
+                <span style="font-size: 12px; font-weight: 600">{{m.label}}</span>
+                <div style="width: 70%; max-width: 44px; border-radius: 4px 4px 0 0; background: {{m.color}}; height: {{m.h}}"></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; gap: 14px; margin-top: 6px">
+            <sc-for list="{{months}}" as="m" hint-placeholder-count="6">
+              <span style="flex: 1; text-align: center; font-size: 12px; color: #5E6778">{{m.name}}</span>
+            </sc-for>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var channels = [
+      { name: 'Instagram (реклама)', consult: 42, work: 6, visas: 5, profit: '4 950' },
+      { name: 'Сарафан', consult: 19, work: 13, visas: 11, profit: '12 240' },
+      { name: 'Партнёры', consult: 15, work: 9, visas: 8, profit: '7 290' },
+      { name: 'Telegram-канал', consult: 11, work: 3, visas: 3, profit: '2 700' },
+      { name: 'Друзья и знакомые', consult: 8, work: 5, visas: 4, profit: '4 500' }
+    ].map(function (c) {
+      var r = Math.round(c.work / c.consult * 100);
+      return Object.assign({}, c, { rate: r + '%', width: r + '%', tip: c.name + ': ' + c.work + ' из ' + c.consult + ' консультаций перешли в работу' });
+    });
+    var countries = [
+      { name: 'Польша', subs: 12, ok: 11, ref: 1, multi: 4, days: 14 },
+      { name: 'Италия', subs: 7, ok: 7, ref: 0, multi: 5, days: 11 },
+      { name: 'Латвия', subs: 5, ok: 5, ref: 0, multi: 1, days: 9 },
+      { name: 'Франция', subs: 4, ok: 4, ref: 0, multi: 3, days: 16 },
+      { name: 'Венгрия', subs: 3, ok: 2, ref: 1, multi: 0, days: 12 },
+      { name: 'Испания', subs: 2, ok: 2, ref: 0, multi: 2, days: 21 }
+    ].map(function (c) {
+      var max = 12;
+      return Object.assign({}, c, {
+        okW: Math.round(c.ok / max * 100) + '%',
+        refW: Math.round(c.ref / max * 100) + '%',
+        hasRef: c.ref > 0,
+        rate: Math.round(c.ok / c.subs * 100) + '%',
+        tip: c.name + ': виз ' + c.ok + ', отказов ' + c.ref
+      });
+    });
+    var qmax = 140;
+    var queues = [
+      { name: 'Польша · Минск · гостевая', count: '4 чел.', avg: 128, range: '96–151' },
+      { name: 'Польша · Минск · туризм', count: '7 чел.', avg: 112, range: '74–140' },
+      { name: 'Италия · Минск · туризм', count: '3 чел.', avg: 95, range: '81–110' },
+      { name: 'Латвия · Минск · туризм', count: '6 чел.', avg: 87, range: '60–104' },
+      { name: 'Италия · Минск · бизнес', count: '1 чел.', avg: 64, range: '64' }
+    ].map(function (q) {
+      return Object.assign({}, q, { width: Math.round(q.avg / qmax * 100) + '%', range: '(' + q.range + ')', tip: q.name + ': в среднем ' + q.avg + ' дн., разброс ' + q.range });
+    });
+    var mmax = 7020;
+    var months = [
+      { name: 'май', v: 4350 }, { name: 'июнь', v: 5460 }, { name: 'июль', v: 6300 },
+      { name: 'авг', v: 5070 }, { name: 'сен', v: 7020 }, { name: 'окт*', v: 3480 }
+    ].map(function (m) {
+      return {
+        name: m.name,
+        label: m.v.toLocaleString('ru-RU'),
+        h: Math.round(m.v / mmax * 160) + 'px',
+        color: m.v === mmax ? '#2453D6' : '#9DB3EE',
+        tip: m.name + ': ' + m.v.toLocaleString('ru-RU') + ' BYN'
+      };
+    });
+    var results = [
+      { name: 'Однократная', n: 9, c: 'ok' },
+      { name: 'Двукратная', n: 2, c: 'ok' },
+      { name: 'Многократная до 3 мес.', n: 4, c: 'ok' },
+      { name: 'Многократная 3–12 мес.', n: 6, c: 'ok' },
+      { name: 'Многократная 1–5 лет', n: 9, c: 'ok' },
+      { name: 'Одобрено после апелляции', n: 1, c: 'ok' },
+      { name: 'Отказ', n: 1, c: 'ref' },
+      { name: 'Отказ после апелляции', n: 1, c: 'ref' },
+      { name: 'Не подались', n: 3, c: 'skip' }
+    ].map(function (r) {
+      return {
+        name: r.name,
+        n: r.n,
+        width: Math.round(r.n / 9 * 100) + '%',
+        color: r.c === 'ok' ? '#2453D6' : (r.c === 'ref' ? '#D06A12' : '#8A93A6'),
+        tip: r.name + ': ' + r.n
+      };
+    });
+    return {
+      results: results,
+      totals: [
+        { label: 'Консультаций', value: '95', note: 'за май — октябрь' },
+        { label: 'Конверсия в работу', value: '38%', note: '36 кейсов' },
+        { label: 'Подач', value: '33', note: 'ещё 3 записаны, но не подались' },
+        { label: 'Одобрение', value: '94%', note: '31 виза, 2 отказа' },
+        { label: 'Прибыль', value: '31 680 BYN', note: 'после талонов, партнёров и налога' }
+      ],
+      channels: channels,
+      countries: countries,
+      centers: [
+        { center: 'VFS · Минск', country: 'Польша', subs: 12, rate: '92%', wait: '112 дн.', days: '14 дн.', note: 'Сбои кабинета после верификации — 2 случая' },
+        { center: 'VFS · Минск', country: 'Италия', subs: 7, rate: '100%', wait: '95 дн.', days: '11 дн.', note: 'Оператор с 01.05.2026, ранее TLScontact' },
+        { center: 'VFS · Минск', country: 'Латвия', subs: 5, rate: '100%', wait: '87 дн.', days: '9 дн.', note: '—' },
+        { center: 'TLScontact · Минск', country: 'Франция', subs: 4, rate: '100%', wait: '1,5 попытки', days: '16 дн.', note: '60-дневные заявки сгорают, нужен повтор' },
+        { center: 'VFS · Минск', country: 'Венгрия', subs: 3, rate: '67%', wait: '21 дн.', days: '12 дн.', note: '—' },
+        { center: 'BLS · Минск', country: 'Испания', subs: 2, rate: '100%', wait: '34 дн.', days: '21 дн.', note: 'Сложная капча при записи' }
+      ],
+      queues: queues,
+      months: months
+    };
+  }
+}
+</script>
+</body>
+</html>

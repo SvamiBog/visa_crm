@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Варианты стиля — VisaCRM</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&amp;family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@400;500;600;700&amp;family=Lora:wght@500;600;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Onest',system-ui,sans-serif;background:#ECEEF2;color:#17202E}
+.wrap{max-width:1360px;margin:0 auto;padding:36px 40px 48px;box-sizing:border-box}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(560px,1fr));gap:36px 40px}
+.label{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px;margin-bottom:12px}
+.label b{font-size:18px}
+.label span{font-size:13px;color:#5E6778}
+.sw{display:inline-flex;gap:6px;align-items:center}
+.dot{width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.12);display:inline-block}
+.mock{height:440px;display:flex;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.08)}
+.side{flex:0 0 58px;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px 0;box-sizing:border-box}
+.logo{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;margin-bottom:8px}
+.ic{width:26px;height:8px;border-radius:4px}
+.main{flex:1;min-width:0;padding:20px 22px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.h1{margin:0;font-size:22px;line-height:1.2}
+.date{font-size:12px;margin-top:3px}
+.btn{display:inline-flex;align-items:center;min-height:38px;padding:0 14px;font-size:13px;font-weight:600;white-space:nowrap}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.kpi{padding:12px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.kl{font-size:12px}
+.kv{font-size:22px;font-weight:700;line-height:1.15;white-space:nowrap}
+.kn{font-size:11px}
+.box{padding:14px 16px;flex:1;min-height:0}
+.bh{margin:0 0 6px;font-size:12px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 0;font-size:13px}
+.row .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .w{font-size:11px;white-space:nowrap}
+.chip{display:inline-block;font-size:11px;line-height:16px;padding:2px 9px;white-space:nowrap;min-width:84px;text-align:center;box-sizing:border-box}
+
+/* A — деловой синий */
+.va .mock{background:#F4F5F8;color:#17202E;font-family:'Onest',sans-serif}
+.va .side{background:#121A2B}.va .logo{background:#2453D6;color:#fff}.va .ic{background:#2A3A5E}.va .ic.on{background:#5B7FE6}
+.va .date,.va .kl,.va .kn,.va .w{color:#5E6778}
+.va .btn{background:#2453D6;color:#fff;border-radius:8px}
+.va .kpi,.va .box{background:#fff;border:1px solid #E3E6EC;border-radius:12px}
+.va .bh{text-transform:uppercase;letter-spacing:.6px;color:#5E6778;font-weight:600}
+.va .row{border-bottom:1px solid #EEF0F4}.va .row:last-child{border-bottom:0}
+.va .chip{border-radius:999px}
+.va .c-blue{background:#E6EDFC;color:#1A3FA8}.va .c-orange{background:#FCEBD8;color:#8A4A0B}.va .c-gray{background:#EEF0F4;color:#3A4356}
+
+/* B — тёмный */
+.vb .mock{background:#0E1116;color:#E6E9EF;font-family:'Inter',sans-serif}
+.vb .side{background:#090B0F;border-right:1px solid #1C212B}.vb .logo{background:#34D399;color:#062B1F}.vb .ic{background:#1C222C}.vb .ic.on{background:#34D399}
+.vb .date,.vb .kl,.vb .kn,.vb .w{color:#8B93A3}
+.vb .btn{background:#34D399;color:#062B1F;border-radius:8px}
+.vb .kpi,.vb .box{background:#161A21;border:1px solid #232833;border-radius:12px}
+.vb .kv{color:#F4F6FA}
+.vb .bh{color:#8B93A3;font-weight:600}
+.vb .row{border-bottom:1px solid #222731}.vb .row:last-child{border-bottom:0}
+.vb .chip{border-radius:6px}
+.vb .c-blue{background:#1B2A4A;color:#93B8FF}.vb .c-orange{background:#3A2A12;color:#F5B454}.vb .c-gray{background:#232833;color:#B5BCC9}
+
+/* C — тёплый */
+.vc .mock{background:#F6F1EA;color:#2B2420;font-family:'Manrope',sans-serif}
+.vc .side{background:#EDE4D8}.vc .logo{background:#B4532A;color:#FFF8F2;border-radius:50%;font-family:'Lora',serif}.vc .ic{background:#DCCFBF}.vc .ic.on{background:#B4532A}
+.vc .h1{font-family:'Lora',serif;font-weight:600;font-size:24px}
+.vc .date,.vc .kl,.vc .kn,.vc .w{color:#7A6E64}
+.vc .btn{background:#B4532A;color:#FFF8F2;border-radius:999px;padding:0 18px}
+.vc .kpi,.vc .box{background:#FFFDF9;border:1px solid #E8DFD2;border-radius:16px}
+.vc .kv{font-family:'Lora',serif;font-weight:600}
+.vc .bh{font-family:'Lora',serif;font-size:15px;font-weight:600;color:#2B2420}
+.vc .row{border-bottom:1px dashed #E3D8C9}.vc .row:last-child{border-bottom:0}
+.vc .chip{border-radius:999px}
+.vc .c-blue{background:#E4ECE0;color:#3F6B2F}.vc .c-orange{background:#F6E0D3;color:#8A3B1A}.vc .c-gray{background:#EFE7DA;color:#6B5E50}
+
+/* D — минимал */
+.vd .mock{background:#FFFFFF;color:#111111;font-family:'IBM Plex Sans',sans-serif;border:1px solid #E6E6E6}
+.vd .side{background:#FAFAFA;border-right:1px solid #EAEAEA}.vd .logo{background:#111;color:#fff;border-radius:4px}.vd .ic{background:#E4E4E4;height:6px}.vd .ic.on{background:#111}
+.vd .h1{font-weight:600}
+.vd .date,.vd .kl,.vd .kn,.vd .w{color:#6B6B6B}
+.vd .btn{background:#111;color:#fff;border-radius:4px}
+.vd .kpi{border:1px solid #EAEAEA;border-radius:6px}
+.vd .kv{font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:20px}
+.vd .box{border:1px solid #EAEAEA;border-radius:6px}
+.vd .bh{font-weight:600;color:#111}
+.vd .row{border-bottom:1px solid #F0F0F0;padding:7px 0}.vd .row:last-child{border-bottom:0}
+.vd .chip{border-radius:4px;background:transparent;border:1px solid}
+.vd .c-blue{color:#1F5FBF;border-color:#BFD3F0}.vd .c-orange{color:#A3540A;border-color:#EBCFB0}.vd .c-gray{color:#555;border-color:#DDDDDD}
+</style>
+</helmet>
+<div class="wrap">
+  <header style="margin-bottom: 28px">
+    <h1 style="margin: 0; font-size: 28px; font-weight: 700">Варианты стиля интерфейса</h1>
+    <p style="margin: 8px 0 0; font-size: 15px; color: #5E6778; max-width: 860px">Один и тот же фрагмент главного экрана в четырёх стилях. Можно выбрать вариант целиком или собрать свой: например, шрифт из C и цвета из A.</p>
+  </header>
+
+  <div class="grid">
+    <sc-for list="{{variants}}" as="v" hint-placeholder-count="4">
+      <section class="{{v.cls}}" aria-label="{{v.name}}">
+        <div class="label">
+          <div><b>{{v.name}}</b><br><span>{{v.about}}</span></div>
+          <div class="sw" aria-label="Палитра">
+            <sc-for list="{{v.colors}}" as="c" hint-placeholder-count="5"><span class="dot" style="background: {{c}}"></span></sc-for>
+          </div>
+        </div>
+        <div class="mock">
+          <div class="side" aria-hidden="true">
+            <div class="logo">V</div>
+            <div class="ic on"></div><div class="ic"></div><div class="ic"></div><div class="ic"></div><div class="ic"></div>
+          </div>
+          <div class="main">
+            <div class="top">
+              <div><h2 class="h1">Главная</h2><div class="date">Четверг, 15 октября</div></div>
+              <span class="btn">+ Новый клиент</span>
+            </div>
+            <div class="kpis">
+              <sc-for list="{{kpis}}" as="k" hint-placeholder-count="3">
+                <div class="kpi"><span class="kl">{{k.label}}</span><span class="kv">{{k.value}}</span><span class="kn">{{k.note}}</span></div>
+              </sc-for>
+            </div>
+            <div class="box">
+              <h3 class="bh">Требует внимания</h3>
+              <sc-for list="{{tasks}}" as="t" hint-placeholder-count="4">
+                <div class="row"><span class="chip c-{{t.kind}}">{{t.tag}}</span><span class="t">{{t.text}}</span><span class="w">{{t.when}}</span></div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </section>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1260}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      variants: [
+        { cls: 'va', name: 'A · Деловой синий', about: 'Как в прототипе: светлые карточки, тёмное меню. Шрифт Onest', colors: ['#121A2B', '#2453D6', '#F4F5F8', '#FCEBD8', '#E2F3E9'] },
+        { cls: 'vb', name: 'B · Тёмный', about: 'Тёмная тема, мятный акцент, меньше нагрузки на глаза вечером. Шрифт Inter', colors: ['#0E1116', '#161A21', '#34D399', '#F5B454', '#93B8FF'] },
+        { cls: 'vc', name: 'C · Тёплый', about: 'Тёплые оттенки, скруглённые формы, заголовки с засечками. Шрифты Lora и Manrope', colors: ['#F6F1EA', '#FFFDF9', '#B4532A', '#3F6B2F', '#2B2420'] },
+        { cls: 'vd', name: 'D · Минимал', about: 'Белый фон, чёрный акцент, тонкие линии, плотные списки. Шрифт IBM Plex Sans', colors: ['#FFFFFF', '#FAFAFA', '#111111', '#1F5FBF', '#A3540A'] }
+      ],
+      kpis: [
+        { label: 'Клиенты в работе', value: '47', note: '+5 за месяц' },
+        { label: 'Подачи на неделе', value: '5', note: 'ближайшая завтра' },
+        { label: 'Долг клиентов', value: '11 700 BYN', note: 'у 12 клиентов' }
+      ],
+      tasks: [
+        { tag: 'Подача завтра', kind: 'blue', text: 'Семёнов Игорь — Италия, VFS Минск, 10:30', when: '16.10' },
+        { tag: '60-й день', kind: 'orange', text: 'Жукова Полина — заявка Франции истекает', when: '17.10' },
+        { tag: 'Оплата', kind: 'orange', text: 'Семёнов Игорь — остаток 540 BYN до подачи', when: '16.10' },
+        { tag: 'День рождения', kind: 'gray', text: 'Ковалёва Анна — текст поздравления готов', when: '19.10' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Главная — VisaCRM</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Onest',system-ui,sans-serif;background:#F4F5F8;color:#17202E}
+a{color:#2453D6;text-decoration:none}a:hover{color:#1A3FA8}
+.nav-a{display:flex;align-items:center;gap:10px;padding:0 12px;min-height:44px;border-radius:8px;color:#C9D1E2;font-size:14px}
+.nav-a:hover{background:#1E2940;color:#FFFFFF}
+.nav-on{background:#2A3A5E;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #E3E6EC;border-radius:12px;padding:18px 20px;box-sizing:border-box;min-width:0}
+.h2{margin:0 0 14px;font-size:12px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:#5E6778}
+.chip{display:inline-block;font-size:12px;line-height:18px;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.st-gray{background:#EEF0F4;color:#3A4356}
+.st-blue{background:#E6EDFC;color:#1A3FA8}
+.st-orange{background:#FCEBD8;color:#8A4A0B}
+.st-green{background:#E2F3E9;color:#146C43}
+.st-red{background:#FBE5E2;color:#A1281C}
+.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th{font-size:12px;font-weight:500;color:#5E6778;text-align:left;padding:8px;border-bottom:1px solid #E3E6EC;white-space:nowrap}
+.tbl td{padding:11px 8px;border-bottom:1px solid #EEF0F4;vertical-align:middle}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #D3D8E1;background:#FFFFFF;color:#17202E;font-family:inherit;font-size:14px;cursor:pointer;box-sizing:border-box}
+.btn:hover{border-color:#2453D6;color:#2453D6}
+.btn-p{background:#2453D6;border-color:#2453D6;color:#FFFFFF}
+.btn-p:hover{background:#1A3FA8;color:#FFFFFF}
+.kpi:hover{border-color:#2453D6}
+.row-link{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #EEF0F4;color:#17202E}
+.row-link:hover{color:#2453D6}
+.quick{display:flex;flex-direction:column;gap:4px;padding:14px;border:1px solid #E3E6EC;border-radius:10px;color:#17202E;min-height:44px}
+.quick:hover{border-color:#2453D6;color:#2453D6}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh">
+  <nav aria-label="Основное меню" style="flex: 1 1 232px; background: #121A2B; padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 12px 20px; color: #FFFFFF; font-weight: 700; font-size: 18px">
+      <span style="width: 30px; height: 30px; border-radius: 8px; background: #2453D6; display: inline-flex; align-items: center; justify-content: center; font-size: 14px">V</span>VisaCRM
+    </div>
+    <a class="nav-a nav-on" href="Main.dc.html">Главная</a>
+    <a class="nav-a" href="Clients.dc.html">Клиенты</a>
+    <a class="nav-a" href="Analytics.dc.html#queues">Очереди и записи</a>
+    <a class="nav-a" href="Analytics.dc.html#centers">Визовые центры</a>
+    <a class="nav-a" href="Analytics.dc.html">Аналитика</a>
+    <div style="margin-top: 16px; padding: 12px; border-top: 1px solid #24314D; color: #8D97AD; font-size: 12px">Этап 1 · демо-данные</div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 24px 28px 40px; box-sizing: border-box">
+    <div style="max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px">
+
+      <header style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between">
+        <div>
+          <h1 style="margin: 0; font-size: 26px; font-weight: 700">Главная</h1>
+          <div style="color: #5E6778; font-size: 14px; margin-top: 4px">Суббота, 10 октября</div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+          <label style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid #D3D8E1; border-radius: 8px; background: #FFFFFF; min-width: 260px; box-sizing: border-box">
+            <span style="position: absolute; left: -9999px">Поиск клиента</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5E6778" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+            <input type="search" placeholder="Имя, телефон, Telegram" style="border: 0; outline: none; font-family: inherit; font-size: 14px; flex: 1; min-width: 0; background: transparent">
+          </label>
+          <a class="btn" href="ClientCard.dc.html">+ Консультация</a>
+          <a class="btn btn-p" href="ClientCard.dc.html">+ Новый клиент</a>
+        </div>
+      </header>
+
+      <section aria-label="Ключевые показатели" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px">
+        <sc-for list="{{kpis}}" as="k" hint-placeholder-count="6">
+          <a class="card kpi" href="{{k.href}}" style="display: flex; flex-direction: column; gap: 6px; color: #17202E">
+            <span style="font-size: 13px; color: #5E6778">{{k.label}}</span>
+            <span style="font-size: 30px; font-weight: 700; line-height: 1.1">{{k.value}}</span>
+            <span style="font-size: 12px; color: #5E6778">{{k.note}}</span>
+          </a>
+        </sc-for>
+      </section>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; align-items: start">
+
+        <div style="display: flex; flex-direction: column; gap: 20px; min-width: 0">
+          <section class="card" aria-labelledby="att">
+            <h2 id="att" class="h2">Требует внимания</h2>
+            <sc-for list="{{tasks}}" as="t" hint-placeholder-count="6">
+              <a class="row-link" href="ClientCard.dc.html">
+                <span class="chip {{t.cls}}" style="min-width: 96px; text-align: center">{{t.tag}}</span>
+                <span style="flex: 1; min-width: 0; font-size: 14px">{{t.text}}</span>
+                <span style="font-size: 12px; color: #5E6778; white-space: nowrap">{{t.when}}</span>
+              </a>
+            </sc-for>
+          </section>
+
+          <section class="card" aria-labelledby="subm">
+            <div style="display: flex; justify-content: space-between; align-items: baseline">
+              <h2 id="subm" class="h2">Ближайшие подачи</h2>
+              <a href="Clients.dc.html" style="font-size: 13px">Все клиенты</a>
+            </div>
+            <div style="overflow-x: auto">
+              <table class="tbl">
+                <thead><tr><th>Дата</th><th>Клиент</th><th>Страна</th><th>Центр</th><th>Документы</th><th style="text-align: right">Остаток</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{subs}}" as="s" hint-placeholder-count="5">
+                    <tr>
+                      <td style="white-space: nowrap; font-weight: 600">{{s.date}}</td>
+                      <td><a href="ClientCard.dc.html">{{s.name}}</a></td>
+                      <td>{{s.country}}</td>
+                      <td style="color: #5E6778">{{s.center}}</td>
+                      <td><span class="chip {{s.docCls}}">{{s.docs}}</span></td>
+                      <td style="text-align: right; white-space: nowrap">{{s.due}}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 20px; min-width: 0">
+          <section class="card" aria-labelledby="fun">
+            <div style="display: flex; justify-content: space-between; align-items: baseline">
+              <h2 id="fun" class="h2">Воронка октября</h2>
+              <a href="Analytics.dc.html" style="font-size: 13px">Подробнее</a>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 12px">
+              <sc-for list="{{funnel}}" as="f" hint-placeholder-count="5">
+                <div title="{{f.tip}}">
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px">
+                    <span>{{f.label}}</span><span style="font-weight: 600">{{f.value}} <span style="color: #5E6778; font-weight: 400">{{f.rate}}</span></span>
+                  </div>
+                  <div style="height: 10px; background: #EEF0F4; border-radius: 4px">
+                    <div style="height: 10px; border-radius: 4px; background: #2453D6; width: {{f.width}}"></div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+
+          <section class="card" aria-labelledby="q">
+            <div style="display: flex; justify-content: space-between; align-items: baseline">
+              <h2 id="q" class="h2">Очереди</h2>
+              <a href="Analytics.dc.html#queues" style="font-size: 13px">Все очереди</a>
+            </div>
+            <sc-for list="{{queues}}" as="q" hint-placeholder-count="4">
+              <div style="display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #EEF0F4; font-size: 14px">
+                <span><span style="font-weight: 600">{{q.country}}</span> <span style="color: #5E6778">· {{q.city}}</span></span>
+                <span style="text-align: right">{{q.count}} <span style="color: #5E6778">· {{q.wait}}</span></span>
+              </div>
+            </sc-for>
+          </section>
+
+          <section class="card" aria-labelledby="go">
+            <h2 id="go" class="h2">Быстрые переходы</h2>
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+              <a class="quick" href="Clients.dc.html"><span style="font-weight: 600">Картотека клиентов</span><span style="font-size: 12px; color: #5E6778">132 контакта</span></a>
+              <a class="quick" href="Analytics.dc.html#queues"><span style="font-weight: 600">Очереди и записи</span><span style="font-size: 12px; color: #5E6778">23 в ожидании</span></a>
+              <a class="quick" href="Analytics.dc.html#centers"><span style="font-weight: 600">Визовые центры</span><span style="font-size: 12px; color: #5E6778">выдачи и сроки</span></a>
+              <a class="quick" href="Analytics.dc.html"><span style="font-weight: 600">Аналитика</span><span style="font-size: 12px; color: #5E6778">каналы и воронка</span></a>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const max = 18;
+    const funnel = [
+      { label: 'Консультации', value: 18, rate: '', n: 18 },
+      { label: 'Решили работать', value: 7, rate: '39%', n: 7 },
+      { label: 'В очереди или записаны', value: 5, rate: '28%', n: 5 },
+      { label: 'Подали документы', value: 3, rate: '17%', n: 3 },
+      { label: 'Получили визу', value: 2, rate: '11%', n: 2 }
+    ].map(function (f) {
+      return Object.assign({}, f, { width: Math.round(f.n / max * 100) + '%', tip: f.label + ': ' + f.value + (f.rate ? ' (' + f.rate + ' от консультаций)' : '') });
+    });
+    return {
+      kpis: [
+        { label: 'Клиенты в работе', value: '47', note: '+5 за месяц', href: 'Clients.dc.html' },
+        { label: 'Консультации в октябре', value: '18', note: '7 перешли в работу · 39%', href: 'Analytics.dc.html' },
+        { label: 'Подачи на неделе', value: '5', note: 'ближайшая завтра в 10:30', href: 'Clients.dc.html' },
+        { label: 'В очередях', value: '23', note: 'среднее ожидание 104 дня', href: 'Analytics.dc.html#queues' },
+        { label: 'Долг клиентов', value: '11 700 BYN', note: 'у 12 клиентов', href: 'Clients.dc.html' },
+        { label: 'К выплате', value: '1 890 BYN', note: 'регистраторам и партнёрам', href: 'Analytics.dc.html' }
+      ],
+      tasks: [
+        { tag: 'Подача завтра', cls: 'st-blue', text: 'Семёнов Игорь — Италия, VFS Минск, 10:30', when: '11.10' },
+        { tag: '60-й день', cls: 'st-orange', text: 'Жукова Полина — заявка Франции истекает, отправить повторно', when: '12.10' },
+        { tag: 'Оплата', cls: 'st-orange', text: 'Семёнов Игорь — остаток 540 BYN до подачи', when: '11.10' },
+        { tag: 'День рождения', cls: 'st-gray', text: 'Ковалёва Анна — текст поздравления готов', when: '14.10' },
+        { tag: 'Бронь', cls: 'st-orange', text: 'Ковалёва Анна — бесплатная отмена отеля в Кракове', when: 'до 20.10' },
+        { tag: 'Думает', cls: 'st-gray', text: 'Лисицына Ольга — месяц после консультации, напомнить', when: '10.10' }
+      ],
+      subs: [
+        { date: '11.10 · 10:30', name: 'Семёнов Игорь', country: 'Италия', center: 'VFS, Минск', docs: 'Готово', docCls: 'st-green', due: '540 BYN' },
+        { date: '13.10 · 09:00', name: 'Орлова Дарья +2', country: 'Польша', center: 'VFS, Минск', docs: 'Не хватает 1', docCls: 'st-orange', due: '—' },
+        { date: '14.10 · 12:15', name: 'Ким Артём', country: 'Латвия', center: 'VFS, Минск', docs: 'Готово', docCls: 'st-green', due: '—' },
+        { date: '15.10 · 11:00', name: 'Жуков Павел', country: 'Франция', center: 'TLScontact, Минск', docs: 'Готово', docCls: 'st-green', due: '360 BYN' },
+        { date: '16.10 · 14:00', name: 'Белова Анна', country: 'Венгрия', center: 'VFS, Минск', docs: 'Не хватает 2', docCls: 'st-orange', due: '900 BYN' }
+      ],
+      funnel: funnel,
+      queues: [
+        { country: 'Польша', city: 'Минск', count: '11 чел.', wait: 'в среднем 112 дн.' },
+        { country: 'Латвия', city: 'Минск', count: '6 чел.', wait: 'в среднем 87 дн.' },
+        { country: 'Италия', city: 'Минск', count: '4 чел.', wait: 'в среднем 95 дн.' },
+        { country: 'Франция', city: 'Минск', count: '2 заявки', wait: '60-й день 12.10' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

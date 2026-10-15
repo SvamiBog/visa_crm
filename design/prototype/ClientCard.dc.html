@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Карточка клиента — VisaCRM</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Onest',system-ui,sans-serif;background:#F4F5F8;color:#17202E}
+a{color:#2453D6;text-decoration:none}a:hover{color:#1A3FA8}
+.nav-a{display:flex;align-items:center;gap:10px;padding:0 12px;min-height:44px;border-radius:8px;color:#C9D1E2;font-size:14px}
+.nav-a:hover{background:#1E2940;color:#FFFFFF}
+.nav-on{background:#2A3A5E;color:#FFFFFF}
+.card{background:#FFFFFF;border:1px solid #E3E6EC;border-radius:12px;padding:16px 18px;box-sizing:border-box;min-width:0}
+.h2{margin:0 0 12px;font-size:12px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:#5E6778}
+.chip{display:inline-block;font-size:12px;line-height:18px;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.st-gray{background:#EEF0F4;color:#3A4356}
+.st-blue{background:#E6EDFC;color:#1A3FA8}
+.st-orange{background:#FCEBD8;color:#8A4A0B}
+.st-green{background:#E2F3E9;color:#146C43}
+.st-red{background:#FBE5E2;color:#A1281C}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px dashed #E3E6EC;font-size:14px}
+.kv span:first-child{color:#5E6778}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{font-size:12px;font-weight:500;color:#5E6778;text-align:left;padding:8px 6px;border-bottom:1px solid #E3E6EC;white-space:nowrap}
+.tbl td{padding:9px 6px;border-bottom:1px solid #EEF0F4}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #D3D8E1;background:#FFFFFF;color:#17202E;font-family:inherit;font-size:14px;cursor:pointer;box-sizing:border-box}
+.btn:hover{border-color:#2453D6;color:#2453D6}
+.btn-p{background:#2453D6;border-color:#2453D6;color:#FFFFFF}
+.btn-p:hover{background:#1A3FA8;color:#FFFFFF}
+.link-btn{border:0;background:none;color:#2453D6;font-family:inherit;font-size:13px;cursor:pointer;min-height:32px;padding:0 4px}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh">
+  <nav aria-label="Основное меню" style="flex: 1 1 232px; background: #121A2B; padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 12px 20px; color: #FFFFFF; font-weight: 700; font-size: 18px">
+      <span style="width: 30px; height: 30px; border-radius: 8px; background: #2453D6; display: inline-flex; align-items: center; justify-content: center; font-size: 14px">V</span>VisaCRM
+    </div>
+    <a class="nav-a" href="Main.dc.html">Главная</a>
+    <a class="nav-a nav-on" href="Clients.dc.html">Клиенты</a>
+    <a class="nav-a" href="Analytics.dc.html#queues">Очереди и записи</a>
+    <a class="nav-a" href="Analytics.dc.html#centers">Визовые центры</a>
+    <a class="nav-a" href="Analytics.dc.html">Аналитика</a>
+    <div style="margin-top: 16px; padding: 12px; border-top: 1px solid #24314D; color: #8D97AD; font-size: 12px">Этап 1 · демо-данные</div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 20px 28px 40px; box-sizing: border-box">
+    <div style="max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+
+      <a href="Clients.dc.html" style="font-size: 14px; min-height: 32px; display: inline-flex; align-items: center">← Все клиенты</a>
+
+      <section class="card" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center">
+        <div style="width: 56px; height: 56px; border-radius: 50%; background: #E6EDFC; color: #1A3FA8; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 19px">АК</div>
+        <div style="flex: 1 1 300px; min-width: 0">
+          <h1 style="margin: 0; font-size: 22px; font-weight: 700">Ковалёва Анна Сергеевна</h1>
+          <div style="font-size: 12px; color: #5E6778; letter-spacing: .3px; margin-top: 2px">KAVALEVA ANNA · как в паспорте</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px">
+            <span class="chip st-green">Клиент в работе</span>
+            <span class="chip st-gray">Канал: партнёр — Ольга Л.</span>
+            <span class="chip st-orange">ДР 14 октября · через 4 дня</span>
+            <span class="chip st-blue">Telegram-бот подключён</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <a class="btn" href="https://t.me/">Написать в Telegram</a>
+          <a class="btn" href="Clients.dc.html">+ Консультация</a>
+          <a class="btn btn-p" href="Clients.dc.html">+ Новый кейс</a>
+        </div>
+      </section>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+
+        <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+          <section class="card">
+            <h2 class="h2">Контакт</h2>
+            <div class="kv"><span>Телефон</span><span>+375 29 000-12-34</span></div>
+            <div class="kv"><span>Telegram</span><a href="https://t.me/">@anna_k_visa</a></div>
+            <div class="kv"><span>WhatsApp</span><span>тот же номер</span></div>
+            <div class="kv"><span>Email</span><span>anna.k@example.com</span></div>
+            <div class="kv"><span>Дата рождения</span><span>14.10.1990</span></div>
+            <div class="kv"><span>Канал прихода</span><span>Партнёр</span></div>
+            <div class="kv"><span>Партнёр</span><span>Ольга Л., 10% от стоимости</span></div>
+            <div class="kv" style="border-bottom: 0"><span>Первое обращение</span><span>03.02.2026</span></div>
+          </section>
+          <section class="card">
+            <h2 class="h2">Семья и связи</h2>
+            <sc-for list="{{family}}" as="m" hint-placeholder-count="3">
+              <a href="ClientCard.dc.html" style="display: flex; gap: 10px; align-items: center; padding: 8px 0; color: #17202E">
+                <span style="width: 30px; height: 30px; border-radius: 50%; background: #EEF0F4; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600">{{m.ini}}</span>
+                <span style="font-size: 14px">{{m.name}}<span style="display: block; font-size: 12px; color: #5E6778">{{m.role}}</span></span>
+              </a>
+            </sc-for>
+          </section>
+        </div>
+
+        <div style="flex: 3 1 480px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+          <section class="card">
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+              <h2 style="margin: 0; font-size: 18px; font-weight: 700">Кейс №127 · Польша</h2>
+              <span class="chip st-orange">Ожидание записи</span>
+              <span class="chip st-gray">Группа подачи: Анна, Сергей, Мария</span>
+            </div>
+            <ol aria-label="Этапы кейса" style="list-style: none; padding: 0; margin: 16px 0 4px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px">
+              <sc-for list="{{steps}}" as="s" hint-placeholder-count="6">
+                <li style="font-size: 11px; text-align: center; color: {{s.color}}; font-weight: {{s.weight}}">
+                  <div style="height: 6px; border-radius: 4px; margin-bottom: 6px; background: {{s.bar}}"></div>{{s.label}}
+                </li>
+              </sc-for>
+            </ol>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px">
+              <div style="background: #F6F7FA; border-radius: 8px; padding: 9px 11px"><div style="font-size: 12px; color: #5E6778">Цель</div><div style="font-weight: 600">Туризм</div></div>
+              <div style="background: #F6F7FA; border-radius: 8px; padding: 9px 11px"><div style="font-size: 12px; color: #5E6778">Центр · город</div><div style="font-weight: 600">VFS · Минск</div></div>
+              <div style="background: #F6F7FA; border-radius: 8px; padding: 9px 11px"><div style="font-size: 12px; color: #5E6778">Регистратор · зал</div><div style="font-weight: 600">Дмитрий Р. · обычный</div></div>
+              <div style="background: #F6F7FA; border-radius: 8px; padding: 9px 11px"><div style="font-size: 12px; color: #5E6778">В очереди</div><div style="font-weight: 600">120 дней</div></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2 class="h2">Лист ожидания</h2>
+            <div style="overflow-x: auto">
+              <table class="tbl">
+                <thead><tr><th>Заявитель</th><th>ID в ВЦ</th><th>Почта заявки</th><th>Поставлен</th><th>Письмо с датой</th><th>Статус</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{queue}}" as="q" hint-placeholder-count="3">
+                    <tr><td>{{q.name}}</td><td style="font-family: ui-monospace, monospace">{{q.id}}</td><td style="color: #5E6778">регистратора</td><td>12.06.2026</td><td>—</td><td><span class="chip st-orange">в очереди</span></td></tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <div style="font-size: 12px; color: #5E6778; margin-top: 8px">Среднее ожидание: Польша · Минск · туризм — 134 дня по вашим клиентам</div>
+          </section>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 16px">
+            <section class="card" style="flex: 1 1 260px">
+              <h2 class="h2">Финансы Анны, BYN</h2>
+              <table class="tbl">
+                <tbody>
+                  <tr><td>Стоимость</td><td class="num">1 350</td></tr>
+                  <tr><td>Консультация (зачтена)</td><td class="num">−90</td></tr>
+                  <tr><td>Предоплата 15.05 · 150 € по 3,40</td><td class="num">−510</td></tr>
+                  <tr><td style="font-weight: 700">Остаток клиента</td><td class="num" style="font-weight: 700; color: #A1281C">750</td></tr>
+                  <tr><td>Талон · 60 € из аванса</td><td class="num">204 <span class="chip st-green">оплачено</span></td></tr>
+                  <tr><td>Партнёру · 10% от стоимости</td><td class="num">135 <span class="chip st-orange">к выплате</span></td></tr>
+                  <tr><td>Налог НПД 10% · официально 600</td><td class="num">60</td></tr>
+                  <tr><td style="font-weight: 700; border-bottom: 0">Прибыль</td><td class="num" style="font-weight: 700; color: #146C43; border-bottom: 0">951</td></tr>
+                </tbody>
+              </table>
+            </section>
+            <section class="card" style="flex: 1 1 260px">
+              <h2 class="h2">Сейф доступов</h2>
+              <div class="kv"><span>VFS Global</span><span>anna.k.pl@mail.by</span></div>
+              <div class="kv"><span>Пароль</span><span><span style="font-family: ui-monospace, monospace; letter-spacing: 1px">{{pw}}</span><button type="button" class="link-btn" onClick="{{togglePw}}">{{pwLabel}}</button></span></div>
+              <div class="kv"><span>Чья почта</span><span>создана для клиента</span></div>
+              <div class="kv" style="border-bottom: 0"><span>Почта mail.by</span><span>пароль в сейфе</span></div>
+              <div style="font-size: 12px; color: #5E6778; margin-top: 6px">Каждый показ пароля записывается в журнал</div>
+            </section>
+          </div>
+
+          <section class="card">
+            <h2 class="h2">Брони для пакета</h2>
+            <div style="overflow-x: auto">
+              <table class="tbl">
+                <thead><tr><th>Объект</th><th>Аккаунт</th><th>Даты</th><th>Бесплатная отмена до</th><th>Статус</th></tr></thead>
+                <tbody>
+                  <tr><td>Отель, Краков</td><td>booking #2</td><td>03–07.12</td><td>20.10.2026</td><td><span class="chip st-orange">активна</span></td></tr>
+                  <tr><td>Отель, Варшава</td><td>booking #2</td><td>07–10.12</td><td>25.10.2026</td><td><span class="chip st-orange">активна</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+          <section class="card">
+            <h2 class="h2">Напоминания</h2>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; gap: 10px; padding: 9px 11px; border-radius: 8px; background: #FCEBD8; font-size: 13px"><span style="font-weight: 700">14.10</span><span>День рождения — поздравить, текст готов</span></div>
+              <div style="display: flex; gap: 10px; padding: 9px 11px; border-radius: 8px; background: #FCEBD8; font-size: 13px"><span style="font-weight: 700">17.10</span><span>Бронь в Кракове: через 3 дня дедлайн отмены</span></div>
+              <div style="display: flex; gap: 10px; padding: 9px 11px; border-radius: 8px; background: #E6EDFC; font-size: 13px"><span style="font-weight: 700">—</span><span>Остаток 750 BYN — напомнить перед подачей</span></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2 class="h2">Лента заметок</h2>
+            <label style="display: block">
+              <span style="position: absolute; left: -9999px">Новая заметка</span>
+              <textarea value="{{draft}}" onChange="{{onDraft}}" placeholder="Заметка — дата поставится сама" style="width: 100%; min-height: 64px; box-sizing: border-box; border: 1px solid #D3D8E1; border-radius: 8px; padding: 10px; font-family: inherit; font-size: 14px; resize: vertical"></textarea>
+            </label>
+            <div style="display: flex; justify-content: flex-end; margin: 8px 0 12px">
+              <button type="button" class="btn btn-p" onClick="{{addNote}}" style="min-height: 36px">Добавить</button>
+            </div>
+            <div style="border-left: 2px solid #E3E6EC; padding-left: 14px; display: flex; flex-direction: column; gap: 12px">
+              <sc-for list="{{notes}}" as="n" hint-placeholder-count="4">
+                <div>
+                  <div style="font-size: 12px; color: #5E6778">{{n.date}} · {{n.kind}}</div>
+                  <div style="font-size: 14px; margin-top: 2px">{{n.text}}</div>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2 class="h2">История</h2>
+            <div class="kv"><span>Кейс №84 · Италия, 2025</span><span class="chip st-green">мульти, 1 год</span></div>
+            <div class="kv"><span>Консультации</span><span>2</span></div>
+            <div class="kv" style="border-bottom: 0"><span>Виза Италии</span><span>истекла 03.2026</span></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1380}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      showPw: false,
+      draft: '',
+      notes: [
+        { date: '12.06.2026', kind: 'кейс', text: 'Поставлены в очередь: Минск, туризм. ID в ВЦ записаны.' },
+        { date: '15.05.2026', kind: 'оплата', text: 'Предоплата 150 € (510 BYN по курсу НБ). Едут втроём: муж и дочь.' },
+        { date: '14.05.2026', kind: 'консультация', text: 'Вернулась. Решили Польшу вместо Италии — у мужа там родственники.' },
+        { date: '03.02.2026', kind: 'консультация', text: 'Паспорт до 2031. Была итальянская мульти в 2025, отказов нет. Думает.' }
+      ]
+    };
+  }
+  renderVals() {
+    var self = this;
+    var labels = ['Консультация', 'Ожидание записи', 'Документы', 'Подача', 'Рассмотрение', 'Результат'];
+    var now = 1;
+    return {
+      steps: labels.map(function (l, i) {
+        return {
+          label: l,
+          bar: i < now ? '#1E8E5A' : (i === now ? '#2453D6' : '#E3E6EC'),
+          color: i === now ? '#1A3FA8' : '#5E6778',
+          weight: i === now ? '600' : '400'
+        };
+      }),
+      family: [
+        { ini: 'СК', name: 'Ковалёв Сергей', role: 'муж · заявитель в кейсе' },
+        { ini: 'МК', name: 'Ковалёва Мария', role: 'дочь · заявитель в кейсе' },
+        { ini: 'ИП', name: 'Петрова Ирина', role: 'пришла по рекомендации Анны' }
+      ],
+      queue: [
+        { name: 'Анна', id: 'PL-48213' },
+        { name: 'Сергей', id: 'PL-48214' },
+        { name: 'Мария', id: 'PL-48215' }
+      ],
+      pw: this.state.showPw ? 'Kv!2026pl#A' : '••••••••',
+      pwLabel: this.state.showPw ? 'скрыть' : 'показать',
+      togglePw: function () { self.setState({ showPw: !self.state.showPw }); },
+      draft: this.state.draft,
+      onDraft: function (e) { self.setState({ draft: e.target.value }); },
+      addNote: function () {
+        var t = (self.state.draft || '').trim();
+        if (!t) return;
+        self.setState({ draft: '', notes: [{ date: '10.10.2026', kind: 'заметка', text: t }].concat(self.state.notes) });
+      },
+      notes: this.state.notes
+    };
+  }
+}
+</script>
+</body>
+</html>
