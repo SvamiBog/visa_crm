@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func, text
+from sqlalchemy import DateTime, LargeBinary, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -17,4 +17,6 @@ class Tenant(Base):
     base_currency: Mapped[str] = mapped_column(String(3), server_default="BYN")
     timezone: Mapped[str] = mapped_column(String(64), server_default="Europe/Minsk")
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
+    # The tenant's vault data key, encrypted with the master key (app/core/vault.py).
+    vault_key_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

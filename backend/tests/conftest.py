@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 import uuid
 from collections.abc import AsyncIterator
@@ -28,6 +29,17 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm_test"
 )
+
+
+# Test-only master key; real keys live in Railway variables and the local .env.
+TEST_VAULT_MASTER_KEY = base64.b64encode(bytes(range(32))).decode()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def vault_master_key() -> None:
+    os.environ["VAULT_MASTER_KEY"] = TEST_VAULT_MASTER_KEY
+    os.environ.pop("VAULT_MASTER_KEY_PREVIOUS", None)
+    get_settings.cache_clear()
 
 
 async def _recreate_database(url: str) -> None:

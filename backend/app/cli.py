@@ -1,4 +1,10 @@
-"""Admin commands. First platform admin: uv run python -m app.cli create-admin you@example.com"""
+"""Server commands, run as `uv run python -m app.cli <command>`.
+
+create-admin EMAIL     first platform admin (asks for the password)
+generate-master-key    a new VAULT_MASTER_KEY value
+rotate-master-key      re-encrypt secrets after setting a new VAULT_MASTER_KEY
+                       (see docs/operations.md)
+"""
 
 import argparse
 import asyncio
@@ -7,8 +13,10 @@ import sys
 
 from sqlalchemy import select
 
+from app.core.crypto import generate_master_key, master_keys
 from app.core.db import get_engine, get_sessionmaker, scope_to_system
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
+from app.core.vault import reseal_with_current_master_key
 from app.models import User, UserRole
 
 
@@ -29,21 +37,39 @@ async def create_admin(email: str, password: str) -> None:
     await get_engine().dispose()
 
 
+async def rotate_master_key() -> int:
+    async with get_sessionmaker()() as session:
+        scope_to_system(session)
+        count = await reseal_with_current_master_key(session)
+        await session.commit()
+    await get_engine().dispose()
+    return count
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
     create = commands.add_parser("create-admin", help="create a platform admin account")
     create.add_argument("email")
+    commands.add_parser("generate-master-key", help="print a new VAULT_MASTER_KEY value")
+    commands.add_parser("rotate-master-key", help="re-encrypt secrets with the current key")
     args = parser.parse_args()
 
-    email = args.email.strip().lower()
-    password = getpass.getpass("Password: ")
-    if len(password) < MIN_PASSWORD_LENGTH:
-        sys.exit(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
-    if getpass.getpass("Repeat password: ") != password:
-        sys.exit("Passwords do not match")
-    asyncio.run(create_admin(email, password))
-    print(f"Admin {email} created")
+    if args.command == "generate-master-key":
+        print(generate_master_key())
+    elif args.command == "rotate-master-key":
+        if len(master_keys()) < 2:
+            sys.exit("Set VAULT_MASTER_KEY_PREVIOUS to the old key before rotating")
+        print(f"Re-encrypted {asyncio.run(rotate_master_key())} secrets")
+    else:
+        email = args.email.strip().lower()
+        password = getpass.getpass("Password: ")
+        if len(password) < MIN_PASSWORD_LENGTH:
+            sys.exit(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+        if getpass.getpass("Repeat password: ") != password:
+            sys.exit("Passwords do not match")
+        asyncio.run(create_admin(email, password))
+        print(f"Admin {email} created")
 
 
 if __name__ == "__main__":
