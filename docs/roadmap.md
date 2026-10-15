@@ -78,7 +78,7 @@ flowchart LR
 | # | Задача | Статус |
 | --- | --- | --- |
 | 0.1 | Каркас: FastAPI + React + Alembic + CI + Dockerfile, lock-файлы | ✅ |
-| 0.2 | Деплой на Railway (staging) | 🔄 production выложен 2026-10-15 (EU West, домен Railway, `db: ok`); осталось: `VAULT_MASTER_KEY`, первый админ, бэкапы (нужен Pro — см. open-questions.md), staging |
+| 0.2 | Деплой на Railway (staging) | 🔄 production выложен 2026-10-15 (EU West, домен Railway, `db: ok`); осталось: `VAULT_MASTER_KEY`, первый админ, staging; бэкап — позже (decisions.md) |
 | 0.3 | Арендаторы, пользователи, Row-Level Security | ✅ |
 | 0.4 | Вход: пароль (argon2), сессии в cookie, блокировка после 10 попыток, смена временного пароля | ✅ |
 | 0.5 | Двухфакторный вход (TOTP) и коды восстановления | ✅ |
