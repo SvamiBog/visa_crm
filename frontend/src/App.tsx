@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { apiGet } from "./api";
@@ -11,7 +11,9 @@ import { EmployeesPage } from "./pages/cabinet/EmployeesPage";
 import { HomePage } from "./pages/cabinet/HomePage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { LoginPage } from "./pages/LoginPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { TwoFactorSetupPage } from "./pages/TwoFactorSetupPage";
+import { applyTheme } from "./theme";
 
 function Loading() {
   const { t } = useTranslation();
@@ -47,7 +49,24 @@ function WorkspaceAudit() {
   return <AuditPage scope="workspace" timeZone={workspace.data?.timezone} />;
 }
 
+/** Settings open inside the user's own area: the admin panel or the cabinet. */
+function Settings() {
+  const me = useMe();
+  return (
+    <Shell area={me.data?.role === "admin" ? "admin" : "cabinet"}>
+      <SettingsPage />
+    </Shell>
+  );
+}
+
 export default function App() {
+  const me = useMe();
+  const theme = me.data?.ui_theme;
+  // The account's style wins over the one remembered on this device.
+  useEffect(() => {
+    if (theme) applyTheme(theme);
+  }, [theme]);
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -114,6 +133,14 @@ export default function App() {
             <Shell area="cabinet">
               <HomePage />
             </Shell>
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireUser>
+            <Settings />
           </RequireUser>
         }
       />

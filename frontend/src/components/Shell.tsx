@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api";
 import { ME_KEY, useMe, type Role } from "../auth";
-import { LanguageSwitch } from "./LanguageSwitch";
 import { Logo } from "./Logo";
 
 type Area = "admin" | "cabinet";
@@ -73,6 +72,9 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
           <div className="sidebar-email" title={me.data?.email}>
             {me.data?.email}
           </div>
+          <Link to="/settings" className="sidebar-link">
+            {t("nav.settings")}
+          </Link>
           <Link to="/change-password" className="sidebar-link">
             {t("auth.changePassword")}
           </Link>
@@ -81,7 +83,6 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
               {t("twoFactor.turnOn")}
             </Link>
           )}
-          <LanguageSwitch className="sidebar-link" />
           <button
             type="button"
             className="sidebar-link"

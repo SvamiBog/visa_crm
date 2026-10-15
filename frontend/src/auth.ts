@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, apiGet } from "./api";
+import type { UiTheme } from "./theme";
 
 export type Role = "admin" | "specialist" | "employee";
 
@@ -11,6 +12,7 @@ export type Me = {
   two_factor_enabled: boolean;
   must_set_up_two_factor: boolean;
   tenant_id: string | null;
+  ui_theme: UiTheme;
 };
 
 export const ME_KEY = ["me"] as const;

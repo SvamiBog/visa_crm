@@ -1,9 +1,13 @@
-/* Theme: prototype variant A (docs/prototype). The final style is still open
-   (docs/open-questions.md), so colours live in tokens and can be swapped in one place. */
-:root {
+/* Themes: the four styles of docs/prototype/Styles.dc.html. Blue (A) is the default;
+   each user picks one in Settings (users.ui_theme), applied as data-ui-theme on <html>.
+   The selectors are not tied to :root, so a settings preview can show any theme in place. */
+:root,
+[data-ui-theme="blue"] {
   --c-primary: #2453d6;
   --c-primary-hover: #1a3fa8;
   --c-primary-soft: #e6edfc;
+  --c-on-primary: #ffffff;
+  --c-link: var(--c-primary);
   --c-bg: #f4f5f8;
   --c-surface: #ffffff;
   --c-text: #17202e;
@@ -13,6 +17,7 @@
   --c-row: #eef0f4;
   --c-nav: #121a2b;
   --c-nav-text: #c9d1e2;
+  --c-nav-strong: #ffffff;
   --c-nav-hover: #1e2940;
   --c-nav-active: #2a3a5e;
   --c-nav-line: #24314d;
@@ -23,10 +28,155 @@
   --c-orange: #8a4a0b;
   --c-green-bg: #e2f3e9;
   --c-green: #146c43;
+  --c-gray: #3a4356;
+  --font-body: "Onest", system-ui, sans-serif;
+  --font-heading: var(--font-body);
+  --font-num: var(--font-body);
   --radius: 12px;
   --radius-sm: 8px;
-  font-family: "Onest", system-ui, sans-serif;
+  --radius-btn: 8px;
+  --radius-chip: 999px;
+  --radius-logo: 8px;
+  --h2-font: var(--font-body);
+  --h2-size: 12px;
+  --h2-case: uppercase;
+  --h2-spacing: 0.6px;
+  --h2-color: var(--c-muted);
+  color-scheme: light;
+}
+
+/* B: dark, mint accent */
+[data-ui-theme="dark"] {
+  --c-primary: #34d399;
+  --c-primary-hover: #6ee7b7;
+  --c-primary-soft: #123528;
+  --c-on-primary: #062b1f;
+  --c-link: #34d399;
+  --c-bg: #0e1116;
+  --c-surface: #161a21;
+  --c-text: #e6e9ef;
+  --c-muted: #8b93a3;
+  --c-border: #232833;
+  --c-border-strong: #2f3542;
+  --c-row: #222731;
+  --c-nav: #090b0f;
+  --c-nav-text: #b5bcc9;
+  --c-nav-strong: #f4f6fa;
+  --c-nav-hover: #161a21;
+  --c-nav-active: #1c222c;
+  --c-nav-line: #1c212b;
+  --c-nav-muted: #6b7385;
+  --c-red-bg: #3a1a17;
+  --c-red: #fca5a5;
+  --c-orange-bg: #3a2a12;
+  --c-orange: #f5b454;
+  --c-green-bg: #12301f;
+  --c-green: #6ee7b7;
+  --c-gray: #b5bcc9;
+  --font-body: "Inter", system-ui, sans-serif;
+  --h2-case: none;
+  --h2-spacing: 0;
+  color-scheme: dark;
+}
+
+/* C: warm, rounded, serif headings; the menu is light */
+[data-ui-theme="warm"] {
+  --c-primary: #b4532a;
+  --c-primary-hover: #8f3f1e;
+  --c-primary-soft: #f6e0d3;
+  --c-on-primary: #fff8f2;
+  --c-link: #b4532a;
+  --c-bg: #f6f1ea;
+  --c-surface: #fffdf9;
+  --c-text: #2b2420;
+  --c-muted: #7a6e64;
+  --c-border: #e8dfd2;
+  --c-border-strong: #dccfbf;
+  --c-row: #efe7da;
+  --c-nav: #ede4d8;
+  --c-nav-text: #4a3f37;
+  --c-nav-strong: #2b2420;
+  --c-nav-hover: #e3d8c9;
+  --c-nav-active: #dccfbf;
+  --c-nav-line: #dccfbf;
+  --c-nav-muted: #8a7d71;
+  --c-red-bg: #f6d9d3;
+  --c-red: #9a2b1e;
+  --c-orange-bg: #f6e0d3;
+  --c-orange: #8a3b1a;
+  --c-green-bg: #e4ece0;
+  --c-green: #3f6b2f;
+  --c-gray: #6b5e50;
+  --font-body: "Manrope", system-ui, sans-serif;
+  --font-heading: "Lora", Georgia, serif;
+  --font-num: var(--font-heading);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-btn: 999px;
+  --radius-logo: 50%;
+  --h2-font: var(--font-heading);
+  --h2-size: 15px;
+  --h2-case: none;
+  --h2-spacing: 0;
+  --h2-color: var(--c-text);
+  color-scheme: light;
+}
+
+/* D: minimal, white with a black accent and thin lines; chips are outlined */
+[data-ui-theme="minimal"] {
+  --c-primary: #111111;
+  --c-primary-hover: #3a3a3a;
+  --c-primary-soft: #eeeeee;
+  --c-on-primary: #ffffff;
+  --c-link: #1f5fbf;
+  --c-bg: #ffffff;
+  --c-surface: #ffffff;
+  --c-text: #111111;
+  --c-muted: #6b6b6b;
+  --c-border: #eaeaea;
+  --c-border-strong: #d4d4d4;
+  --c-row: #f0f0f0;
+  --c-nav: #fafafa;
+  --c-nav-text: #333333;
+  --c-nav-strong: #111111;
+  --c-nav-hover: #f0f0f0;
+  --c-nav-active: #e6e6e6;
+  --c-nav-line: #eaeaea;
+  --c-nav-muted: #8a8a8a;
+  --c-red-bg: #fdf1ef;
+  --c-red: #b3261e;
+  --c-orange-bg: #fdf4ea;
+  --c-orange: #a3540a;
+  --c-green-bg: #eef7f1;
+  --c-green: #1b7a46;
+  --c-gray: #555555;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, monospace;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-btn: 4px;
+  --radius-chip: 4px;
+  --radius-logo: 4px;
+  --h2-size: 13px;
+  --h2-case: none;
+  --h2-spacing: 0;
+  --h2-color: var(--c-text);
+  color-scheme: light;
+}
+
+[data-ui-theme="minimal"] .chip {
+  background: transparent;
+  border: 1px solid currentColor;
+}
+
+[data-ui-theme="minimal"] .sidebar {
+  border-right: 1px solid var(--c-nav-line);
+}
+
+:root {
+  font-family: var(--font-body);
   color: var(--c-text);
+  accent-color: var(--c-primary);
 }
 
 * {
@@ -35,18 +185,25 @@
 
 body {
   margin: 0;
+  font-family: var(--font-body);
   background: var(--c-bg);
   font-size: 14px;
   line-height: 1.45;
 }
 
 a {
-  color: var(--c-primary);
+  color: var(--c-link);
   text-decoration: none;
 }
 
 a:hover {
   color: var(--c-primary-hover);
+}
+
+h1,
+.auth-title,
+.h3 {
+  font-family: var(--font-heading);
 }
 
 h1 {
@@ -80,11 +237,12 @@ h1 {
 
 .h2 {
   margin: 0 0 14px;
-  font-size: 12px;
+  font-family: var(--h2-font);
+  font-size: var(--h2-size);
   font-weight: 600;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--c-muted);
+  letter-spacing: var(--h2-spacing);
+  text-transform: var(--h2-case);
+  color: var(--h2-color);
 }
 
 .chip {
@@ -92,7 +250,7 @@ h1 {
   font-size: 12px;
   line-height: 18px;
   padding: 2px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   white-space: nowrap;
 }
 
@@ -150,7 +308,7 @@ h1 {
   justify-content: center;
   min-height: 44px;
   padding: 0 16px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   border: 1px solid var(--c-border-strong);
   background: var(--c-surface);
   color: var(--c-text);
@@ -172,12 +330,13 @@ h1 {
 .btn-p {
   background: var(--c-primary);
   border-color: var(--c-primary);
-  color: #ffffff;
+  color: var(--c-on-primary);
 }
 
 .btn-p:hover:not(:disabled) {
   background: var(--c-primary-hover);
-  color: #ffffff;
+  border-color: var(--c-primary-hover);
+  color: var(--c-on-primary);
 }
 
 .btn-sm {
@@ -200,7 +359,7 @@ h1 {
   border: 0;
   padding: 8px;
   font: inherit;
-  color: var(--c-primary);
+  color: var(--c-link);
   cursor: pointer;
   text-align: center;
 }
@@ -278,16 +437,17 @@ h1 {
 }
 
 .logo-inverted {
-  color: #ffffff;
+  color: var(--c-nav-strong);
   padding: 4px 12px 8px;
 }
 
 .logo-mark {
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-logo);
   background: var(--c-primary);
-  color: #ffffff;
+  color: var(--c-on-primary);
+  font-family: var(--font-heading);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -304,7 +464,7 @@ h1 {
 
 .st-gray {
   background: var(--c-row);
-  color: #3a4356;
+  color: var(--c-gray);
 }
 
 .h3 {
@@ -345,6 +505,7 @@ h1 {
 
 /* Two-factor login */
 .code-input {
+  font-family: var(--font-num);
   font-size: 22px;
   letter-spacing: 6px;
   text-align: center;
@@ -446,12 +607,12 @@ h1 {
 
 a.nav-a:hover {
   background: var(--c-nav-hover);
-  color: #ffffff;
+  color: var(--c-nav-strong);
 }
 
 .nav-a.active {
   background: var(--c-nav-active);
-  color: #ffffff;
+  color: var(--c-nav-strong);
 }
 
 .nav-soon {
@@ -476,7 +637,7 @@ a.nav-a:hover {
 
 .sidebar-email {
   padding: 0 12px 6px;
-  color: #ffffff;
+  color: var(--c-nav-strong);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -495,7 +656,7 @@ a.nav-a:hover {
 }
 
 .sidebar-link:hover {
-  color: #ffffff;
+  color: var(--c-nav-strong);
 }
 
 .content {
@@ -567,6 +728,7 @@ a.nav-a:hover {
 }
 
 .issued-password {
+  font-family: var(--font-num);
   font-size: 20px;
   letter-spacing: 1px;
   padding: 6px 12px;
@@ -588,6 +750,157 @@ a.nav-a:hover {
 
 .facts dd {
   margin: 0;
+}
+
+/* Settings: theme cards with a live preview in each theme */
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.theme-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.theme-option.selected {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 1px var(--c-primary);
+}
+
+.theme-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme-option:has(input:focus-visible) {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}
+
+.theme-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.theme-preview {
+  display: flex;
+  height: 96px;
+  overflow: hidden;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font-body);
+}
+
+.tp-nav {
+  flex: 0 0 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  background: var(--c-nav);
+  border-right: 1px solid var(--c-nav-line);
+}
+
+.tp-logo {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-logo);
+  background: var(--c-primary);
+}
+
+.tp-nav-item {
+  width: 16px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-nav-active);
+}
+
+.tp-nav-item.on {
+  background: var(--c-nav-strong);
+}
+
+.tp-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 7px 9px;
+}
+
+.tp-title {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tp-card {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px 7px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: calc(var(--radius) / 2);
+}
+
+.tp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tp-chip {
+  flex: 0 0 22px;
+  height: 7px;
+  border-radius: var(--radius-chip);
+  background: var(--c-primary-soft);
+}
+
+.tp-chip.warn {
+  background: var(--c-orange-bg);
+}
+
+.tp-line {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-row);
+}
+
+.tp-line.short {
+  flex: 0.6;
+}
+
+.tp-btn {
+  width: 40px;
+  height: 11px;
+  border-radius: var(--radius-btn);
+  background: var(--c-primary);
+}
+
+.lang-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
 }
 
 /* Phone: the sidebar turns into a compact top bar so the page starts on the first screen */
