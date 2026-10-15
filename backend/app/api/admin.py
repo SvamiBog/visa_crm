@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal
+from decimal import Decimal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -8,6 +9,7 @@ from sqlalchemy import delete, select
 
 from app.api.deps import CurrentUser, SystemSession, require_admin
 from app.core.audit import record
+from app.core.modules import DEFAULT_MODULES, ModuleList, TaxRate
 from app.core.security import generate_temporary_password, hash_password
 from app.core.two_factor import reset_two_factor
 from app.models import AuditAction, RecoveryCode, Tenant, User, UserRole, UserSession
@@ -24,6 +26,17 @@ class SpecialistIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     base_currency: Currency = "BYN"
+    tax_rate: TaxRate = Decimal("0")
+    modules: ModuleList = list(DEFAULT_MODULES)
+
+
+class SpecialistUpdate(BaseModel):
+    """Only the fields sent are changed."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    base_currency: Currency | None = None
+    tax_rate: TaxRate | None = None
+    modules: ModuleList | None = None
 
 
 class SpecialistOut(BaseModel):
@@ -31,6 +44,8 @@ class SpecialistOut(BaseModel):
     name: str
     email: str
     base_currency: str
+    tax_rate: Decimal
+    modules: list[str]
     is_active: bool
     must_change_password: bool
     last_login_at: datetime | None
@@ -52,6 +67,8 @@ def _out(tenant: Tenant, owner: User) -> SpecialistOut:
         name=tenant.name,
         email=owner.email,
         base_currency=tenant.base_currency,
+        tax_rate=tenant.tax_rate,
+        modules=tenant.modules,
         is_active=tenant.is_active,
         must_change_password=owner.must_change_password,
         last_login_at=owner.last_login_at,
@@ -73,11 +90,21 @@ async def _get_specialist(session: SystemSession, tenant_id: uuid.UUID) -> tuple
 
 
 def _record_on_tenant(
-    session: SystemSession, action: AuditAction, admin: CurrentUser, tenant_id: uuid.UUID
+    session: SystemSession,
+    action: AuditAction,
+    admin: CurrentUser,
+    tenant_id: uuid.UUID,
+    details: dict[str, Any] | None = None,
 ) -> None:
     """Admin actions on a workspace go into that workspace's log: the specialist sees them."""
     record(
-        session, action, actor=admin, tenant_id=tenant_id, target_type="tenant", target_id=tenant_id
+        session,
+        action,
+        actor=admin,
+        tenant_id=tenant_id,
+        target_type="tenant",
+        target_id=tenant_id,
+        details=details,
     )
 
 
@@ -109,7 +136,13 @@ async def create_specialist(
         raise HTTPException(status.HTTP_409_CONFLICT, "email_taken")
 
     password = generate_temporary_password()
-    tenant = Tenant(id=uuid.uuid4(), name=body.name.strip(), base_currency=body.base_currency)
+    tenant = Tenant(
+        id=uuid.uuid4(),
+        name=body.name.strip(),
+        base_currency=body.base_currency,
+        tax_rate=body.tax_rate,
+        modules=body.modules,
+    )
     owner = User(
         tenant_id=tenant.id,
         email=email,
@@ -133,6 +166,26 @@ async def create_specialist(
     await session.refresh(tenant)
     await session.refresh(owner)
     return SpecialistCreated(specialist=_out(tenant, owner), temporary_password=password)
+
+
+@router.patch("/specialists/{tenant_id}")
+async def update_specialist(
+    tenant_id: uuid.UUID, body: SpecialistUpdate, admin: Admin, session: SystemSession
+) -> SpecialistOut:
+    tenant, owner = await _get_specialist(session, tenant_id)
+    changes = body.model_dump(exclude_unset=True, exclude_none=True)
+    details: dict[str, Any] = {"changed": sorted(changes)}
+    if "modules" in changes:
+        details["modules_on"] = [m for m in body.modules or [] if m not in tenant.modules]
+        details["modules_off"] = [m for m in tenant.modules if m not in (body.modules or [])]
+    if "name" in changes:
+        changes["name"] = changes["name"].strip()
+    for field, value in changes.items():
+        setattr(tenant, field, value)
+    if changes:
+        _record_on_tenant(session, AuditAction.SPECIALIST_UPDATED, admin, tenant_id, details)
+    await session.commit()
+    return _out(tenant, owner)
 
 
 @router.post("/specialists/{tenant_id}/block")

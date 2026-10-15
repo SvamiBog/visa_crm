@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { apiGet, apiPost, errorCode } from "../../api";
+import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { ModulePicker, useModules } from "../../components/ModulePicker";
 
 type Specialist = {
   tenant_id: string;
   name: string;
   email: string;
   base_currency: string;
+  tax_rate: string;
+  modules: string[];
   is_active: boolean;
   must_change_password: boolean;
   last_login_at: string | null;
@@ -15,6 +18,9 @@ type Specialist = {
 };
 
 const CURRENCIES = ["BYN", "PLN", "USD", "EUR"] as const;
+type Currency = (typeof CURRENCIES)[number];
+// НПД in Belarus; the admin changes it per specialist.
+const DEFAULT_TAX_RATE = "10";
 const KEY = ["admin", "specialists"] as const;
 
 /** A temporary password is shown once: the admin passes it to the specialist. */
@@ -29,6 +35,8 @@ export function SpecialistsPage() {
   });
   const [formOpen, setFormOpen] = useState(false);
   const [issued, setIssued] = useState<IssuedPassword | null>(null);
+  const [editing, setEditing] = useState<Specialist | null>(null);
+  const modules = useModules();
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: KEY });
 
@@ -82,6 +90,18 @@ export function SpecialistsPage() {
         />
       )}
 
+      {editing && (
+        <SpecialistSettings
+          key={editing.tenant_id}
+          specialist={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            void refresh();
+          }}
+        />
+      )}
+
       {action.isError && (
         <div className="alert alert-error" role="alert">
           {t(`errors.${errorCode(action.error)}`, { defaultValue: t("errors.unknown") })}
@@ -100,6 +120,8 @@ export function SpecialistsPage() {
                   <th>{t("admin.colName")}</th>
                   <th>{t("admin.colEmail")}</th>
                   <th>{t("admin.colCurrency")}</th>
+                  <th>{t("admin.colTax")}</th>
+                  <th>{t("admin.colModules")}</th>
                   <th>{t("admin.colStatus")}</th>
                   <th>{t("admin.colLastLogin")}</th>
                   <th aria-label={t("admin.colActions")} />
@@ -111,6 +133,13 @@ export function SpecialistsPage() {
                     <td>{s.name}</td>
                     <td>{s.email}</td>
                     <td>{s.base_currency}</td>
+                    <td>{Number(s.tax_rate)}%</td>
+                    <td className="nowrap">
+                      {t("admin.modulesCount", {
+                        on: s.modules.length,
+                        total: modules.data?.length ?? "…",
+                      })}
+                    </td>
                     <td>
                       <StatusChip s={s} />
                     </td>
@@ -119,6 +148,9 @@ export function SpecialistsPage() {
                     </td>
                     <td>
                       <div className="actions">
+                        <button type="button" className="btn btn-sm" onClick={() => setEditing(s)}>
+                          {t("admin.settings")}
+                        </button>
                         <button
                           type="button"
                           className="btn btn-sm"
@@ -176,7 +208,8 @@ function NewSpecialistForm({
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [currency, setCurrency] = useState<(typeof CURRENCIES)[number]>("BYN");
+  const [currency, setCurrency] = useState<Currency>("BYN");
+  const [taxRate, setTaxRate] = useState(DEFAULT_TAX_RATE);
 
   const create = useMutation({
     mutationFn: () =>
@@ -184,6 +217,7 @@ function NewSpecialistForm({
         name,
         email,
         base_currency: currency,
+        tax_rate: taxRate || "0",
       }),
     onSuccess: (result) => onCreated(result.specialist.email, result.temporary_password),
   });
@@ -213,17 +247,9 @@ function NewSpecialistForm({
         </label>
         <label className="field">
           <span>{t("admin.colCurrency")}</span>
-          <select
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value as (typeof CURRENCIES)[number])}
-          >
-            {CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <CurrencySelect value={currency} onChange={setCurrency} />
         </label>
+        <TaxField value={taxRate} onChange={setTaxRate} />
       </div>
       <p className="muted small">{t("admin.newSpecialistHint")}</p>
       {create.isError && (
@@ -270,5 +296,101 @@ function IssuedPasswordCard({ issued, onClose }: { issued: IssuedPassword; onClo
         {t("admin.issuedDone")}
       </button>
     </section>
+  );
+}
+
+function CurrencySelect({ value, onChange }: { value: Currency; onChange: (c: Currency) => void }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value as Currency)}>
+      {CURRENCIES.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function TaxField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const { t } = useTranslation();
+  return (
+    <label className="field">
+      <span>{t("admin.taxRate")}</span>
+      <input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        max={100}
+        step="0.01"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  );
+}
+
+/** Edit a specialist: name, accounting currency, tax and the modules they may use. */
+function SpecialistSettings({
+  specialist,
+  onClose,
+  onSaved,
+}: {
+  specialist: Specialist;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(specialist.name);
+  const [currency, setCurrency] = useState(specialist.base_currency as Currency);
+  const [taxRate, setTaxRate] = useState(String(Number(specialist.tax_rate)));
+  const [modules, setModules] = useState(specialist.modules);
+
+  const save = useMutation({
+    mutationFn: () =>
+      apiPatch<Specialist>(`/admin/specialists/${specialist.tenant_id}`, {
+        name,
+        base_currency: currency,
+        tax_rate: taxRate || "0",
+        modules,
+      }),
+    onSuccess: onSaved,
+  });
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    save.mutate();
+  };
+
+  return (
+    <form className="card form-card" onSubmit={submit}>
+      <h2 className="h2">{t("admin.settingsTitle", { email: specialist.email })}</h2>
+      <div className="form-grid">
+        <label className="field">
+          <span>{t("admin.colName")}</span>
+          <input required value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>{t("admin.colCurrency")}</span>
+          <CurrencySelect value={currency} onChange={setCurrency} />
+        </label>
+        <TaxField value={taxRate} onChange={setTaxRate} />
+      </div>
+      <h3 className="h3">{t("admin.modulesTitle")}</h3>
+      <p className="muted small">{t("admin.modulesHint")}</p>
+      <ModulePicker value={modules} onChange={setModules} />
+      {save.isError && (
+        <div className="alert alert-error" role="alert">
+          {t(`errors.${errorCode(save.error)}`, { defaultValue: t("errors.unknown") })}
+        </div>
+      )}
+      <div className="form-actions">
+        <button type="submit" className="btn btn-p" disabled={save.isPending || !name}>
+          {t("common.save")}
+        </button>
+        <button type="button" className="btn" onClick={onClose}>
+          {t("common.cancel")}
+        </button>
+      </div>
+    </form>
   );
 }

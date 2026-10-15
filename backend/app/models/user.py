@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import (
+    ARRAY,
     BigInteger,
     CheckConstraint,
     DateTime,
@@ -40,6 +41,7 @@ class User(Base):
         ForeignKey("tenants.id", ondelete="RESTRICT"), index=True
     )
     email: Mapped[str] = mapped_column(String(320), unique=True)
+    full_name: Mapped[str | None] = mapped_column(String(200))
     # NULL until a password is set: such a user cannot log in.
     password_hash: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(
@@ -55,4 +57,6 @@ class User(Base):
     totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Last accepted TOTP time step: the same code is never accepted twice.
     totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
+    # Employees only: the specialist's modules this employee may use.
+    modules: Mapped[list[str]] = mapped_column(ARRAY(String(40)), server_default=text("'{}'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

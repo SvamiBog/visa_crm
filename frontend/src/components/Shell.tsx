@@ -1,25 +1,28 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { apiPost } from "../api";
+import { apiGet, apiPost } from "../api";
 import { ME_KEY, useMe, type Role } from "../auth";
 import { LanguageSwitch } from "./LanguageSwitch";
 import { Logo } from "./Logo";
 
 type Area = "admin" | "cabinet";
 
-// Menu items not built yet are shown as "soon" so the cabinet reads as the planned product.
-const MENU: Record<Area, { key: string; to?: string; roles?: Role[] }[]> = {
+type MenuItem = { key: string; to?: string; roles?: Role[]; module?: string };
+
+// Items not built yet are shown as "soon" so the cabinet reads as the planned product;
+// items of a module show only if the user has that module.
+const MENU: Record<Area, MenuItem[]> = {
   admin: [
     { key: "nav.specialists", to: "/admin" },
     { key: "nav.audit", to: "/admin/audit" },
   ],
   cabinet: [
     { key: "nav.home", to: "/app" },
-    { key: "nav.clients" },
-    { key: "nav.queues" },
-    { key: "nav.analytics" },
+    { key: "nav.clients", module: "clients" },
+    { key: "nav.queues", module: "cases" },
+    { key: "nav.analytics", module: "analytics" },
     { key: "nav.audit", to: "/app/audit", roles: ["specialist"] },
   ],
 };
@@ -29,6 +32,14 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   const me = useMe();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const workspace = useQuery({
+    queryKey: ["workspace"],
+    queryFn: () => apiGet<{ modules: string[] }>("/workspace"),
+    enabled: area === "cabinet",
+  });
+  const visible = (item: MenuItem) =>
+    (!item.roles || (me.data && item.roles.includes(me.data.role))) &&
+    (!item.module || workspace.data?.modules.includes(item.module));
   const logout = useMutation({
     mutationFn: () => apiPost<void>("/auth/logout"),
     onSettled: () => {
@@ -45,20 +56,18 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
         <div className="sidebar-area">
           {t(area === "admin" ? "nav.adminArea" : "nav.cabinetArea")}
         </div>
-        {MENU[area]
-          .filter((item) => !item.roles || (me.data && item.roles.includes(me.data.role)))
-          .map((item) =>
-            item.to ? (
-              <NavLink key={item.key} to={item.to} end className="nav-a">
-                {t(item.key)}
-              </NavLink>
-            ) : (
-              <span key={item.key} className="nav-a nav-soon" aria-disabled="true">
-                {t(item.key)}
-                <span className="soon">{t("nav.soon")}</span>
-              </span>
-            ),
-          )}
+        {MENU[area].filter(visible).map((item) =>
+          item.to ? (
+            <NavLink key={item.key} to={item.to} end className="nav-a">
+              {t(item.key)}
+            </NavLink>
+          ) : (
+            <span key={item.key} className="nav-a nav-soon" aria-disabled="true">
+              {t(item.key)}
+              <span className="soon">{t("nav.soon")}</span>
+            </span>
+          ),
+        )}
         <div className="sidebar-footer">
           <div className="sidebar-email" title={me.data?.email}>
             {me.data?.email}

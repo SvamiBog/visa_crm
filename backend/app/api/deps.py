@@ -1,5 +1,5 @@
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
@@ -123,3 +123,28 @@ async def tenant_session(
 
 SystemSession = Annotated[AsyncSession, Depends(system_session)]
 TenantSession = Annotated[AsyncSession, Depends(tenant_session)]
+
+
+async def effective_modules(session: AsyncSession, user: CurrentUser) -> list[str]:
+    """Modules the user may use: the workspace's; for an employee, only those also given
+    to them (a module the admin turns off disappears for employees too)."""
+    tenant_modules = await session.scalar(select(Tenant.modules).where(Tenant.id == user.tenant_id))
+    if tenant_modules is None:
+        return []
+    if user.role != UserRole.EMPLOYEE:
+        return list(tenant_modules)
+    granted = await session.scalar(select(User.modules).where(User.id == user.id)) or []
+    return [m for m in tenant_modules if m in granted]
+
+
+def require_module(key: str) -> Callable[..., Awaitable[CurrentUser]]:
+    """Dependency for a module's endpoints: 403 module_disabled unless the user has it."""
+
+    async def check(
+        user: Annotated[CurrentUser, Depends(require_tenant_user)], session: TenantSession
+    ) -> CurrentUser:
+        if key not in await effective_modules(session, user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "module_disabled")
+        return user
+
+    return check

@@ -302,6 +302,47 @@ h1 {
   margin-top: 14px;
 }
 
+.st-gray {
+  background: var(--c-row);
+  color: #3a4356;
+}
+
+.h3 {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.module-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.module-block {
+  margin: 0;
+  padding: 8px 12px 4px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+}
+
+.module-block legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.module-block .checkbox {
+  min-height: 36px;
+}
+
+.module-block .chip {
+  margin-left: auto;
+}
+
 /* Two-factor login */
 .code-input {
   font-size: 22px;

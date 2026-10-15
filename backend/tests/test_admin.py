@@ -45,7 +45,9 @@ async def test_admin_creates_specialist_who_must_change_password(
     assert (await client.get("/api/workspace")).json() == {
         "name": "Anna Visa",
         "base_currency": "PLN",
+        "tax_rate": "0.00",
         "timezone": "Europe/Minsk",
+        "modules": ["clients", "cases", "tasks", "country_rules", "analytics"],
     }
 
 
