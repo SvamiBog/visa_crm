@@ -25,6 +25,15 @@ class UserRole(StrEnum):
     EMPLOYEE = "employee"  # сотрудник визовика, only the modules and cases granted
 
 
+class UiTheme(StrEnum):
+    """Interface styles from docs/prototype/Styles.dc.html; each user picks one in settings."""
+
+    BLUE = "blue"  # A, the default
+    DARK = "dark"  # B
+    WARM = "warm"  # C
+    MINIMAL = "minimal"  # D
+
+
 # Roles that must turn on two-factor login before using the app.
 TWO_FACTOR_REQUIRED_ROLES = frozenset({UserRole.ADMIN, UserRole.SPECIALIST})
 
@@ -59,4 +68,5 @@ class User(Base):
     totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
     # Employees only: the specialist's modules this employee may use.
     modules: Mapped[list[str]] = mapped_column(ARRAY(String(40)), server_default=text("'{}'"))
+    ui_theme: Mapped[str] = mapped_column(String(16), server_default=UiTheme.BLUE.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

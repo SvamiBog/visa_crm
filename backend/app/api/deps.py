@@ -24,6 +24,7 @@ class CurrentUser:
     email: str
     must_change_password: bool
     two_factor_enabled: bool
+    ui_theme: str
 
     @property
     def must_set_up_two_factor(self) -> bool:
@@ -71,6 +72,7 @@ async def current_user_any(request: Request) -> CurrentUser:
         email=user.email,
         must_change_password=user.must_change_password,
         two_factor_enabled=user.totp_enabled_at is not None,
+        ui_theme=user.ui_theme,
     )
 
 

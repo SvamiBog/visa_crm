@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
-from app.api.deps import SESSION_COOKIE, CurrentUser, SystemSession, current_user_any
+from app.api.deps import (
+    SESSION_COOKIE,
+    CurrentUser,
+    SystemSession,
+    current_user,
+    current_user_any,
+)
 from app.core.audit import record
 from app.core.config import get_settings
 from app.core.security import (
@@ -29,6 +35,7 @@ from app.models import (
     AuditAction,
     RecoveryCode,
     Tenant,
+    UiTheme,
     User,
     UserRole,
     UserSession,
@@ -57,6 +64,10 @@ class ChangePasswordIn(BaseModel):
     new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_LENGTH)
 
 
+class PreferencesIn(BaseModel):
+    ui_theme: UiTheme
+
+
 class MeOut(BaseModel):
     id: uuid.UUID
     email: str
@@ -65,6 +76,7 @@ class MeOut(BaseModel):
     two_factor_enabled: bool
     must_set_up_two_factor: bool
     tenant_id: uuid.UUID | None
+    ui_theme: str
 
 
 class MfaRequiredOut(BaseModel):
@@ -87,6 +99,7 @@ def _me(user: User | CurrentUser) -> MeOut:
         two_factor_enabled=enabled,
         must_set_up_two_factor=user.role in TWO_FACTOR_REQUIRED_ROLES and not enabled,
         tenant_id=user.tenant_id,
+        ui_theme=user.ui_theme,
     )
 
 
@@ -266,6 +279,19 @@ async def logout(request: Request, response: Response, session: SystemSession) -
 
 @router.get("/me")
 async def me(user: Annotated[CurrentUser, Depends(current_user_any)]) -> MeOut:
+    return _me(user)
+
+
+@router.patch("/preferences")
+async def update_preferences(
+    body: PreferencesIn,
+    current: Annotated[CurrentUser, Depends(current_user)],
+    session: SystemSession,
+) -> MeOut:
+    """The user's own interface settings; they follow the user to every device."""
+    user = await session.get_one(User, current.id)
+    user.ui_theme = body.ui_theme.value
+    await session.commit()
     return _me(user)
 
 
