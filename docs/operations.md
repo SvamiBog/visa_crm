@@ -1,6 +1,6 @@
 # Эксплуатация
 
-Команды запускаются в каталоге `backend` (на Railway — в shell веб-сервиса): `uv run python -m app.cli <команда>`.
+Команды запускаются в каталоге `backend`: локально — `uv run python -m app.cli <команда>`, на Railway — в оболочке веб-сервиса (`railway ssh`, затем `cd /srv/backend`) через `python -m app.cli <команда>`, без `uv run`. Как выложить сервис — docs/deploy.md.
 
 ## Первый администратор
 
