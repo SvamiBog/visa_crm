@@ -14,8 +14,16 @@ class Settings(BaseSettings):
     # A plain postgresql:// URL from Railway is converted in async_database_url.
     database_url: str = "postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm"
     secret_key: str = "change-me"
+    # 32 random bytes, base64. Encrypts the tenants' data keys and TOTP secrets.
     vault_master_key: str = ""
+    # Set only while rotating the master key (docs/operations.md): old values still decrypt.
+    vault_master_key_previous: str = ""
     frontend_dist: Path = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+
+    @property
+    def cookie_secure(self) -> bool:
+        """Session cookie only over HTTPS everywhere except local development and tests."""
+        return self.env not in ("local", "test")
 
     @property
     def async_database_url(self) -> str:

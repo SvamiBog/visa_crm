@@ -1,8 +1,9 @@
 # VisaCRM
 
-CRM для визовиков: картотека клиентов, кейсы, очереди в визовые центры, финансы и аналитика. Позже — документы, Telegram-боты, AI-агент изменений и модуль слотов, затем SaaS для других визовиков.
+CRM для визовиков: картотека клиентов, кейсы, очереди в визовые центры, финансы и аналитика. Позже — документы, затем открытие для других визовиков (SaaS), Telegram-боты, AI-агент изменений и модуль слотов.
 
 - Продукт: [docs/PRD.md](docs/PRD.md)
+- Дорожная карта: [docs/roadmap.md](docs/roadmap.md)
 - Этап 1 (клиенты): [docs/clients-module.md](docs/clients-module.md)
 - Решения: [docs/decisions.md](docs/decisions.md) · Открытые вопросы: [docs/open-questions.md](docs/open-questions.md)
 - Бэклог: [docs/backlog.md](docs/backlog.md)
@@ -23,6 +24,7 @@ cd backend
 cp .env.example .env
 uv sync
 uv run alembic upgrade head
+uv run python -m app.cli create-admin you@example.com   # первый админ, спросит пароль
 uv run uvicorn app.main:app --reload    # http://localhost:8000/api/health
 
 cd ../frontend
