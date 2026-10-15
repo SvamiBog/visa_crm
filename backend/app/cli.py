@@ -4,6 +4,7 @@ create-admin EMAIL     first platform admin (asks for the password)
 generate-master-key    a new VAULT_MASTER_KEY value
 rotate-master-key      re-encrypt secrets after setting a new VAULT_MASTER_KEY
                        (see docs/operations.md)
+reset-two-factor EMAIL turn off 2FA for a user who lost the phone and recovery codes
 """
 
 import argparse
@@ -11,13 +12,14 @@ import asyncio
 import getpass
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.crypto import generate_master_key, master_keys
 from app.core.db import get_engine, get_sessionmaker, scope_to_system
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
+from app.core.two_factor import reset_two_factor
 from app.core.vault import reseal_with_current_master_key
-from app.models import User, UserRole
+from app.models import RecoveryCode, User, UserRole, UserSession
 
 
 async def create_admin(email: str, password: str) -> None:
@@ -33,6 +35,19 @@ async def create_admin(email: str, password: str) -> None:
                 must_change_password=False,
             )
         )
+        await session.commit()
+    await get_engine().dispose()
+
+
+async def reset_user_two_factor(email: str) -> None:
+    async with get_sessionmaker()() as session:
+        scope_to_system(session)
+        user = await session.scalar(select(User).where(User.email == email))
+        if user is None:
+            sys.exit(f"User {email} not found")
+        reset_two_factor(user)
+        await session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
+        await session.execute(delete(UserSession).where(UserSession.user_id == user.id))
         await session.commit()
     await get_engine().dispose()
 
@@ -53,6 +68,8 @@ def main() -> None:
     create.add_argument("email")
     commands.add_parser("generate-master-key", help="print a new VAULT_MASTER_KEY value")
     commands.add_parser("rotate-master-key", help="re-encrypt secrets with the current key")
+    reset = commands.add_parser("reset-two-factor", help="turn off 2FA for a user")
+    reset.add_argument("email")
     args = parser.parse_args()
 
     if args.command == "generate-master-key":
@@ -61,6 +78,10 @@ def main() -> None:
         if len(master_keys()) < 2:
             sys.exit("Set VAULT_MASTER_KEY_PREVIOUS to the old key before rotating")
         print(f"Re-encrypted {asyncio.run(rotate_master_key())} secrets")
+    elif args.command == "reset-two-factor":
+        email = args.email.strip().lower()
+        asyncio.run(reset_user_two_factor(email))
+        print(f"Two-factor login turned off for {email}; they set it up again on next login")
     else:
         email = args.email.strip().lower()
         password = getpass.getpass("Password: ")

@@ -5,13 +5,14 @@ from fastapi.staticfiles import StaticFiles
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.two_factor import router as two_factor_router
 from app.api.workspace import router as workspace_router
 from app.core.config import get_settings
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="VisaCRM", docs_url="/api/docs", openapi_url="/api/openapi.json")
-    for router in (health_router, auth_router, admin_router, workspace_router):
+    for router in (health_router, auth_router, two_factor_router, admin_router, workspace_router):
         app.include_router(router, prefix="/api")
 
     # In production the built React app is served from the same origin as the API,

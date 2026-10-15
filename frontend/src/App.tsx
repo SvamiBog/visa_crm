@@ -7,6 +7,7 @@ import { SpecialistsPage } from "./pages/admin/SpecialistsPage";
 import { HomePage } from "./pages/cabinet/HomePage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { LoginPage } from "./pages/LoginPage";
+import { TwoFactorSetupPage } from "./pages/TwoFactorSetupPage";
 
 function Loading() {
   const { t } = useTranslation();
@@ -19,9 +20,10 @@ function RequireUser({ roles, children }: { roles?: Role[]; children: ReactNode 
   const location = useLocation();
   if (me.isPending) return <Loading />;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-  if (me.data.must_change_password && location.pathname !== "/change-password") {
-    return <Navigate to="/change-password" replace />;
-  }
+  // Unfinished account setup: only its own page opens (the API enforces the same).
+  const setupPath = homePath(me.data);
+  const inSetup = me.data.must_change_password || me.data.must_set_up_two_factor;
+  if (inSetup && location.pathname !== setupPath) return <Navigate to={setupPath} replace />;
   if (roles && !roles.includes(me.data.role)) return <Navigate to={homePath(me.data)} replace />;
   return children;
 }
@@ -41,6 +43,14 @@ export default function App() {
         element={
           <RequireUser>
             <ChangePasswordPage />
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/setup-two-factor"
+        element={
+          <RequireUser>
+            <TwoFactorSetupPage />
           </RequireUser>
         }
       />

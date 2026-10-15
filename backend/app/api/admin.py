@@ -8,7 +8,8 @@ from sqlalchemy import delete, select
 
 from app.api.deps import SystemSession, require_admin
 from app.core.security import generate_temporary_password, hash_password
-from app.models import Tenant, User, UserRole, UserSession
+from app.core.two_factor import reset_two_factor
+from app.models import RecoveryCode, Tenant, User, UserRole, UserSession
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -132,13 +133,16 @@ async def unblock_specialist(tenant_id: uuid.UUID, session: SystemSession) -> Sp
 async def reset_specialist_password(
     tenant_id: uuid.UUID, session: SystemSession
 ) -> TemporaryPassword:
-    """New temporary password for the specialist: also lifts a lockout and signs them out."""
+    """New temporary password for the specialist: also lifts a lockout, turns off two-factor
+    login (they set it up again, e.g. after losing the phone) and signs them out."""
     _, owner = await _get_specialist(session, tenant_id)
     password = generate_temporary_password()
     owner.password_hash = hash_password(password)
     owner.must_change_password = True
     owner.failed_login_count = 0
     owner.locked_until = None
+    reset_two_factor(owner)
+    await session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == owner.id))
     await session.execute(delete(UserSession).where(UserSession.user_id == owner.id))
     await session.commit()
     return TemporaryPassword(temporary_password=password)

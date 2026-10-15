@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api.auth import MAX_FAILED_LOGINS
 from app.api.deps import SESSION_COOKIE
-from tests.helpers import NEW_PASSWORD, PASSWORD, MakeUser, login
+from tests.helpers import NEW_PASSWORD, PASSWORD, MakeUser, enable_two_factor, login
 
 
 async def test_login_sets_http_only_session_cookie(client: AsyncClient, make_user: MakeUser):
@@ -86,11 +86,16 @@ async def test_temporary_password_allows_only_password_change(
     )
     assert changed.status_code == 200
     assert changed.json()["must_change_password"] is False
+    assert changed.json()["must_set_up_two_factor"] is True
+    blocked = await client.get("/api/workspace")
+    assert blocked.json() == {"detail": "two_factor_setup_required"}
+    secret, _ = await enable_two_factor(client)
     assert (await client.get("/api/workspace")).status_code == 200
 
     await client.post("/api/auth/logout")
     assert (await login(client, "anna@example.com")).status_code == 401
-    assert (await login(client, "anna@example.com", NEW_PASSWORD)).status_code == 200
+    relogin = await login(client, "anna@example.com", NEW_PASSWORD, secret=secret)
+    assert relogin.status_code == 200
 
 
 @pytest.mark.parametrize(

@@ -18,7 +18,8 @@ from app.core.crypto import (
     seal,
     unseal,
 )
-from app.models import Tenant
+from app.core.two_factor import totp_secret_aad
+from app.models import Tenant, User
 
 
 def tenant_key_aad(tenant_id: uuid.UUID) -> bytes:
@@ -47,7 +48,7 @@ def decrypt_for_tenant(key: bytes, tenant_id: uuid.UUID, blob: bytes) -> str:
 
 
 async def reseal_with_current_master_key(session: AsyncSession) -> int:
-    """Re-encrypt every wrapped secret under the current master key (rotation step).
+    """Re-encrypt tenant keys and TOTP secrets under the current master key (rotation step).
 
     Runs in the system scope. Returns how many secrets were re-encrypted.
     """
@@ -60,6 +61,15 @@ async def reseal_with_current_master_key(session: AsyncSession) -> int:
         aad = tenant_key_aad(tenant.id)
         if not is_sealed_with_current_key(tenant.vault_key_encrypted, aad):
             tenant.vault_key_encrypted = seal(unseal(tenant.vault_key_encrypted, aad), aad)
+            count += 1
+    users = await session.scalars(
+        select(User).where(User.totp_secret_encrypted.is_not(None)).with_for_update()
+    )
+    for user in users:
+        assert user.totp_secret_encrypted is not None
+        aad = totp_secret_aad(user.id)
+        if not is_sealed_with_current_key(user.totp_secret_encrypted, aad):
+            user.totp_secret_encrypted = seal(unseal(user.totp_secret_encrypted, aad), aad)
             count += 1
     await session.flush()
     return count

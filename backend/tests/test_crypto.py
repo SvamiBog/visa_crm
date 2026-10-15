@@ -6,7 +6,6 @@ from cryptography.exceptions import InvalidTag
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.core.config import get_settings
 from app.core.crypto import (
     VaultKeyError,
     decrypt,
@@ -21,19 +20,6 @@ from app.core.vault import decrypt_for_tenant, encrypt_for_tenant, get_tenant_ke
 
 KEY = bytes(32)
 OTHER_KEY = bytes([1]) * 32
-
-
-@pytest.fixture
-def master_key(monkeypatch: pytest.MonkeyPatch):
-    """Set the master key (and optionally the previous one) for one test."""
-
-    def set_keys(current: str, previous: str = "") -> None:
-        monkeypatch.setenv("VAULT_MASTER_KEY", current)
-        monkeypatch.setenv("VAULT_MASTER_KEY_PREVIOUS", previous)
-        get_settings.cache_clear()
-
-    yield set_keys
-    get_settings.cache_clear()
 
 
 def test_round_trip_and_random_nonce():

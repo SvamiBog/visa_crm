@@ -1,6 +1,6 @@
 from httpx import AsyncClient
 
-from tests.helpers import PASSWORD, MakeUser, login
+from tests.helpers import PASSWORD, MakeUser, enable_two_factor, login
 
 NEW_PASSWORD = "my-own-password-1"
 
@@ -39,6 +39,9 @@ async def test_admin_creates_specialist_who_must_change_password(
         "/api/auth/change-password",
         json={"current_password": temporary, "new_password": NEW_PASSWORD},
     )
+    blocked = await client.get("/api/workspace")
+    assert blocked.json() == {"detail": "two_factor_setup_required"}
+    await enable_two_factor(client)
     assert (await client.get("/api/workspace")).json() == {
         "name": "Anna Visa",
         "base_currency": "PLN",
@@ -90,8 +93,11 @@ async def test_reset_password_issues_new_temporary_password(
 
     client.cookies.clear()
     assert (await login(client, "anna@example.com", PASSWORD)).status_code == 401
-    me = await login(client, "anna@example.com", temporary)
-    assert me.json()["must_change_password"] is True
+    me = (await login(client, "anna@example.com", temporary)).json()
+    # A new temporary password also turns two-factor login off (lost phone).
+    assert me["must_change_password"] is True
+    assert me["two_factor_enabled"] is False
+    assert me["must_set_up_two_factor"] is True
 
 
 async def test_specialist_cannot_use_admin_api(client: AsyncClient, make_user: MakeUser):

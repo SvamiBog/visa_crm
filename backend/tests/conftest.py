@@ -19,11 +19,12 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from app.core import db
+from app.core import db, two_factor
 from app.core.config import get_settings
 from app.core.security import hash_password
+from app.core.two_factor import seal_secret
 from app.main import create_app
-from tests.helpers import PASSWORD, MakeUser
+from tests.helpers import CLOCK, PASSWORD, TOTP_SECRET, MakeUser
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get(
@@ -53,6 +54,25 @@ async def _recreate_database(url: str) -> None:
         await conn.close()
 
 
+@pytest.fixture(autouse=True)
+def fake_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TOTP checks use the test clock: helpers.login moves it one step per login."""
+    monkeypatch.setattr(two_factor, "_now", CLOCK.time)
+
+
+@pytest.fixture
+def master_key(monkeypatch: pytest.MonkeyPatch):
+    """Set the master key (and optionally the previous one) for one test."""
+
+    def set_keys(current: str, previous: str = "") -> None:
+        monkeypatch.setenv("VAULT_MASTER_KEY", current)
+        monkeypatch.setenv("VAULT_MASTER_KEY_PREVIOUS", previous)
+        get_settings.cache_clear()
+
+    yield set_keys
+    get_settings.cache_clear()
+
+
 @pytest.fixture(scope="session")
 def migrated_database() -> str:
     """Fresh test database, migrated up, down and up again (catches broken downgrades)."""
@@ -77,7 +97,7 @@ async def owner_engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(migrated_database, poolclass=NullPool)
     yield engine
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE user_sessions, users, tenants"))
+        await conn.execute(text("TRUNCATE user_recovery_codes, user_sessions, users, tenants"))
     await engine.dispose()
 
 
@@ -102,7 +122,11 @@ async def client(owner_engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
 
 @pytest.fixture
 def make_user(owner_engine: AsyncEngine) -> MakeUser:
-    """Create a user (and a tenant for non-admins). Returns the tenant id."""
+    """Create a user (and a tenant for non-admins). Returns the tenant id.
+
+    Admins and specialists get two-factor login on with the test secret (helpers.login
+    passes the second step), unless they still have a temporary password.
+    """
 
     async def make(
         email: str,
@@ -110,7 +134,11 @@ def make_user(owner_engine: AsyncEngine) -> MakeUser:
         *,
         must_change_password: bool = False,
         tenant_id: uuid.UUID | None = None,
+        two_factor: bool | None = None,
     ) -> uuid.UUID | None:
+        if two_factor is None:
+            two_factor = role != "employee" and not must_change_password
+        user_id = uuid.uuid4()
         async with owner_engine.begin() as conn:
             if role != "admin" and tenant_id is None:
                 tenant_id = uuid.uuid4()
@@ -121,9 +149,14 @@ def make_user(owner_engine: AsyncEngine) -> MakeUser:
             await conn.execute(
                 text(
                     "INSERT INTO users (id, tenant_id, email, password_hash, role, "
-                    "must_change_password) VALUES (gen_random_uuid(), :t, :e, :h, :r, :m)"
+                    "must_change_password, totp_secret_encrypted, totp_enabled_at) "
+                    "VALUES (:id, :t, :e, :h, :r, :m, :secret, "
+                    "CASE WHEN :on THEN now() END)"
                 ),
                 {
+                    "id": user_id,
+                    "secret": seal_secret(user_id, TOTP_SECRET) if two_factor else None,
+                    "on": two_factor,
                     "t": tenant_id,
                     "e": email,
                     "h": hash_password(PASSWORD),

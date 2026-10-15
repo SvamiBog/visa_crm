@@ -294,6 +294,74 @@ h1 {
   font-size: 14px;
 }
 
+/* Two-factor login */
+.code-input {
+  font-size: 22px;
+  letter-spacing: 6px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.setup-card {
+  max-width: 440px;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qr-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+}
+
+.qr-block img {
+  width: 200px;
+  height: 200px;
+}
+
+.secret {
+  font-size: 15px;
+  letter-spacing: 1px;
+  word-break: break-all;
+  text-align: center;
+  user-select: all;
+}
+
+.recovery-codes {
+  list-style: none;
+  margin: 0;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 16px;
+  background: var(--c-bg);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+}
+
+.checkbox {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.checkbox input {
+  width: 20px;
+  height: 20px;
+}
+
 /* App shell: dark sidebar + content; the sidebar stacks on top on narrow screens */
 .shell {
   display: flex;

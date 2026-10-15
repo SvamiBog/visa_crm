@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_sessionmaker, scope_to_system, scope_to_tenant
 from app.core.security import hash_session_token
-from app.models import Tenant, User, UserRole, UserSession
+from app.models import TWO_FACTOR_REQUIRED_ROLES, Tenant, User, UserRole, UserSession
 
 SESSION_COOKIE = "visacrm_session"
 
@@ -23,6 +23,11 @@ class CurrentUser:
     role: UserRole
     email: str
     must_change_password: bool
+    two_factor_enabled: bool
+
+    @property
+    def must_set_up_two_factor(self) -> bool:
+        return self.role in TWO_FACTOR_REQUIRED_ROLES and not self.two_factor_enabled
 
 
 async def system_session() -> AsyncIterator[AsyncSession]:
@@ -33,7 +38,8 @@ async def system_session() -> AsyncIterator[AsyncSession]:
 
 
 async def current_user_any(request: Request) -> CurrentUser:
-    """The logged-in user, even one who still has to replace a temporary password."""
+    """The logged-in user, even one who still has to replace a temporary password
+    or set up two-factor login. A login waiting for its second factor is not logged in."""
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not_authenticated")
@@ -47,6 +53,7 @@ async def current_user_any(request: Request) -> CurrentUser:
                 .where(
                     UserSession.token_hash == hash_session_token(token),
                     UserSession.expires_at > datetime.now(UTC),
+                    UserSession.mfa_pending.is_(False),
                     User.is_active,
                     # Blocking a specialist's workspace signs out its employees too.
                     (User.tenant_id.is_(None)) | Tenant.is_active,
@@ -63,13 +70,25 @@ async def current_user_any(request: Request) -> CurrentUser:
         role=user.role,
         email=user.email,
         must_change_password=user.must_change_password,
+        two_factor_enabled=user.totp_enabled_at is not None,
     )
 
 
-async def current_user(user: Annotated[CurrentUser, Depends(current_user_any)]) -> CurrentUser:
-    """The logged-in user who may use the app (temporary password already replaced)."""
+async def current_user_password_set(
+    user: Annotated[CurrentUser, Depends(current_user_any)],
+) -> CurrentUser:
+    """Logged in with their own password (temporary one already replaced)."""
     if user.must_change_password:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "password_change_required")
+    return user
+
+
+async def current_user(
+    user: Annotated[CurrentUser, Depends(current_user_password_set)],
+) -> CurrentUser:
+    """The logged-in user who may use the app: own password and, where required, 2FA on."""
+    if user.must_set_up_two_factor:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "two_factor_setup_required")
     return user
 
 
