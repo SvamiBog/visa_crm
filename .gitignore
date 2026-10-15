@@ -1,24 +1,22 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
 .venv/
-venv/
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
-dist/
-build/
-
-# Environment and secrets
+# Node
+node_modules/
+frontend/dist/
+# Env & secrets
 .env
 .env.*
 !.env.example
-
-# Editors and OS
-.vscode/
-.idea/
+# OS / editors
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+*.egg-info/
+.mypy_cache/
+.coverage
+htmlcov/

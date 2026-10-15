@@ -1,35 +1,35 @@
-# VisaCRM — CRM для визовика
+# VisaCRM
 
-CRM для визовика, который ведёт клиентов под ключ: визы в ЕС и UK, дополнительно в другие страны. Сначала системой пользуется один визовик, затем она открывается другим визовикам как платный SaaS (оплата за успешно полученный слот).
+CRM для визовиков: картотека клиентов, кейсы, очереди в визовые центры, финансы и аналитика. Позже — документы, Telegram-боты, AI-агент изменений и модуль слотов, затем SaaS для других визовиков.
 
-Два интерфейса на общей базе: админ-панель владельца платформы и кабинет визовика. У клиента нет входа в систему — с ним работает Telegram-бот.
+- Продукт: [docs/PRD.md](docs/PRD.md)
+- Этап 1 (клиенты): [docs/clients-module.md](docs/clients-module.md)
+- Решения: [docs/decisions.md](docs/decisions.md) · Открытые вопросы: [docs/open-questions.md](docs/open-questions.md)
+- Бэклог: [docs/backlog.md](docs/backlog.md)
+- Макеты экранов (справочно): [docs/prototype/](docs/prototype/README.md)
 
-**Стек (план):** Python + FastAPI, пока только веб-версия.
+## Стек
 
-## Что лежит в репозитории
+Python 3.12 · FastAPI · SQLAlchemy 2 · Alembic · PostgreSQL 16 · React 18 · TypeScript · Vite · TanStack Query · react-i18next · Railway (EU West)
 
+## Запуск локально
+
+Нужны Docker, [uv](https://docs.astral.sh/uv/) и Node.js 22.
+
+```bash
+docker compose up -d
+
+cd backend
+cp .env.example .env
+uv sync
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload    # http://localhost:8000/api/health
+
+cd ../frontend
+npm install
+npm run dev                             # http://localhost:5173
 ```
-docs/
-  PRD.md                 — общий PRD: роли, карта модулей, слоты VFS, AI-агент, SaaS, этапы, стек
-  modules/
-    clients.md           — модуль «Клиенты»: детальная спецификация (этап 1)
-design/
-  prototype/             — прототип интерфейса этапа 1 (клиенты и аналитика)
-    Main.dc.html         — главная
-    Clients.dc.html      — картотека клиентов (список и канбан)
-    ClientCard.dc.html   — карточка клиента
-    Analytics.dc.html    — аналитика: каналы, выдачи, визовые центры, очереди, прибыль
-    Styles.dc.html       — варианты стиля интерфейса
-    canvas.json          — индекс макетов (порядок, размеры, подписи)
-```
 
-## Источники
+## Деплой
 
-Документы выгружены из рабочих материалов проекта в Claude:
-
-- PRD — CRM для визовика: https://claude.ai/code/artifact/bd30c464-54e7-48c8-a49a-d155dec76139
-- Прототип VisaCRM — клиенты и аналитика: https://claude.ai/code/artifact/7c1f4af4-40ca-4017-b7b7-15703c9f0b64
-
-Файлы `*.dc.html` — исходники макетов в формате Design-компонентов. Они рассчитаны на рантайм холста (`support.js`) и не открываются в браузере как обычные страницы; живой интерактивный прототип — по ссылке выше. Вёрстку, цвета (`#2453D6`, `#121A2B`, `#F4F5F8`), шрифт Onest и демо-данные из них можно брать как референс для фронтенда.
-
-Основной источник правды для PRD пока — документ в Claude; при его изменении markdown здесь нужно обновить.
+Railway собирает образ из `Dockerfile` (фронтенд + бэкенд в одном контейнере) по настройкам `railway.json`. Переменные окружения: `DATABASE_URL` (из сервиса Postgres), `SECRET_KEY`, `VAULT_MASTER_KEY`, `ENV=production`. Регион всех сервисов — EU West.
