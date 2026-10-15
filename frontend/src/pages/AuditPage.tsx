@@ -111,5 +111,9 @@ function EventDetails({ event }: { event: AuditEvent }) {
   if (reason) return <>{t(`audit.reason.${reason}`, { defaultValue: reason })}</>;
   if (name && email) return <>{`${name} · ${email}`}</>;
   if (email) return <>{email}</>;
+  if (name && event.target_type) {
+    const target = t(`audit.target.${event.target_type}`, { defaultValue: event.target_type });
+    return <>{`${target}: ${name}`}</>;
+  }
   return null;
 }

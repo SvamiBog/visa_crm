@@ -18,6 +18,10 @@ class Tenant(Base):
     base_currency: Mapped[str] = mapped_column(String(3), server_default="BYN")
     timezone: Mapped[str] = mapped_column(String(64), server_default="Europe/Minsk")
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
+    # Currencies the specialist accepts payments in; the base currency is always among them.
+    payment_currencies: Mapped[list[str]] = mapped_column(
+        ARRAY(String(3)), server_default=text("'{BYN,PLN,USD,EUR}'")
+    )
     # Tax on officially paid payments, percent (НПД in Belarus: 10).
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), server_default=text("0"))
     # Modules the admin turned on (keys from app/core/modules.py).

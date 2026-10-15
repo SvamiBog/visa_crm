@@ -1,0 +1,478 @@
+"""A specialist's own reference lists (backlog 1.1): visa purposes, lead channels, partners
+with terms, registrars with prices, prepayments, currencies and tax.
+
+Everyone in the workspace reads them (forms need them); only the specialist edits.
+Everything runs in the workspace scope, so Row-Level Security keeps other workspaces out.
+"""
+
+import uuid
+from datetime import datetime
+from decimal import Decimal
+from typing import Annotated, Any, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import CurrentUser, TenantSession, require_specialist, require_tenant_user
+from app.core.audit import record
+from app.core.money import CURRENCIES, Amount, Currency, Percent
+from app.models import (
+    AuditAction,
+    Country,
+    Hall,
+    LeadChannel,
+    Partner,
+    PartnerTerms,
+    PartnerTermsType,
+    Prepayment,
+    Registrar,
+    RegistrarKind,
+    RegistrarPrice,
+    Tenant,
+    VisaPurpose,
+)
+
+router = APIRouter(
+    prefix="/dictionaries", tags=["dictionaries"], dependencies=[Depends(require_tenant_user)]
+)
+
+Specialist = Annotated[CurrentUser, Depends(require_specialist)]
+Reader = Annotated[CurrentUser, Depends(require_tenant_user)]
+
+Name = Annotated[str, Field(min_length=1, max_length=100)]
+LongName = Annotated[str, Field(min_length=1, max_length=200)]
+Contact = Annotated[str, Field(max_length=200)]
+Note = Annotated[str, Field(max_length=1000)]
+
+
+# --- Schemas -------------------------------------------------------------------------
+
+
+class EntryIn(BaseModel):
+    name: Name
+    sort_order: int = Field(default=0, ge=0, le=999)
+    is_active: bool = True
+
+
+class EntryUpdate(BaseModel):
+    name: Name | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=999)
+    is_active: bool | None = None
+
+
+class EntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    sort_order: int
+    is_active: bool
+
+
+class TermsIn(BaseModel):
+    country_id: uuid.UUID | None = None  # None: every country without its own terms
+    terms_type: PartnerTermsType
+    percent: Percent | None = None
+    amount: Amount | None = None
+    currency: Currency | None = None
+
+    @model_validator(mode="after")
+    def fields_match_type(self) -> "TermsIn":
+        if (self.terms_type == PartnerTermsType.PERCENT) != (self.percent is not None):
+            raise ValueError("percent goes with the percent terms only")
+        fixed = self.terms_type == PartnerTermsType.FIXED
+        if fixed != (self.amount is not None) or fixed != (self.currency is not None):
+            raise ValueError("amount and currency go with the fixed terms only")
+        return self
+
+
+class TermsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    country_id: uuid.UUID | None
+    terms_type: PartnerTermsType
+    percent: Decimal | None
+    amount: Decimal | None
+    currency: str | None
+
+
+class PartnerIn(BaseModel):
+    name: LongName
+    contact: Contact | None = None
+    note: Note | None = None
+    is_active: bool = True
+
+
+class PartnerUpdate(BaseModel):
+    name: LongName | None = None
+    contact: Contact | None = None
+    note: Note | None = None
+    is_active: bool | None = None
+
+
+class PartnerOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    contact: str | None
+    note: str | None
+    is_active: bool
+    created_at: datetime
+    terms: list[TermsOut]
+
+
+class PriceIn(BaseModel):
+    country_id: uuid.UUID
+    purpose_id: uuid.UUID | None = None  # None: any visa purpose
+    hall: Hall = Hall.STANDARD
+    amount: Amount
+    currency: Currency
+
+
+class PriceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    country_id: uuid.UUID
+    purpose_id: uuid.UUID | None
+    hall: Hall
+    amount: Decimal
+    currency: str
+
+
+class RegistrarIn(BaseModel):
+    name: LongName
+    kind: RegistrarKind
+    contact: Contact | None = None
+    note: Note | None = None
+    is_active: bool = True
+
+
+class RegistrarUpdate(BaseModel):
+    name: LongName | None = None
+    kind: RegistrarKind | None = None
+    contact: Contact | None = None
+    note: Note | None = None
+    is_active: bool | None = None
+
+
+class RegistrarOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    kind: RegistrarKind
+    contact: str | None
+    note: str | None
+    is_active: bool
+    created_at: datetime
+    prices: list[PriceOut]
+
+
+class PrepaymentIn(BaseModel):
+    country_id: uuid.UUID
+    purpose_id: uuid.UUID | None = None
+    amount: Amount
+
+
+class PrepaymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    country_id: uuid.UUID
+    purpose_id: uuid.UUID | None
+    amount: Decimal
+
+
+class MoneyOut(BaseModel):
+    """Currencies and tax. The base currency and the tax rate are set by the admin."""
+
+    base_currency: str
+    payment_currencies: list[str]
+    # Exchange rates: National Bank of the Republic of Belarus on the payment date.
+    rate_source: Literal["nbrb"] = "nbrb"
+    tax_rate: Decimal
+
+
+class MoneyUpdate(BaseModel):
+    payment_currencies: list[Currency] = Field(min_length=1)
+
+
+# --- Helpers -------------------------------------------------------------------------
+
+
+def _audit(
+    session: AsyncSession,
+    action: AuditAction,
+    user: CurrentUser,
+    target_type: str,
+    target_id: uuid.UUID,
+    name: str | None = None,
+) -> None:
+    """In the workspace's own log; only ids and the entry's name, no client data."""
+    record(
+        session,
+        action,
+        actor=user,
+        target_type=target_type,
+        target_id=target_id,
+        details={"name": name} if name else None,
+    )
+
+
+async def _get[T](session: AsyncSession, model: type[T], item_id: uuid.UUID) -> T:
+    """RLS hides other workspaces' rows, so someone else's id is simply not found."""
+    item = await session.get(model, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    return item
+
+
+async def _flush_or_conflict(session: AsyncSession, code: str) -> None:
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        await session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, code) from error
+
+
+def _apply(item: Any, changes: dict[str, Any], nullable: frozenset[str] = frozenset()) -> None:
+    """Set the fields sent; a null for a required field means «leave as is»."""
+    for field, value in changes.items():
+        if value is not None or field in nullable:
+            setattr(item, field, value)
+
+
+async def _check_countries(session: AsyncSession, ids: set[uuid.UUID]) -> None:
+    found = set(await session.scalars(select(Country.id).where(Country.id.in_(ids))))
+    if ids - found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+
+
+async def _check_purposes(session: AsyncSession, ids: set[uuid.UUID]) -> None:
+    found = set(await session.scalars(select(VisaPurpose.id).where(VisaPurpose.id.in_(ids))))
+    if ids - found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+
+
+def _unique_keys(keys: list[tuple[Any, ...]]) -> None:
+    """A list sent as a whole must not repeat the same key (country, purpose, …)."""
+    if len(set(keys)) != len(keys):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "duplicate_entry")
+
+
+# --- Visa purposes and lead channels -------------------------------------------------
+
+SIMPLE_LISTS: dict[str, tuple[type[VisaPurpose] | type[LeadChannel], str]] = {
+    "purposes": (VisaPurpose, "visa_purpose"),
+    "channels": (LeadChannel, "lead_channel"),
+}
+
+
+def _simple_list_routes(path: str, model: type[VisaPurpose] | type[LeadChannel], kind: str):
+    @router.get(f"/{path}", name=f"list_{path}")
+    async def list_entries(session: TenantSession) -> list[EntryOut]:
+        rows = await session.scalars(select(model).order_by(model.sort_order, model.name))
+        return [EntryOut.model_validate(r) for r in rows]
+
+    @router.post(f"/{path}", status_code=status.HTTP_201_CREATED, name=f"create_{path}")
+    async def create_entry(body: EntryIn, user: Specialist, session: TenantSession) -> EntryOut:
+        entry = model(tenant_id=user.tenant_id, **body.model_dump())
+        entry.name = entry.name.strip()
+        session.add(entry)
+        await _flush_or_conflict(session, "name_taken")
+        _audit(session, AuditAction.REFERENCE_CREATED, user, kind, entry.id, entry.name)
+        await session.commit()
+        return EntryOut.model_validate(entry)
+
+    @router.patch(f"/{path}/{{entry_id}}", name=f"update_{path}")
+    async def update_entry(
+        entry_id: uuid.UUID, body: EntryUpdate, user: Specialist, session: TenantSession
+    ) -> EntryOut:
+        entry = await _get(session, model, entry_id)
+        changes = body.model_dump(exclude_unset=True)
+        if changes.get("name") is not None:
+            changes["name"] = changes["name"].strip()
+        _apply(entry, changes)
+        await _flush_or_conflict(session, "name_taken")
+        _audit(session, AuditAction.REFERENCE_UPDATED, user, kind, entry.id, entry.name)
+        await session.commit()
+        return EntryOut.model_validate(entry)
+
+
+for _path, (_model, _kind) in SIMPLE_LISTS.items():
+    _simple_list_routes(_path, _model, _kind)
+
+
+# --- Partners ------------------------------------------------------------------------
+
+
+@router.get("/partners")
+async def list_partners(session: TenantSession) -> list[PartnerOut]:
+    rows = await session.scalars(select(Partner).order_by(Partner.name))
+    return [PartnerOut.model_validate(p) for p in rows]
+
+
+@router.post("/partners", status_code=status.HTTP_201_CREATED)
+async def create_partner(body: PartnerIn, user: Specialist, session: TenantSession) -> PartnerOut:
+    partner = Partner(tenant_id=user.tenant_id, **body.model_dump())
+    session.add(partner)
+    await session.flush()
+    _audit(session, AuditAction.REFERENCE_CREATED, user, "partner", partner.id, partner.name)
+    await session.commit()
+    await session.refresh(partner, ["terms"])
+    return PartnerOut.model_validate(partner)
+
+
+@router.patch("/partners/{partner_id}")
+async def update_partner(
+    partner_id: uuid.UUID, body: PartnerUpdate, user: Specialist, session: TenantSession
+) -> PartnerOut:
+    partner = await _get(session, Partner, partner_id)
+    _apply(partner, body.model_dump(exclude_unset=True), nullable=frozenset({"contact", "note"}))
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "partner", partner.id, partner.name)
+    await session.commit()
+    return PartnerOut.model_validate(partner)
+
+
+@router.put("/partners/{partner_id}/terms")
+async def replace_partner_terms(
+    partner_id: uuid.UUID, body: list[TermsIn], user: Specialist, session: TenantSession
+) -> PartnerOut:
+    """Replace all terms: one per country plus, optionally, a default (country_id null)."""
+    partner = await _get(session, Partner, partner_id)
+    _unique_keys([(t.country_id,) for t in body])
+    await _check_countries(session, {t.country_id for t in body if t.country_id is not None})
+    # Delete first: the new list may reuse a country the old one had (unique key).
+    await session.execute(delete(PartnerTerms).where(PartnerTerms.partner_id == partner.id))
+    session.expire(partner, ["terms"])
+    session.add_all(
+        PartnerTerms(tenant_id=user.tenant_id, partner_id=partner.id, **t.model_dump())
+        for t in body
+    )
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "partner", partner.id, partner.name)
+    await session.commit()
+    await session.refresh(partner, ["terms"])
+    return PartnerOut.model_validate(partner)
+
+
+# --- Registrars ----------------------------------------------------------------------
+
+
+@router.get("/registrars")
+async def list_registrars(session: TenantSession) -> list[RegistrarOut]:
+    rows = await session.scalars(select(Registrar).order_by(Registrar.name))
+    return [RegistrarOut.model_validate(r) for r in rows]
+
+
+@router.post("/registrars", status_code=status.HTTP_201_CREATED)
+async def create_registrar(
+    body: RegistrarIn, user: Specialist, session: TenantSession
+) -> RegistrarOut:
+    registrar = Registrar(tenant_id=user.tenant_id, **body.model_dump())
+    session.add(registrar)
+    await session.flush()
+    _audit(session, AuditAction.REFERENCE_CREATED, user, "registrar", registrar.id, registrar.name)
+    await session.commit()
+    await session.refresh(registrar, ["prices"])
+    return RegistrarOut.model_validate(registrar)
+
+
+@router.patch("/registrars/{registrar_id}")
+async def update_registrar(
+    registrar_id: uuid.UUID, body: RegistrarUpdate, user: Specialist, session: TenantSession
+) -> RegistrarOut:
+    registrar = await _get(session, Registrar, registrar_id)
+    _apply(registrar, body.model_dump(exclude_unset=True), nullable=frozenset({"contact", "note"}))
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "registrar", registrar.id, registrar.name)
+    await session.commit()
+    return RegistrarOut.model_validate(registrar)
+
+
+@router.put("/registrars/{registrar_id}/prices")
+async def replace_registrar_prices(
+    registrar_id: uuid.UUID, body: list[PriceIn], user: Specialist, session: TenantSession
+) -> RegistrarOut:
+    """Replace the price list: one fee per country, visa purpose and hall."""
+    registrar = await _get(session, Registrar, registrar_id)
+    _unique_keys([(p.country_id, p.purpose_id, p.hall) for p in body])
+    await _check_countries(session, {p.country_id for p in body})
+    await _check_purposes(session, {p.purpose_id for p in body if p.purpose_id is not None})
+    # Delete first: the new list may reuse a key the old one had (unique key).
+    await session.execute(delete(RegistrarPrice).where(RegistrarPrice.registrar_id == registrar.id))
+    session.expire(registrar, ["prices"])
+    session.add_all(
+        RegistrarPrice(tenant_id=user.tenant_id, registrar_id=registrar.id, **p.model_dump())
+        for p in body
+    )
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "registrar", registrar.id, registrar.name)
+    await session.commit()
+    await session.refresh(registrar, ["prices"])
+    return RegistrarOut.model_validate(registrar)
+
+
+# --- Prepayments ---------------------------------------------------------------------
+
+
+@router.get("/prepayments")
+async def list_prepayments(session: TenantSession) -> list[PrepaymentOut]:
+    rows = await session.scalars(select(Prepayment))
+    return [PrepaymentOut.model_validate(p) for p in rows]
+
+
+@router.put("/prepayments")
+async def replace_prepayments(
+    body: list[PrepaymentIn], user: Specialist, session: TenantSession
+) -> list[PrepaymentOut]:
+    """Replace the list: one amount (in the base currency) per country and visa purpose."""
+    _unique_keys([(p.country_id, p.purpose_id) for p in body])
+    await _check_countries(session, {p.country_id for p in body})
+    await _check_purposes(session, {p.purpose_id for p in body if p.purpose_id is not None})
+    await session.execute(delete(Prepayment))  # RLS: only this workspace's rows
+    rows = [Prepayment(tenant_id=user.tenant_id, **p.model_dump()) for p in body]
+    session.add_all(rows)
+    assert user.tenant_id is not None
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "prepayments", user.tenant_id)
+    await session.commit()
+    return [PrepaymentOut.model_validate(p) for p in rows]
+
+
+# --- Currencies and tax --------------------------------------------------------------
+
+
+def _ordered_currencies(base: str, chosen: list[str]) -> list[str]:
+    """The base currency first (payments in it are always possible), then the rest."""
+    return [base] + [c for c in CURRENCIES if c in chosen and c != base]
+
+
+def _money(tenant: Tenant) -> MoneyOut:
+    return MoneyOut(
+        base_currency=tenant.base_currency,
+        payment_currencies=_ordered_currencies(tenant.base_currency, tenant.payment_currencies),
+        tax_rate=tenant.tax_rate,
+    )
+
+
+async def _tenant(session: AsyncSession, user: CurrentUser) -> Tenant:
+    tenant = await session.get(Tenant, user.tenant_id)
+    assert tenant is not None  # the session dependency already checked the workspace
+    return tenant
+
+
+@router.get("/money")
+async def get_money(user: Reader, session: TenantSession) -> MoneyOut:
+    return _money(await _tenant(session, user))
+
+
+@router.patch("/money")
+async def update_money(body: MoneyUpdate, user: Specialist, session: TenantSession) -> MoneyOut:
+    tenant = await _tenant(session, user)
+    tenant.payment_currencies = _ordered_currencies(tenant.base_currency, body.payment_currencies)
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "currencies", tenant.id)
+    await session.commit()
+    return _money(tenant)

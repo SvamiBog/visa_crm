@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -9,7 +9,9 @@ from sqlalchemy import delete, select
 
 from app.api.deps import CurrentUser, SystemSession, require_admin
 from app.core.audit import record
+from app.core.dictionaries import add_default_dictionaries
 from app.core.modules import DEFAULT_MODULES, ModuleList, TaxRate
+from app.core.money import Currency
 from app.core.security import generate_temporary_password, hash_password
 from app.core.two_factor import reset_two_factor
 from app.models import AuditAction, RecoveryCode, Tenant, User, UserRole, UserSession
@@ -17,9 +19,6 @@ from app.models import AuditAction, RecoveryCode, Tenant, User, UserRole, UserSe
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 Admin = Annotated[CurrentUser, Depends(require_admin)]
-
-# Currencies the specialist can keep accounts in (docs/decisions.md → «Деньги»).
-Currency = Literal["BYN", "PLN", "USD", "EUR"]
 
 
 class SpecialistIn(BaseModel):
@@ -153,6 +152,7 @@ async def create_specialist(
     session.add(tenant)
     await session.flush()
     session.add(owner)
+    add_default_dictionaries(session, tenant.id)
     record(
         session,
         AuditAction.SPECIALIST_CREATED,

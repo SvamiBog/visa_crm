@@ -15,6 +15,7 @@ type MenuItem = { key: string; to?: string; roles?: Role[]; module?: string };
 const MENU: Record<Area, MenuItem[]> = {
   admin: [
     { key: "nav.specialists", to: "/admin" },
+    { key: "nav.reference", to: "/admin/reference" },
     { key: "nav.audit", to: "/admin/audit" },
   ],
   cabinet: [
@@ -22,6 +23,8 @@ const MENU: Record<Area, MenuItem[]> = {
     { key: "nav.clients", module: "clients" },
     { key: "nav.queues", module: "cases" },
     { key: "nav.analytics", module: "analytics" },
+    { key: "nav.countries", to: "/app/countries", module: "country_rules" },
+    { key: "nav.dictionaries", to: "/app/dictionaries", roles: ["specialist"] },
     { key: "nav.employees", to: "/app/employees", roles: ["specialist"] },
     { key: "nav.audit", to: "/app/audit", roles: ["specialist"] },
   ],

@@ -752,6 +752,136 @@ a.nav-a:hover {
   margin: 0;
 }
 
+/* Tabs, toolbars and lists of reference pages */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.tab {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  font: inherit;
+  color: var(--c-muted);
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--c-text);
+}
+
+.tab.active {
+  color: var(--c-text);
+  font-weight: 600;
+  border-bottom-color: var(--c-primary);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.toolbar p {
+  margin: 0;
+  max-width: 68ch;
+}
+
+.field-inline {
+  min-width: min(100%, 260px);
+}
+
+.row-off td {
+  color: var(--c-muted);
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.plain-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--c-row);
+}
+
+.plain-list li.row-off {
+  color: var(--c-muted);
+}
+
+.mono {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+
+.inline-form input,
+.row-editor input,
+.row-editor select {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font: inherit;
+  color: inherit;
+}
+
+.inline-form input {
+  flex: 1 1 200px;
+}
+
+.rows-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.row-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.row-editor select {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.row-editor input {
+  flex: 0 1 110px;
+  min-width: 80px;
+}
+
+.alert-ok {
+  background: var(--c-green-bg);
+  color: var(--c-green);
+}
+
 /* Settings: theme cards with a live preview in each theme */
 .theme-picker {
   display: grid;
@@ -905,8 +1035,11 @@ a.nav-a:hover {
 
 /* Phone: the sidebar turns into a compact top bar so the page starts on the first screen */
 @media (max-width: 720px) {
+  /* One line, no wrapping: otherwise the column grows to the widest table on the page
+     and the whole page scrolls sideways instead of the table. */
   .shell {
     flex-direction: column;
+    flex-wrap: nowrap;
   }
 
   .sidebar {
