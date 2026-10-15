@@ -33,4 +33,7 @@ class User(Base):
     )
     must_change_password: Mapped[bool] = mapped_column(server_default=text("true"))
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
+    failed_login_count: Mapped[int] = mapped_column(server_default=text("0"))
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

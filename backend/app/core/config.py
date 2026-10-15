@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     frontend_dist: Path = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
     @property
+    def cookie_secure(self) -> bool:
+        """Session cookie only over HTTPS everywhere except local development and tests."""
+        return self.env not in ("local", "test")
+
+    @property
     def async_database_url(self) -> str:
         url = self.database_url
         if url.startswith("postgres://"):

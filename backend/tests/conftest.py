@@ -1,5 +1,6 @@
 import asyncio
 import os
+import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import asyncpg
 import pytest
 from alembic import command
 from alembic.config import Config
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -18,6 +20,9 @@ from sqlalchemy.pool import NullPool
 
 from app.core import db
 from app.core.config import get_settings
+from app.core.security import hash_password
+from app.main import create_app
+from tests.helpers import PASSWORD, MakeUser
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get(
@@ -60,7 +65,7 @@ async def owner_engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(migrated_database, poolclass=NullPool)
     yield engine
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, tenants"))
+        await conn.execute(text("TRUNCATE user_sessions, users, tenants"))
     await engine.dispose()
 
 
@@ -68,3 +73,52 @@ async def owner_engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
 def sessionmaker(owner_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """App sessions: same connection credentials, RLS applied by the session hook."""
     return async_sessionmaker(owner_engine, expire_on_commit=False)
+
+
+@pytest.fixture
+async def client(owner_engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
+    """HTTP client for the app. The app engine is rebuilt per test: each test has its own loop."""
+    db.get_sessionmaker.cache_clear()
+    db.get_engine.cache_clear()
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://testserver") as http:
+        yield http
+    await db.get_engine().dispose()
+    db.get_sessionmaker.cache_clear()
+    db.get_engine.cache_clear()
+
+
+@pytest.fixture
+def make_user(owner_engine: AsyncEngine) -> MakeUser:
+    """Create a user (and a tenant for non-admins). Returns the tenant id."""
+
+    async def make(
+        email: str,
+        role: str = "specialist",
+        *,
+        must_change_password: bool = False,
+        tenant_id: uuid.UUID | None = None,
+    ) -> uuid.UUID | None:
+        async with owner_engine.begin() as conn:
+            if role != "admin" and tenant_id is None:
+                tenant_id = uuid.uuid4()
+                await conn.execute(
+                    text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
+                    {"id": tenant_id, "name": f"Workspace of {email}"},
+                )
+            await conn.execute(
+                text(
+                    "INSERT INTO users (id, tenant_id, email, password_hash, role, "
+                    "must_change_password) VALUES (gen_random_uuid(), :t, :e, :h, :r, :m)"
+                ),
+                {
+                    "t": tenant_id,
+                    "e": email,
+                    "h": hash_password(PASSWORD),
+                    "r": role,
+                    "m": must_change_password,
+                },
+            )
+        return tenant_id
+
+    return make

@@ -2,13 +2,17 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.admin import router as admin_router
+from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.workspace import router as workspace_router
 from app.core.config import get_settings
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="VisaCRM", docs_url="/api/docs", openapi_url="/api/openapi.json")
-    app.include_router(health_router, prefix="/api")
+    for router in (health_router, auth_router, admin_router, workspace_router):
+        app.include_router(router, prefix="/api")
 
     # In production the built React app is served from the same origin as the API,
     # so session cookies work without CORS. In local dev Vite serves it and proxies /api.
