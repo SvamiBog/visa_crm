@@ -7,6 +7,7 @@ from sqlalchemy import delete
 
 from app.api.auth import CodeIn
 from app.api.deps import CurrentUser, SystemSession, current_user_password_set
+from app.core.audit import record
 from app.core.two_factor import (
     generate_recovery_codes,
     hash_recovery_code,
@@ -17,7 +18,7 @@ from app.core.two_factor import (
     unseal_secret,
     verify_totp,
 )
-from app.models import RecoveryCode, User
+from app.models import AuditAction, RecoveryCode, User
 
 router = APIRouter(prefix="/auth/two-factor", tags=["auth"])
 
@@ -67,5 +68,6 @@ async def enable(
     codes = generate_recovery_codes()
     await session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
     session.add_all(RecoveryCode(user_id=user.id, code_hash=hash_recovery_code(c)) for c in codes)
+    record(session, AuditAction.TWO_FACTOR_ENABLED, actor=user)
     await session.commit()
     return RecoveryCodesOut(recovery_codes=codes)

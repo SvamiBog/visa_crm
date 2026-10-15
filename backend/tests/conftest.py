@@ -97,7 +97,11 @@ async def owner_engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(migrated_database, poolclass=NullPool)
     yield engine
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE user_recovery_codes, user_sessions, users, tenants"))
+        # Replica mode skips the audit log's append-only trigger: cleanup between tests only.
+        await conn.execute(text("SET LOCAL session_replication_role = replica"))
+        await conn.execute(
+            text("TRUNCATE audit_events, user_recovery_codes, user_sessions, users, tenants")
+        )
     await engine.dispose()
 
 

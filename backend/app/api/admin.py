@@ -1,17 +1,20 @@
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
-from app.api.deps import SystemSession, require_admin
+from app.api.deps import CurrentUser, SystemSession, require_admin
+from app.core.audit import record
 from app.core.security import generate_temporary_password, hash_password
 from app.core.two_factor import reset_two_factor
-from app.models import RecoveryCode, Tenant, User, UserRole, UserSession
+from app.models import AuditAction, RecoveryCode, Tenant, User, UserRole, UserSession
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+Admin = Annotated[CurrentUser, Depends(require_admin)]
 
 # Currencies the specialist can keep accounts in (docs/decisions.md → «Деньги»).
 Currency = Literal["BYN", "PLN", "USD", "EUR"]
@@ -69,6 +72,15 @@ async def _get_specialist(session: SystemSession, tenant_id: uuid.UUID) -> tuple
     return row.tuple()
 
 
+def _record_on_tenant(
+    session: SystemSession, action: AuditAction, admin: CurrentUser, tenant_id: uuid.UUID
+) -> None:
+    """Admin actions on a workspace go into that workspace's log: the specialist sees them."""
+    record(
+        session, action, actor=admin, tenant_id=tenant_id, target_type="tenant", target_id=tenant_id
+    )
+
+
 async def _sign_out_tenant(session: SystemSession, tenant_id: uuid.UUID) -> None:
     await session.execute(
         delete(UserSession).where(
@@ -89,7 +101,9 @@ async def list_specialists(session: SystemSession) -> list[SpecialistOut]:
 
 
 @router.post("/specialists", status_code=status.HTTP_201_CREATED)
-async def create_specialist(body: SpecialistIn, session: SystemSession) -> SpecialistCreated:
+async def create_specialist(
+    body: SpecialistIn, admin: Admin, session: SystemSession
+) -> SpecialistCreated:
     email = body.email.strip().lower()
     if await session.scalar(select(User.id).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "email_taken")
@@ -106,6 +120,15 @@ async def create_specialist(body: SpecialistIn, session: SystemSession) -> Speci
     session.add(tenant)
     await session.flush()
     session.add(owner)
+    record(
+        session,
+        AuditAction.SPECIALIST_CREATED,
+        actor=admin,
+        tenant_id=tenant.id,
+        target_type="tenant",
+        target_id=tenant.id,
+        details={"name": tenant.name, "email": email},
+    )
     await session.commit()
     await session.refresh(tenant)
     await session.refresh(owner)
@@ -113,25 +136,31 @@ async def create_specialist(body: SpecialistIn, session: SystemSession) -> Speci
 
 
 @router.post("/specialists/{tenant_id}/block")
-async def block_specialist(tenant_id: uuid.UUID, session: SystemSession) -> SpecialistOut:
+async def block_specialist(
+    tenant_id: uuid.UUID, admin: Admin, session: SystemSession
+) -> SpecialistOut:
     tenant, owner = await _get_specialist(session, tenant_id)
     tenant.is_active = False
     await _sign_out_tenant(session, tenant_id)
+    _record_on_tenant(session, AuditAction.SPECIALIST_BLOCKED, admin, tenant_id)
     await session.commit()
     return _out(tenant, owner)
 
 
 @router.post("/specialists/{tenant_id}/unblock")
-async def unblock_specialist(tenant_id: uuid.UUID, session: SystemSession) -> SpecialistOut:
+async def unblock_specialist(
+    tenant_id: uuid.UUID, admin: Admin, session: SystemSession
+) -> SpecialistOut:
     tenant, owner = await _get_specialist(session, tenant_id)
     tenant.is_active = True
+    _record_on_tenant(session, AuditAction.SPECIALIST_UNBLOCKED, admin, tenant_id)
     await session.commit()
     return _out(tenant, owner)
 
 
 @router.post("/specialists/{tenant_id}/reset-password")
 async def reset_specialist_password(
-    tenant_id: uuid.UUID, session: SystemSession
+    tenant_id: uuid.UUID, admin: Admin, session: SystemSession
 ) -> TemporaryPassword:
     """New temporary password for the specialist: also lifts a lockout, turns off two-factor
     login (they set it up again, e.g. after losing the phone) and signs them out."""
@@ -144,5 +173,6 @@ async def reset_specialist_password(
     reset_two_factor(owner)
     await session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == owner.id))
     await session.execute(delete(UserSession).where(UserSession.user_id == owner.id))
+    _record_on_tenant(session, AuditAction.SPECIALIST_PASSWORD_RESET, admin, tenant_id)
     await session.commit()
     return TemporaryPassword(temporary_password=password)

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from app.api.deps import SESSION_COOKIE, CurrentUser, SystemSession, current_user_any
+from app.core.audit import record
 from app.core.config import get_settings
 from app.core.security import (
     MAX_PASSWORD_LENGTH,
@@ -23,7 +24,15 @@ from app.core.two_factor import (
     unseal_secret,
     verify_totp,
 )
-from app.models import TWO_FACTOR_REQUIRED_ROLES, RecoveryCode, Tenant, User, UserRole, UserSession
+from app.models import (
+    TWO_FACTOR_REQUIRED_ROLES,
+    AuditAction,
+    RecoveryCode,
+    Tenant,
+    User,
+    UserRole,
+    UserSession,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -85,12 +94,14 @@ def _is_locked(user: User, now: datetime) -> bool:
     return user.locked_until is not None and user.locked_until > now
 
 
-def _register_failure(user: User, now: datetime) -> None:
+def _register_failure(session: SystemSession, user: User, now: datetime, reason: str) -> None:
     """Wrong passwords and wrong second-factor codes share one counter and one lockout."""
     user.failed_login_count += 1
+    record(session, AuditAction.LOGIN_FAILED, actor=user, details={"reason": reason})
     if user.failed_login_count >= MAX_FAILED_LOGINS:
         user.locked_until = now + LOCKOUT
         user.failed_login_count = 0
+        record(session, AuditAction.ACCOUNT_LOCKED, actor=user)
 
 
 async def _can_sign_in(session: SystemSession, user: User) -> bool:
@@ -130,7 +141,7 @@ async def login(
 
     if user is None or not verify_password(user.password_hash, body.password):
         if user is not None:
-            _register_failure(user, now)
+            _register_failure(session, user, now, "password")
             await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid_credentials")
 
@@ -153,6 +164,7 @@ async def login(
     )
     if not mfa_pending:
         _complete_login(user, now)
+        record(session, AuditAction.LOGIN, actor=user, details={"method": "password"})
     # With 2FA the failed-attempt counter is not reset yet: otherwise someone who knows
     # the password could guess codes forever by logging in again between guesses.
     await session.commit()
@@ -160,7 +172,8 @@ async def login(
     return MfaRequiredOut() if mfa_pending else _me(user)
 
 
-async def _check_second_factor(session: SystemSession, user: User, code: str) -> bool:
+async def _check_second_factor(session: SystemSession, user: User, code: str) -> str | None:
+    """The method that matched ("totp" or "recovery_code"), or None."""
     if looks_like_recovery_code(code):
         recovery = await session.scalar(
             select(RecoveryCode)
@@ -172,17 +185,17 @@ async def _check_second_factor(session: SystemSession, user: User, code: str) ->
             .with_for_update()
         )
         if recovery is None:
-            return False
+            return None
         recovery.used_at = datetime.now(UTC)
-        return True
+        return "recovery_code"
 
     assert user.totp_secret_encrypted is not None
     secret = unseal_secret(user.id, user.totp_secret_encrypted)
     step = verify_totp(secret, code, user.totp_last_step)
     if step is None:
-        return False
+        return None
     user.totp_last_step = step
-    return True
+    return "totp"
 
 
 @router.post("/login/verify")
@@ -213,8 +226,9 @@ async def verify_login(
     if not await _can_sign_in(session, user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "account_disabled")
 
-    if not await _check_second_factor(session, user, body.code):
-        _register_failure(user, now)
+    method = await _check_second_factor(session, user, body.code)
+    if method is None:
+        _register_failure(session, user, now, "code")
         if _is_locked(user, now):
             await session.delete(pending)
         await session.commit()
@@ -223,6 +237,7 @@ async def verify_login(
     pending.mfa_pending = False
     pending.expires_at = now + SESSION_TTL
     _complete_login(user, now)
+    record(session, AuditAction.LOGIN, actor=user, details={"method": method})
     await session.commit()
     assert token is not None
     _set_cookie(response, token, SESSION_TTL)
@@ -233,10 +248,19 @@ async def verify_login(
 async def logout(request: Request, response: Response, session: SystemSession) -> None:
     token = request.cookies.get(SESSION_COOKIE)
     if token:
-        await session.execute(
-            delete(UserSession).where(UserSession.token_hash == hash_session_token(token))
-        )
-        await session.commit()
+        row = (
+            await session.execute(
+                select(UserSession, User)
+                .join(User, User.id == UserSession.user_id)
+                .where(UserSession.token_hash == hash_session_token(token))
+            )
+        ).first()
+        if row is not None:
+            user_session, user = row.tuple()
+            await session.delete(user_session)
+            if not user_session.mfa_pending:
+                record(session, AuditAction.LOGOUT, actor=user)
+            await session.commit()
     response.delete_cookie(SESSION_COOKIE, path="/")
 
 
@@ -265,5 +289,6 @@ async def change_password(
             UserSession.user_id == user.id, UserSession.id != current.session_id
         )
     )
+    record(session, AuditAction.PASSWORD_CHANGED, actor=user)
     await session.commit()
     return _me(user)

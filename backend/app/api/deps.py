@@ -98,6 +98,13 @@ async def require_admin(user: Annotated[CurrentUser, Depends(current_user)]) -> 
     return user
 
 
+async def require_specialist(user: Annotated[CurrentUser, Depends(current_user)]) -> CurrentUser:
+    """The workspace owner (not an employee)."""
+    if user.role != UserRole.SPECIALIST:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+    return user
+
+
 async def require_tenant_user(user: Annotated[CurrentUser, Depends(current_user)]) -> CurrentUser:
     if user.tenant_id is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")

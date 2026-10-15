@@ -11,15 +11,17 @@ import argparse
 import asyncio
 import getpass
 import sys
+import uuid
 
 from sqlalchemy import delete, select
 
+from app.core.audit import record
 from app.core.crypto import generate_master_key, master_keys
 from app.core.db import get_engine, get_sessionmaker, scope_to_system
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
 from app.core.two_factor import reset_two_factor
 from app.core.vault import reseal_with_current_master_key
-from app.models import RecoveryCode, User, UserRole, UserSession
+from app.models import AuditAction, RecoveryCode, User, UserRole, UserSession
 
 
 async def create_admin(email: str, password: str) -> None:
@@ -27,13 +29,21 @@ async def create_admin(email: str, password: str) -> None:
         scope_to_system(session)
         if await session.scalar(select(User.id).where(User.email == email)):
             sys.exit(f"User {email} already exists")
-        session.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                role=UserRole.ADMIN,
-                must_change_password=False,
-            )
+        admin = User(
+            id=uuid.uuid4(),
+            email=email,
+            password_hash=hash_password(password),
+            role=UserRole.ADMIN,
+            must_change_password=False,
+        )
+        session.add(admin)
+        record(
+            session,
+            AuditAction.ADMIN_CREATED,
+            actor=None,
+            target_type="user",
+            target_id=admin.id,
+            details={"email": email, "via": "cli"},
         )
         await session.commit()
     await get_engine().dispose()
@@ -48,6 +58,15 @@ async def reset_user_two_factor(email: str) -> None:
         reset_two_factor(user)
         await session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
         await session.execute(delete(UserSession).where(UserSession.user_id == user.id))
+        record(
+            session,
+            AuditAction.TWO_FACTOR_RESET,
+            actor=None,
+            tenant_id=user.tenant_id,
+            target_type="user",
+            target_id=user.id,
+            details={"email": email, "via": "cli"},
+        )
         await session.commit()
     await get_engine().dispose()
 
