@@ -829,6 +829,59 @@ a.nav-a:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+
+.inline-form input,
+.row-editor input,
+.row-editor select {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font: inherit;
+  color: inherit;
+}
+
+.inline-form input {
+  flex: 1 1 200px;
+}
+
+.rows-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.row-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.row-editor select {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.row-editor input {
+  flex: 0 1 110px;
+  min-width: 80px;
+}
+
+.alert-ok {
+  background: var(--c-green-bg);
+  color: var(--c-green);
+}
+
 /* Settings: theme cards with a live preview in each theme */
 .theme-picker {
   display: grid;

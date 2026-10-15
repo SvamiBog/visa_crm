@@ -9,6 +9,7 @@ import { ReferencePage } from "./pages/admin/ReferencePage";
 import { SpecialistsPage } from "./pages/admin/SpecialistsPage";
 import { AuditPage } from "./pages/AuditPage";
 import { CountriesPage } from "./pages/cabinet/CountriesPage";
+import { DictionariesPage } from "./pages/cabinet/DictionariesPage";
 import { EmployeesPage } from "./pages/cabinet/EmployeesPage";
 import { HomePage } from "./pages/cabinet/HomePage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
@@ -124,6 +125,16 @@ export default function App() {
           <RequireUser roles={["specialist", "employee"]}>
             <Shell area="cabinet">
               <CountriesPage />
+            </Shell>
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/app/dictionaries"
+        element={
+          <RequireUser roles={["specialist"]}>
+            <Shell area="cabinet">
+              <DictionariesPage />
             </Shell>
           </RequireUser>
         }
