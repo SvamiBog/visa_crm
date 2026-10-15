@@ -6,7 +6,7 @@ CRM для визовиков: картотека клиентов, кейсы, 
 - Этап 1 (клиенты): [docs/clients-module.md](docs/clients-module.md)
 - Решения: [docs/decisions.md](docs/decisions.md) · Открытые вопросы: [docs/open-questions.md](docs/open-questions.md)
 - Бэклог: [docs/backlog.md](docs/backlog.md)
-- Прототип экранов: https://claude.ai/artifact/GKyWXwLe7v5ZgnDEUyEMqD
+- Макеты экранов (справочно): [docs/prototype/](docs/prototype/README.md)
 
 ## Стек
 

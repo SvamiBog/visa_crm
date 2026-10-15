@@ -11,7 +11,7 @@ CRM для визовика (специалиста, который ведёт �
 | docs/decisions.md | Журнал принятых решений — сверяйтесь перед любым спорным выбором |
 | docs/backlog.md | Задачи этапов 0 и 1 по порядку, с критериями готовности |
 | docs/open-questions.md | Что ещё не решено — не придумывайте ответы, спросите Максима |
-| docs/prototype/ | Исходники кликабельного прототипа экранов (справочно, не код) |
+| docs/prototype/ | Макеты экранов (справочно, не код) |
 | backend/ | FastAPI, SQLAlchemy 2 (async), Alembic, pytest |
 | frontend/ | React + TypeScript + Vite, TanStack Query, react-i18next |
 
