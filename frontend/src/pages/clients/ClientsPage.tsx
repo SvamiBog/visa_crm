@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../../api";
 import {
   CASE_STAGES,
@@ -68,11 +68,16 @@ export function useSortedCountries(): Country[] {
 export function ClientsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  // Links from the home screen open a tab (?tab=work) or the new client form (?new=1).
+  const [params] = useSearchParams();
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>("all");
+  const [tab, setTab] = useState<Tab>(() => {
+    const asked = params.get("tab");
+    return TABS.find((key) => key === asked) ?? "all";
+  });
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [view, setView] = useState<View>(savedView);
-  const [formOpen, setFormOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(params.get("new") === "1");
   const workspace = useQuery({
     queryKey: ["workspace"],
     queryFn: () => apiGet<{ modules: string[] }>("/workspace"),

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiGet } from "../../api";
 import {
   formatDate,
@@ -71,7 +71,9 @@ export function QueuesPage() {
     queryKey: ["queues", "summary"],
     queryFn: () => apiGet<QueueCountry[]>("/queues/summary"),
   });
-  const [picked, setPicked] = useState("");
+  // The home screen links straight to a country (?country=<id>).
+  const [params] = useSearchParams();
+  const [picked, setPicked] = useState(params.get("country") ?? "");
   const [closed, setClosed] = useState(false);
   const country = picked || summary.data?.[0]?.country_id || "";
   const view = useQuery({
