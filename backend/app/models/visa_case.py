@@ -20,6 +20,7 @@ from sqlalchemy import (
     Index,
     Integer,
     SmallInteger,
+    String,
     UniqueConstraint,
     func,
     text,
@@ -66,6 +67,14 @@ class VisaEntries(StrEnum):
     MULTIPLE = "multiple"
 
 
+class EmailOwner(StrEnum):
+    """Whose mailbox the visa center account and the application are on."""
+
+    CLIENT = "client"
+    SPECIALIST = "specialist"  # created by the specialist for the client
+    REGISTRAR = "registrar"
+
+
 class SubmissionGroup(Base):
     """Cases of people who apply together (a family): seen in each member's card."""
 
@@ -83,6 +92,7 @@ class VisaCase(Base):
     __tablename__ = "visa_cases"
     __table_args__ = (
         UniqueConstraint("tenant_id", "number", name="uq_visa_cases_tenant_number"),
+        UniqueConstraint("id", "tenant_id", name="uq_visa_cases_id_tenant"),
         _same_tenant("contact_id", "contacts", "CASCADE"),
         # Leaving the last group member or removing a consultation keeps the case.
         _same_tenant("group_id", "submission_groups", "SET NULL (group_id)"),
@@ -139,6 +149,13 @@ class VisaCase(Base):
     )
     registrar_id: Mapped[uuid.UUID | None]
     hall: Mapped[Hall | None] = mapped_column(_enum(Hall, "visa_center_hall", create=False))
+    # The client's number at the visa center; what it is (ID, application number, embassy
+    # form number, username) comes from the country rule. Said with the email on calls.
+    vac_number: Mapped[str | None] = mapped_column(String(64))
+    application_email: Mapped[str | None] = mapped_column(String(320))
+    application_email_owner: Mapped[EmailOwner | None] = mapped_column(
+        _enum(EmailOwner, "email_owner")
+    )
 
     stage: Mapped[CaseStage] = mapped_column(
         _enum(CaseStage, "case_stage"), server_default=CaseStage.WAITING.value

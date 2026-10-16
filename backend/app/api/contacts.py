@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, or_, select, true
+from sqlalchemy import delete, exists, func, or_, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -356,6 +356,8 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
             Contact.full_name.ilike(pattern),
             Contact.full_name_latin.ilike(pattern),
             Contact.telegram.ilike(pattern),
+            # The number the visa center knows the client by (ID, application number…).
+            exists().where(VisaCase.contact_id == Contact.id, VisaCase.vac_number.ilike(pattern)),
         ]
         digits = phone_digits(term)
         if len(digits) >= 3:
