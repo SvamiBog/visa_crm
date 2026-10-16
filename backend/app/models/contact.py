@@ -7,6 +7,7 @@ or audit details (only ids there).
 import uuid
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -82,6 +84,8 @@ class Contact(Base):
     consent_signed_on: Mapped[date | None] = mapped_column(Date)
     contract_number: Mapped[str | None] = mapped_column(String(50))
     contract_signed_on: Mapped[date | None] = mapped_column(Date)
+    # Consultation questionnaire answers (app/core/questionnaire.py), asked once.
+    questionnaire: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )

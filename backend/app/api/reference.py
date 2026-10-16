@@ -41,11 +41,17 @@ Days = Annotated[int, Field(ge=1, le=365)]
 # --- Schemas -------------------------------------------------------------------------
 
 
+PassportAge = Annotated[int, Field(ge=1, le=30)]
+PassportMargin = Annotated[int, Field(ge=0, le=24)]
+
+
 class CountryIn(BaseModel):
     code: Annotated[str, Field(pattern=r"^[A-Za-z]{2}$")]
     name_ru: Name
     name_en: Name
     consultation_minutes: Annotated[int, Field(ge=5, le=600)] | None = None
+    passport_max_age_years: PassportAge | None = None
+    passport_valid_after_months: PassportMargin | None = None
     is_active: bool = True
 
     @model_validator(mode="after")
@@ -61,6 +67,8 @@ class CountryUpdate(BaseModel):
     name_ru: Name | None = None
     name_en: Name | None = None
     consultation_minutes: Annotated[int, Field(ge=5, le=600)] | None = None
+    passport_max_age_years: PassportAge | None = None
+    passport_valid_after_months: PassportMargin | None = None
     is_active: bool | None = None
 
 
@@ -72,6 +80,8 @@ class CountryOut(BaseModel):
     name_ru: str
     name_en: str
     consultation_minutes: int | None
+    passport_max_age_years: int | None
+    passport_valid_after_months: int | None
     is_active: bool
 
 
@@ -354,7 +364,13 @@ async def update_country(
     changes = body.model_dump(exclude_unset=True)
     if changes.get("code") is not None:
         changes["code"] = changes["code"].upper()
-    _apply(country, changes, nullable=frozenset({"consultation_minutes"}))
+    _apply(
+        country,
+        changes,
+        nullable=frozenset(
+            {"consultation_minutes", "passport_max_age_years", "passport_valid_after_months"}
+        ),
+    )
     await _flush_or_conflict(session, "country_code_taken")
     _audit(session, AuditAction.REFERENCE_UPDATED, admin, "country", country.id, country.code)
     await session.commit()

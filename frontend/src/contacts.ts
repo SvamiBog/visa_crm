@@ -42,7 +42,60 @@ export type Note = {
 
 export type Relation = { related_id: string; full_name: string; label: string | null };
 
-export type ContactCard = { contact: Contact; notes: Note[]; relations: Relation[] };
+export const DECISIONS = ["yes", "no", "thinking"] as const;
+export type Decision = (typeof DECISIONS)[number];
+
+export type Consultation = {
+  id: string;
+  contact_id: string;
+  held_on: string;
+  month: string;
+  applicants: number;
+  decision: Decision | null;
+  lead_channel_id: string | null;
+  destination_ids: string[];
+  trip_planned_on: string | null;
+  fee_amount: string | null;
+  fee_currency: string | null;
+  fee_paid: boolean;
+  fee_paid_on: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export const VISA_KINDS = ["schengen", "national", "uk", "usa", "asia", "other"] as const;
+export type VisaRecord = {
+  kind: (typeof VISA_KINDS)[number];
+  country: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  note: string | null;
+};
+export type Refusal = { country: string; year: number | null; reason: string | null };
+
+/** Questionnaire answers kept on the contact (backend/app/core/questionnaire.py). */
+export type Questionnaire = {
+  passport_issued_on: string | null;
+  passport_expires_on: string | null;
+  visas: VisaRecord[];
+  relatives_abroad: string[];
+  refusals: Refusal[];
+  deportation: boolean;
+  deportation_note: string | null;
+  humanitarian_trips: string[];
+  note: string | null;
+};
+
+export type Hint = { code: string; country: string | null };
+
+export type ContactCard = {
+  contact: Contact;
+  notes: Note[];
+  relations: Relation[];
+  consultations: Consultation[];
+  questionnaire: Questionnaire;
+  hints: Hint[];
+};
 
 export type Entry = { id: string; name: string; is_active: boolean };
 export type PartnerRef = { id: string; name: string; is_active: boolean };

@@ -37,6 +37,9 @@ class AuditAction(StrEnum):
     CONTACT_NOTE_DELETED = "contacts.note_deleted"
     CONTACT_LINKED = "contacts.linked"
     CONTACT_UNLINKED = "contacts.unlinked"
+    QUESTIONNAIRE_UPDATED = "contacts.questionnaire_updated"
+    CONSULTATION_CREATED = "consultations.created"
+    CONSULTATION_UPDATED = "consultations.updated"
     # Reference data; target_type names the reference (country, vac_operator, …).
     REFERENCE_CREATED = "reference.created"
     REFERENCE_UPDATED = "reference.updated"

@@ -16,9 +16,11 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
 from app.api.deps import CurrentUser, TenantSession, require_module
 from app.core.audit import record
 from app.core.phone import normalize_phone, phone_digits
+from app.core.questionnaire import Questionnaire
 from app.models import (
     AuditAction,
     Contact,
@@ -180,6 +182,10 @@ class ContactCard(BaseModel):
     contact: ContactOut
     notes: list[NoteOut]
     relations: list[RelationOut]
+    consultations: list[ConsultationOut]
+    questionnaire: Questionnaire
+    # Questionnaire checks against the latest consultation (app/core/consultation_checks.py).
+    hints: list[HintOut]
 
 
 # --- Helpers -------------------------------------------------------------------------
@@ -267,6 +273,9 @@ async def _card(session: AsyncSession, contact: Contact) -> ContactCard:
         contact=ContactOut.model_validate(contact),
         notes=await _notes(session, contact.id),
         relations=await _relations(session, contact.id),
+        consultations=await consultations_of(session, contact.id),
+        questionnaire=Questionnaire.model_validate(contact.questionnaire),
+        hints=await hints_for(session, contact),
     )
 
 

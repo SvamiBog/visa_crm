@@ -98,6 +98,7 @@ WORKSPACE_TABLES = (
     "audit_events",
     "user_recovery_codes",
     "user_sessions",
+    "consultations",
     "contact_relations",
     "contact_notes",
     "contacts",

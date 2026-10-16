@@ -998,6 +998,60 @@ a.nav-a:hover {
   margin-left: -8px;
 }
 
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.card-head .h2 {
+  margin: 0;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-removable {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+}
+
+.chip-removable button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: 50%;
+}
+
+.field select {
+  min-width: 0;
+}
+
+.consultations > li {
+  align-items: flex-start;
+}
+
+.consultation-form {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.hints .plain-list li {
+  justify-content: flex-start;
+}
+
 /* Settings: theme cards with a live preview in each theme */
 .theme-picker {
   display: grid;
