@@ -94,7 +94,10 @@ class LeadChannel(_NamedEntry, Base):
     """Канал прихода: Instagram, word of mouth, partner, friends, ads."""
 
     __tablename__ = "lead_channels"
-    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_lead_channels_tenant_name"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_lead_channels_tenant_name"),
+        UniqueConstraint("id", "tenant_id", name="uq_lead_channels_id_tenant"),
+    )
 
 
 class Partner(Base):

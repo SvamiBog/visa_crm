@@ -29,6 +29,14 @@ class AuditAction(StrEnum):
     EMPLOYEE_BLOCKED = "employees.blocked"
     EMPLOYEE_UNBLOCKED = "employees.unblocked"
     EMPLOYEE_PASSWORD_RESET = "employees.password_reset"
+    # Client data: details carry ids only, never names, phones or note text.
+    CONTACT_CREATED = "contacts.created"
+    CONTACT_UPDATED = "contacts.updated"
+    CONTACT_NOTE_ADDED = "contacts.note_added"
+    CONTACT_NOTE_EDITED = "contacts.note_edited"
+    CONTACT_NOTE_DELETED = "contacts.note_deleted"
+    CONTACT_LINKED = "contacts.linked"
+    CONTACT_UNLINKED = "contacts.unlinked"
     # Reference data; target_type names the reference (country, vac_operator, …).
     REFERENCE_CREATED = "reference.created"
     REFERENCE_UPDATED = "reference.updated"

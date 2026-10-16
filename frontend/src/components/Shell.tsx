@@ -20,7 +20,7 @@ const MENU: Record<Area, MenuItem[]> = {
   ],
   cabinet: [
     { key: "nav.home", to: "/app" },
-    { key: "nav.clients", module: "clients" },
+    { key: "nav.clients", to: "/app/clients", module: "clients" },
     { key: "nav.queues", module: "cases" },
     { key: "nav.analytics", module: "analytics" },
     { key: "nav.countries", to: "/app/countries", module: "country_rules" },

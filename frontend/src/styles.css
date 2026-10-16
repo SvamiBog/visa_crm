@@ -882,6 +882,122 @@ a.nav-a:hover {
   color: var(--c-green);
 }
 
+/* Client list and card */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.field small {
+  font-weight: 400;
+}
+
+.field textarea {
+  min-height: 80px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font: inherit;
+  font-weight: 400;
+  color: inherit;
+  resize: vertical;
+}
+
+.timeline textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font: inherit;
+  color: inherit;
+  resize: vertical;
+}
+
+.search-field {
+  flex: 1 1 320px;
+  max-width: 520px;
+}
+
+.contact-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.avatar {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+  font-weight: 700;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--c-border);
+  overflow-wrap: anywhere;
+}
+
+.kv > span:last-child {
+  text-align: right;
+}
+
+.notes {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.notes > li {
+  padding-left: 12px;
+  border-left: 2px solid var(--c-border);
+}
+
+.note-body {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.note-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: -8px;
+}
+
 /* Settings: theme cards with a live preview in each theme */
 .theme-picker {
   display: grid;
