@@ -425,6 +425,7 @@ function QuickLinks({ home }: { home: Home }) {
   const { t } = useTranslation();
   const cases = useHasModule("cases");
   const finances = useHasModule("finances");
+  const analytics = useHasModule("analytics");
   const links = [
     home.clients && {
       to: "/app/clients",
@@ -441,6 +442,11 @@ function QuickLinks({ home }: { home: Home }) {
       to: "/app/registrars",
       label: t("nav.registrars"),
       note: t("home.registrarsNote"),
+    },
+    analytics && {
+      to: "/app/analytics",
+      label: t("nav.analytics"),
+      note: t("home.analyticsNote"),
     },
   ].filter((link) => !!link);
   if (links.length === 0) return null;
