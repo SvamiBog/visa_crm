@@ -19,6 +19,7 @@ MODULES: tuple[Module, ...] = (
     Module("clients", "core", 1),
     Module("cases", "core", 1),
     Module("vault", "core", 1),
+    Module("finances", "core", 1),
     Module("tasks", "core", 1),
     Module("country_rules", "core", 1),
     Module("analytics", "analytics", 1),

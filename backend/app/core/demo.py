@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dictionaries import add_default_dictionaries
+from app.core.finance import to_base
 from app.core.modules import DEFAULT_MODULES
 from app.core.passwords import PasswordRules, generate_password
 from app.core.security import hash_password
@@ -30,6 +31,9 @@ from app.models import (
     BookingKind,
     BookingStatus,
     BookingType,
+    CaseExpense,
+    CaseFinance,
+    CasePayment,
     CaseStage,
     Consultation,
     Contact,
@@ -368,18 +372,26 @@ async def _workspace(
     partners = [Partner(tenant_id=t, name=n) for n in ("Легализатор Пётр", "Коллега Марина")]
     session.add_all(registrars + partners)
     await session.flush()
+    # The demo talon of a country: the first registrar's price, in EUR.
+    registrar_fee: dict[uuid.UUID, Decimal] = {}
     for registrar in registrars:
         for code in ("PL", "IT", "LV"):
+            amount = Decimal(rng.choice((40, 50, 60, 80)))
             session.add(
                 RegistrarPrice(
                     tenant_id=t,
                     registrar_id=registrar.id,
                     country_id=countries[code].id,
                     hall=Hall.STANDARD,
-                    amount=Decimal(rng.choice((40, 50, 60, 80))),
+                    amount=amount,
                     currency="EUR",
                 )
             )
+            registrar_fee.setdefault(countries[code].id, amount)
+    terms_of = {
+        partners[0].id: (PartnerTermsType.PERCENT, Decimal("10")),
+        partners[1].id: (PartnerTermsType.FIXED, Decimal("50")),
+    }
     session.add_all(
         [
             PartnerTerms(
@@ -600,6 +612,10 @@ async def _workspace(
                 vault(VaultSystemKind.VISA_CENTER, login, member.id, case.id, owner_kind)
             if member is anchor:
                 _bookings(session, case, booking_account, today, rng)
+            fee = registrar_fee.get(case.destination_id) if registrar else None
+            partner_terms = terms_of.get(member.partner_id) if member.partner_id else None
+            credit = consultation.fee_amount if member is anchor and consultation.fee_paid else None
+            _finance(session, case, fee, partner_terms, credit, first_seen, today, rng)
     await session.flush()
     return made
 
@@ -675,6 +691,85 @@ def _appointment(
                 closed_on=min(today, sent + timedelta(days=rng.randrange(3, 40)))
                 if dated
                 else None,
+            )
+        )
+
+
+# Fixed demo rates (BYN for one unit): seeding does not call the National Bank.
+DEMO_RATES = {"BYN": Decimal("1"), "EUR": Decimal("3.40"), "USD": Decimal("3.10")}
+
+
+def _finance(
+    session: AsyncSession,
+    case: VisaCase,
+    fee_eur: Decimal | None,
+    partner: tuple[PartnerTermsType, Decimal] | None,
+    consultation_credit: Decimal | None,
+    since: date,
+    today: date,
+    rng: random.Random,
+) -> None:
+    """Price, talon, partner terms and the client's payments: a prepayment once the case
+    is under way, the rest by the submission."""
+    if rng.random() < 0.1:  # some cases are not priced yet
+        return
+    price = Decimal(rng.choice((600, 750, 900, 1050, 1200, 1350, 1500)))
+    finance = CaseFinance(
+        case_id=case.id,
+        tenant_id=case.tenant_id,
+        price=price,
+        prepayment=Decimal("150"),
+        consultation_credit=consultation_credit or Decimal("0"),
+    )
+    if fee_eur is not None:
+        finance.registrar_fee_amount = fee_eur
+        finance.registrar_fee_currency = "EUR"
+        finance.registrar_fee_rate = DEMO_RATES["EUR"]
+        finance.registrar_fee_base = to_base(fee_eur, DEMO_RATES["EUR"])
+    if partner is not None:
+        finance.partner_terms, value = partner
+        if finance.partner_terms == PartnerTermsType.PERCENT:
+            finance.partner_percent = value
+        else:
+            finance.partner_fixed = value
+        if case.stage == CaseStage.RESULT and rng.random() < 0.7:
+            finance.partner_paid_on = case.decided_on or today
+    session.add(finance)
+
+    def pay(day: date, amount_base: Decimal) -> None:
+        currency = rng.choice(("BYN", "BYN", "EUR", "USD"))
+        rate = DEMO_RATES[currency]
+        amount = (amount_base / rate).quantize(Decimal("1"))
+        session.add(
+            CasePayment(
+                tenant_id=case.tenant_id,
+                case_id=case.id,
+                paid_on=min(day, today),
+                amount=amount,
+                currency=currency,
+                rate=rate,
+                amount_base=to_base(amount, rate),
+                official=rng.random() < 0.6,
+            )
+        )
+
+    if case.stage != CaseStage.WAITING or rng.random() < 0.6:
+        pay(since + timedelta(days=rng.randrange(0, 10)), Decimal("150"))
+    rest = price - Decimal("150") - finance.consultation_credit
+    if case.stage in (CaseStage.REVIEW, CaseStage.RESULT) and rest > 0:
+        pay(case.submission_on or today, rest)
+    if case.stage != CaseStage.WAITING and rng.random() < 0.2:
+        cost = Decimal(rng.choice((20, 35, 50)))
+        session.add(
+            CaseExpense(
+                tenant_id=case.tenant_id,
+                case_id=case.id,
+                spent_on=min(today, since + timedelta(days=rng.randrange(5, 40))),
+                amount=cost,
+                currency="BYN",
+                rate=DEMO_RATES["BYN"],
+                amount_base=cost,
+                description=rng.choice(("Перевод справки", "Курьер", "Печать фото")),
             )
         )
 

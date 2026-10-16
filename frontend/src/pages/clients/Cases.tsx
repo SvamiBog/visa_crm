@@ -39,6 +39,8 @@ import {
 } from "../../reference";
 import { Appointment, useNumberLabel } from "./Appointment";
 import { CaseBookings } from "./Bookings";
+import { CaseFinance } from "./Finance";
+import { useHasModule } from "../../workspace";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
 // the structured visa result and the submission group.
@@ -153,6 +155,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
   const lists = useCaseLists();
   const rules = useRules(false, c.submission_country_id);
   const refresh = useRefreshCards();
+  const finances = useHasModule("finances");
   const [editing, setEditing] = useState(false);
   const moveTo = useMutation({
     mutationFn: (stage: CaseStage) => apiPatch<VisaCase>(`/cases/${c.id}`, { stage }),
@@ -217,6 +220,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
         </>
       )}
       <CaseBookings visaCase={c} />
+      {finances && <CaseFinance visaCase={c} />}
     </article>
   );
 }
