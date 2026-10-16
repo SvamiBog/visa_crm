@@ -12,11 +12,12 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.cases import CaseOut, cases_of
+from app.api.client_status import TABS, Tab, filter_contacts, latest_consultation, tab_of
 from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.core.audit import record
@@ -24,14 +25,19 @@ from app.core.phone import normalize_phone, phone_digits
 from app.core.questionnaire import Questionnaire
 from app.models import (
     AuditAction,
+    CaseStage,
+    Consultation,
     Contact,
     ContactNote,
     ContactRelation,
+    Decision,
     LeadChannel,
     Messenger,
     Partner,
     User,
     UserRole,
+    VisaCase,
+    VisaOutcome,
 )
 
 router = APIRouter(
@@ -138,11 +144,47 @@ class ContactListItem(BaseModel):
 class SearchIn(BaseModel):
     query: Annotated[str, Field(max_length=100)] = ""
     offset: int = Field(default=0, ge=0)
+    # Client index (backlog 1.5): the tab and the filters.
+    tab: Tab = Tab.ALL
+    country_id: uuid.UUID | None = None
+    stage: CaseStage | None = None
+    channel_id: uuid.UUID | None = None
+    registrar_id: uuid.UUID | None = None
+
+
+class CaseBrief(BaseModel):
+    """The case a row shows: the latest one in work, otherwise the latest one."""
+
+    id: uuid.UUID
+    number: int
+    destination_id: uuid.UUID
+    purpose_id: uuid.UUID | None
+    stage: CaseStage
+    outcome: VisaOutcome | None
+    submission_on: date | None
+    # Cases of the submission group, this one included (1 without a group).
+    group_size: int
+
+
+class ConsultationBrief(BaseModel):
+    held_on: date
+    decision: Decision | None
+    destination_ids: list[uuid.UUID]
+
+
+class ContactRow(ContactListItem):
+    tab: Tab
+    # None without the «cases» module or without cases.
+    case: CaseBrief | None = None
+    cases_in_work: int = 0
+    consultation: ConsultationBrief | None = None
 
 
 class SearchOut(BaseModel):
-    items: list[ContactListItem]
+    items: list[ContactRow]
     has_more: bool
+    # Contacts per tab for this search and these filters.
+    counts: dict[Tab, int]
 
 
 class NoteIn(BaseModel):
@@ -301,9 +343,12 @@ async def _own_note(
 
 
 @router.post("/search")
-async def search_contacts(body: SearchIn, session: TenantSession) -> SearchOut:
-    """By name (Cyrillic or Latin), part of the phone number or Telegram; newest first."""
-    query = select(Contact)
+async def search_contacts(body: SearchIn, user: Member, session: TenantSession) -> SearchOut:
+    """By name (Cyrillic or Latin), part of the phone number or Telegram, within a tab of
+    the client index and its filters; newest first."""
+    latest = latest_consultation()
+    tab = tab_of(latest)
+    query = select(Contact, tab.label("tab")).outerjoin(latest, true())
     term = body.query.strip().removeprefix("@").strip()
     if term:
         pattern = f"%{term}%"
@@ -316,17 +361,113 @@ async def search_contacts(body: SearchIn, session: TenantSession) -> SearchOut:
         if len(digits) >= 3:
             conditions.append(Contact.phone.contains(digits))
         query = query.where(or_(*conditions))
-    rows = list(
-        await session.scalars(
-            query.order_by(Contact.created_at.desc(), Contact.id.desc())
-            .offset(body.offset)
-            .limit(SEARCH_LIMIT + 1)
+    query = filter_contacts(
+        query,
+        latest,
+        country_id=body.country_id,
+        stage=body.stage,
+        channel_id=body.channel_id,
+        registrar_id=body.registrar_id,
+    )
+
+    tabs = query.with_only_columns(tab.label("tab")).subquery()
+    counted = dict(
+        (await session.execute(select(tabs.c.tab, func.count()).group_by(tabs.c.tab)))
+        .tuples()
+        .all()
+    )
+    counts = {t: counted.get(t.value, 0) for t in TABS}
+    counts[Tab.ALL] = sum(counts.values())
+
+    if body.tab != Tab.ALL:
+        query = query.where(tab == body.tab.value)
+    rows = (
+        (
+            await session.execute(
+                query.order_by(Contact.created_at.desc(), Contact.id.desc())
+                .offset(body.offset)
+                .limit(SEARCH_LIMIT + 1)
+            )
         )
+        .tuples()
+        .all()
     )
+    page = rows[:SEARCH_LIMIT]
+    with_cases = "cases" in await effective_modules(session, user)
     return SearchOut(
-        items=[ContactListItem.model_validate(c) for c in rows[:SEARCH_LIMIT]],
+        items=await _rows(session, [(c, Tab(t)) for c, t in page], with_cases),
         has_more=len(rows) > SEARCH_LIMIT,
+        counts=counts,
     )
+
+
+async def _rows(
+    session: AsyncSession, page: list[tuple[Contact, Tab]], with_cases: bool
+) -> list[ContactRow]:
+    """Each row with its latest consultation and, with the «cases» module, its case."""
+    ids = [c.id for c, _ in page]
+    if not ids:
+        return []
+    latest = {
+        c.contact_id: c
+        for c in await session.scalars(
+            select(Consultation)
+            .where(Consultation.contact_id.in_(ids))
+            .order_by(
+                Consultation.contact_id,
+                Consultation.held_on.desc(),
+                Consultation.created_at.desc(),
+            )
+            .distinct(Consultation.contact_id)
+        )
+    }
+    cases: dict[uuid.UUID, list[VisaCase]] = {}
+    group_sizes: dict[uuid.UUID, int] = {}
+    if with_cases:
+        for visa_case in await session.scalars(
+            select(VisaCase).where(VisaCase.contact_id.in_(ids)).order_by(VisaCase.number.desc())
+        ):
+            cases.setdefault(visa_case.contact_id, []).append(visa_case)
+        groups = {c.group_id for cs in cases.values() for c in cs if c.group_id is not None}
+        if groups:
+            group_sizes = dict(
+                (
+                    await session.execute(
+                        select(VisaCase.group_id, func.count())
+                        .where(VisaCase.group_id.in_(groups))
+                        .group_by(VisaCase.group_id)
+                    )
+                )
+                .tuples()
+                .all()
+            )
+
+    result = []
+    for contact, tab in page:
+        row = ContactRow(**ContactListItem.model_validate(contact).model_dump(), tab=tab)
+        if (consultation := latest.get(contact.id)) is not None:
+            row.consultation = ConsultationBrief(
+                held_on=consultation.held_on,
+                decision=consultation.decision,
+                destination_ids=consultation.destination_ids,
+            )
+        own = cases.get(contact.id, [])
+        in_work = [c for c in own if c.stage != CaseStage.RESULT]
+        row.cases_in_work = len(in_work)
+        if shown := (in_work or own)[:1]:
+            c = shown[0]
+            row.case = CaseBrief(
+                id=c.id,
+                number=c.number,
+                destination_id=c.destination_id,
+                purpose_id=c.purpose_id,
+                stage=c.stage,
+                outcome=c.outcome,
+                submission_on=c.submission_on,
+                group_size=group_sizes.get(c.group_id, 1) if c.group_id else 1,
+            )
+        result.append(row)
+    return result
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ContactOut)
