@@ -84,7 +84,7 @@ def attempt_out(attempt: ApplicationAttempt, today: date) -> AttemptOut:
     )
 
 
-async def booking_of(
+async def appointments_of(
     session: AsyncSession, cases: list[VisaCase], today: date
 ) -> dict[uuid.UUID, tuple[list[QueueEntryOut], list[AttemptOut]]]:
     """Queue entries and attempts of each case, newest first."""

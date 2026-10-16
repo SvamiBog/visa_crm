@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.booking import (
+from app.api.appointments import (
     AttemptOut,
     QueueEntryOut,
     attempt_out,

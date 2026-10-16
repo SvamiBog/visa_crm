@@ -172,6 +172,31 @@ export type VisaCase = {
   queue_entries: QueueEntry[];
   attempts: Attempt[];
   average_wait_days: number | null;
+  bookings: Booking[];
+};
+
+export const BOOKING_KINDS = ["hotel", "flight"] as const;
+export type BookingKind = (typeof BOOKING_KINDS)[number];
+export const BOOKING_STATUSES = ["active", "rescheduled", "cancelled"] as const;
+export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+export type BookingWarning = "case_closed" | "cancellation_passed" | "expires_before_submission";
+/** A hotel or the client's flight booking for the document package (backlog 1.8). */
+export type Booking = {
+  id: string;
+  case_id: string;
+  kind: BookingKind;
+  status: BookingStatus;
+  place: string;
+  starts_on: string | null;
+  ends_on: string | null;
+  reference: string | null;
+  free_cancel_until: string | null;
+  valid_until: string | null;
+  vault_entry_id: string | null;
+  note: string | null;
+  deadline: string | null;
+  days_left: number | null;
+  warnings: BookingWarning[];
 };
 
 export type ContactCard = {

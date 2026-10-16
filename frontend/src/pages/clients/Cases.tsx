@@ -37,7 +37,8 @@ import {
   useRules,
   type Country,
 } from "../../reference";
-import { Booking, useNumberLabel } from "./Booking";
+import { Appointment, useNumberLabel } from "./Appointment";
+import { CaseBookings } from "./Bookings";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
 // the structured visa result and the submission group.
@@ -205,7 +206,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
             {[registrar?.name, c.hall && t(`dict.hall.${c.hall}`)].filter(Boolean).join(" · ")}
           </Row>
           <Row label={t("cases.submissionOn")}>{date(c.submission_on)}</Row>
-          <Booking visaCase={c} />
+          <Appointment visaCase={c} />
           {c.outcome && <Result visaCase={c} />}
           <Group visaCase={c} />
           <div className="form-actions">
@@ -215,6 +216,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
           </div>
         </>
       )}
+      <CaseBookings visaCase={c} />
     </article>
   );
 }

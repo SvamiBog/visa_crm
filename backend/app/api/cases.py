@@ -15,7 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import Date, cast, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.booking import AttemptOut, QueueEntryOut, average_waits, booking_of
+from app.api.appointments import AttemptOut, QueueEntryOut, appointments_of, average_waits
+from app.api.bookings import BookingOut, bookings_of
 from app.api.client_status import Tab, latest_consultation, tab_of
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
@@ -175,6 +176,8 @@ class CaseOut(BaseModel):
     attempts: list[AttemptOut] = []
     # Average days from the queue to the letter for this country, city and purpose.
     average_wait_days: int | None = None
+    # Hotels and the client's flight booking for the document package.
+    bookings: list[BookingOut] = []
 
 
 class GroupIn(BaseModel):
@@ -291,7 +294,8 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
             rules[(rule.destination_id, rule.submission_id)] = rule
 
     today = await workspace_today(session, cases[0].tenant_id) if cases else None
-    booking = await booking_of(session, cases, today) if today else {}
+    appointments = await appointments_of(session, cases, today) if today else {}
+    bookings = await bookings_of(session, cases, today) if today else {}
     waits = await average_waits(session) if cases else {}
 
     result = []
@@ -299,7 +303,8 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
         out = CaseOut.model_validate(case)
         if case.group_id is not None:
             out.group = [m for m in members[case.group_id] if m.case_id != case.id]
-        out.queue_entries, out.attempts = booking.get(case.id, ([], []))
+        out.queue_entries, out.attempts = appointments.get(case.id, ([], []))
+        out.bookings = bookings.get(case.id, [])
         wait = waits.get((case.destination_id, case.visa_center_id, case.purpose_id))
         out.average_wait_days = wait[0] if wait else None
         rule = rules.get((case.destination_id, case.submission_country_id))

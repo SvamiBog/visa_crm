@@ -13,7 +13,7 @@ import {
   type QueueEntry,
 } from "../../contacts";
 import { byId, useCountries, useLocalName, useRules, type VisaCenter } from "../../reference";
-import { ATTEMPT_CHIP, QUEUE_CHIP } from "../clients/Booking";
+import { ATTEMPT_CHIP, QUEUE_CHIP } from "../clients/Appointment";
 import { CaseChip } from "../clients/Cases";
 
 // «Очередь: страна» (backlog 1.6): who waits since when under what number, the

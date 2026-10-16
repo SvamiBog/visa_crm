@@ -11,6 +11,7 @@ import { AuditPage } from "./pages/AuditPage";
 import { CountriesPage } from "./pages/cabinet/CountriesPage";
 import { ClientsPage } from "./pages/clients/ClientsPage";
 import { ContactPage } from "./pages/clients/ContactPage";
+import { BookingsPage } from "./pages/bookings/BookingsPage";
 import { QueuesPage } from "./pages/queues/QueuesPage";
 import { VaultPage } from "./pages/vault/VaultPage";
 import { DictionariesPage } from "./pages/cabinet/DictionariesPage";
@@ -159,6 +160,16 @@ export default function App() {
           <RequireUser roles={["specialist", "employee"]}>
             <Shell area="cabinet">
               <QueuesPage />
+            </Shell>
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/app/bookings"
+        element={
+          <RequireUser roles={["specialist", "employee"]}>
+            <Shell area="cabinet">
+              <BookingsPage />
             </Shell>
           </RequireUser>
         }

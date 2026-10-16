@@ -102,6 +102,7 @@ WORKSPACE_TABLES = (
     "application_attempts",
     "vault_entries",
     "vault_systems",
+    "bookings",
     "visa_cases",
     "submission_groups",
     "consultations",
