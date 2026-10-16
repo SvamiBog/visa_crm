@@ -18,6 +18,7 @@ from app.api.queues import router as queues_router
 from app.api.reference import admin_router as admin_reference_router
 from app.api.reference import router as reference_router
 from app.api.registrar_ledger import router as registrar_ledger_router
+from app.api.reminders import router as reminders_router
 from app.api.two_factor import router as two_factor_router
 from app.api.vault import router as vault_router
 from app.api.workspace import router as workspace_router
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
         bookings_router,
         finances_router,
         registrar_ledger_router,
+        reminders_router,
         vault_router,
     ):
         app.include_router(router, prefix="/api")

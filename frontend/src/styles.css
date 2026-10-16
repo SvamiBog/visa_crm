@@ -1683,3 +1683,35 @@ a.nav-a:hover {
 .actions-cell {
   text-align: right;
 }
+
+/* «Требует внимания» */
+.attention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.attention-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--c-row);
+}
+
+.attention-item:first-child {
+  border-top: 0;
+}
+
+.attention-main {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.attention-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

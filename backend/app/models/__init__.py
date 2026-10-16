@@ -34,6 +34,7 @@ from app.models.reference import (
     VacOperator,
     VisaCenter,
 )
+from app.models.reminder import ReminderDismissal
 from app.models.session import UserSession
 from app.models.tenant import Tenant
 from app.models.user import UiTheme, User, UserRole
@@ -82,6 +83,7 @@ __all__ = [
     "RegistrarPayment",
     "RegistrarPaymentMethod",
     "RegistrarPrice",
+    "ReminderDismissal",
     "SubmissionGroup",
     "RecoveryCode",
     "Tenant",

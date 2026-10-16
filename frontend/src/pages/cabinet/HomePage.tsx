@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { apiGet } from "../../api";
+import { useHasModule } from "../../workspace";
+import { AttentionList } from "./Attention";
 
 type Workspace = { name: string; base_currency: string; timezone: string };
 
 export function HomePage() {
   const { t } = useTranslation();
+  const tasks = useHasModule("tasks");
   const workspace = useQuery({
     queryKey: ["workspace"],
     queryFn: () => apiGet<Workspace>("/workspace"),
@@ -19,6 +22,8 @@ export function HomePage() {
           {workspace.data && <div className="muted">{workspace.data.name}</div>}
         </div>
       </header>
+
+      {tasks && <AttentionList />}
 
       <section className="card">
         <h2 className="h2">{t("cabinet.comingTitle")}</h2>
