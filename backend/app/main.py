@@ -10,6 +10,7 @@ from app.api.cases import router as cases_router
 from app.api.consultations import router as consultations_router
 from app.api.contacts import router as contacts_router
 from app.api.dictionaries import router as dictionaries_router
+from app.api.email_change import router as email_change_router
 from app.api.employees import router as employees_router
 from app.api.health import router as health_router
 from app.api.queues import router as queues_router
@@ -20,6 +21,7 @@ from app.api.vault import router as vault_router
 from app.api.workspace import router as workspace_router
 from app.core.audit import client_ip
 from app.core.config import get_settings
+from app.core.http_headers import add_security_headers
 
 
 def create_app() -> FastAPI:
@@ -35,9 +37,12 @@ def create_app() -> FastAPI:
         finally:
             client_ip.reset(token)
 
+    add_security_headers(app)
+
     for router in (
         health_router,
         auth_router,
+        email_change_router,
         two_factor_router,
         admin_router,
         workspace_router,

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19,6 +20,18 @@ class Settings(BaseSettings):
     # Set only while rotating the master key (docs/operations.md): old values still decrypt.
     vault_master_key_previous: str = ""
     frontend_dist: Path = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    # Outgoing mail (app/core/mail.py). Locally and on staging: Mailpit (host, port 1025,
+    # SMTP_TLS=none). In production: the mail provider's SMTP.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_tls: Literal["starttls", "ssl", "none"] = "starttls"
+    mail_from: str = "VisaCRM <no-reply@localhost>"
+    # The staging stand only (docs/staging.md; SEED_DEMO=1 in start.sh): every demo account
+    # gets this password and authenticator secret.
+    demo_password: str = ""
+    demo_totp_secret: str = ""
 
     @property
     def cookie_secure(self) -> bool:

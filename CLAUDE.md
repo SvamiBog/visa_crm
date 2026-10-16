@@ -11,7 +11,8 @@ CRM для визовика (специалиста, который ведёт �
 | docs/decisions.md | Журнал принятых решений — сверяйтесь перед любым спорным выбором |
 | docs/roadmap.md | Дорожная карта: все этапы 0–6, сроки, гейты, эпики, зависимости и статусы |
 | docs/deploy.md | Деплой на Railway по шагам: проект, база, переменные, первый админ, резервные копии, staging |
-| docs/operations.md | Эксплуатация: первый админ, мастер-ключ сейфа и его ротация |
+| docs/operations.md | Эксплуатация: первый админ, мастер-ключ сейфа и его ротация, демо-данные |
+| docs/staging.md | Тестовый стенд: окружение staging и стенды PR на Railway, демо-аккаунты, проверка на уязвимости |
 | docs/backlog.md | Задачи этапов 0 и 1 по порядку, с критериями готовности |
 | docs/open-questions.md | Что ещё не решено — не придумывайте ответы, спросите Максима |
 | docs/prototype/ | Макеты экранов (справочно, не код) |
@@ -21,7 +22,7 @@ CRM для визовика (специалиста, который ведёт �
 ## Команды
 
 ```bash
-docker compose up -d                     # локальный Postgres 16
+docker compose up -d                     # локальный Postgres 16 и Mailpit (письма — http://localhost:8025)
 cd backend && cp .env.example .env
 uv sync                                  # зависимости (создаст uv.lock — коммитить)
 uv run alembic upgrade head              # миграции
@@ -30,6 +31,7 @@ uv run pytest                            # тесты (нужен Postgres: со
 uv run ruff check . && uv run ruff format .
 alembic revision --autogenerate -m "..."  # новая миграция (через uv run)
 uv run python -m app.cli create-admin EMAIL  # первый админ платформы (другие команды — docs/operations.md)
+uv run python -m app.cli seed-demo        # демо-данные стенда (ENV=local/staging, DEMO_PASSWORD, DEMO_TOTP_SECRET)
 
 cd frontend && npm install               # создаст package-lock.json — коммитить
 npm run dev                              # UI на :5173, /api проксируется на :8000

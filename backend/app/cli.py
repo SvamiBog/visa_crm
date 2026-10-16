@@ -5,6 +5,8 @@ generate-master-key    a new VAULT_MASTER_KEY value
 rotate-master-key      re-encrypt secrets after setting a new VAULT_MASTER_KEY
                        (see docs/operations.md)
 reset-two-factor EMAIL turn off 2FA for a user who lost the phone and recovery codes
+seed-demo              fill the staging stand with demo specialists and clients
+                       (docs/staging.md; refuses in production)
 """
 
 import argparse
@@ -16,8 +18,10 @@ import uuid
 from sqlalchemy import delete, select
 
 from app.core.audit import record
+from app.core.config import get_settings
 from app.core.crypto import generate_master_key, master_keys
 from app.core.db import get_engine, get_sessionmaker, scope_to_system
+from app.core.demo import DemoRefused, DemoSettings, already_seeded, check_settings, seed
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
 from app.core.two_factor import reset_two_factor
 from app.core.vault import reseal_with_current_master_key
@@ -80,6 +84,30 @@ async def rotate_master_key() -> int:
     return count
 
 
+async def seed_demo(specialists: int, clients: int) -> str:
+    settings = get_settings()
+    check_settings(settings.env, settings.demo_password, settings.demo_totp_secret)
+    async with get_sessionmaker()() as session:
+        scope_to_system(session)
+        if await already_seeded(session):
+            return "Demo data is already there"
+        totals = await seed(
+            session,
+            DemoSettings(
+                password=settings.demo_password,
+                totp_secret=settings.demo_totp_secret,
+                specialists=specialists,
+                clients=clients,
+            ),
+        )
+        await session.commit()
+    await get_engine().dispose()
+    return (
+        f"Demo data: {totals['specialists']} specialists, {totals['clients']} clients, "
+        f"{totals['cases']} cases"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -89,6 +117,9 @@ def main() -> None:
     commands.add_parser("rotate-master-key", help="re-encrypt secrets with the current key")
     reset = commands.add_parser("reset-two-factor", help="turn off 2FA for a user")
     reset.add_argument("email")
+    demo = commands.add_parser("seed-demo", help="fill the staging stand with demo data")
+    demo.add_argument("--specialists", type=int, default=5)
+    demo.add_argument("--clients", type=int, default=300, help="about this many per specialist")
     args = parser.parse_args()
 
     if args.command == "generate-master-key":
@@ -97,6 +128,11 @@ def main() -> None:
         if len(master_keys()) < 2:
             sys.exit("Set VAULT_MASTER_KEY_PREVIOUS to the old key before rotating")
         print(f"Re-encrypted {asyncio.run(rotate_master_key())} secrets")
+    elif args.command == "seed-demo":
+        try:
+            print(asyncio.run(seed_demo(args.specialists, args.clients)))
+        except DemoRefused as error:
+            sys.exit(f"Demo data refused: {error}")
     elif args.command == "reset-two-factor":
         email = args.email.strip().lower()
         asyncio.run(reset_user_two_factor(email))
