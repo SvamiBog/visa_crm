@@ -65,6 +65,7 @@ class AuditAction(StrEnum):
     REGISTRAR_PAYMENT_ADDED = "finances.registrar_payment_added"
     REGISTRAR_PAYMENT_UPDATED = "finances.registrar_payment_updated"
     REGISTRAR_PAYMENT_DELETED = "finances.registrar_payment_deleted"
+    REMINDER_SETTINGS_UPDATED = "reminders.settings_updated"
     VAULT_ENTRY_CREATED = "vault.entry_created"
     VAULT_ENTRY_UPDATED = "vault.entry_updated"
     VAULT_ENTRY_DELETED = "vault.entry_deleted"

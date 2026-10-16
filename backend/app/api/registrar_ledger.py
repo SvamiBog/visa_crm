@@ -302,9 +302,8 @@ def _audit(
 # --- Endpoints -----------------------------------------------------------------------
 
 
-@router.get("/registrars/ledgers")
-async def list_ledgers(user: Member, session: TenantSession) -> list[SummaryOut]:
-    """Every registrar's balance, in their own currency."""
+async def ledger_summaries(session: AsyncSession) -> list[SummaryOut]:
+    """Every registrar's balance, in their own currency (inactive ones only with entries)."""
     registrars = list(await session.scalars(select(Registrar).order_by(Registrar.name)))
     payments: dict[uuid.UUID, list[RegistrarPayment]] = defaultdict(list)
     for p in await session.scalars(select(RegistrarPayment)):
@@ -320,6 +319,11 @@ async def list_ledgers(user: Member, session: TenantSession) -> list[SummaryOut]
         for r in registrars
         if r.is_active or payments[r.id] or talons[r.id]
     ]
+
+
+@router.get("/registrars/ledgers")
+async def list_ledgers(user: Member, session: TenantSession) -> list[SummaryOut]:
+    return await ledger_summaries(session)
 
 
 @router.get("/registrars/{registrar_id}/ledger")

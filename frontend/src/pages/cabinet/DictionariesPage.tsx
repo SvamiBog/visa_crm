@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
 import { rulesSummary, SYSTEM_KINDS, type SystemKind, type VaultSystem } from "../../vault";
+import { ReminderSettings } from "./Attention";
 
 // A specialist's own lists (backend/app/api/dictionaries.py).
 
@@ -62,7 +63,8 @@ type Tab =
   | "registrars"
   | "prepayments"
   | "vaultSystems"
-  | "money";
+  | "money"
+  | "reminders";
 const TABS: Tab[] = [
   "purposes",
   "channels",
@@ -71,6 +73,7 @@ const TABS: Tab[] = [
   "prepayments",
   "vaultSystems",
   "money",
+  "reminders",
 ];
 
 const key = (name: string) => ["dictionaries", name] as const;
@@ -138,6 +141,7 @@ export function DictionariesPage() {
       {tab === "prepayments" && <Prepayments />}
       {tab === "vaultSystems" && <VaultSystems />}
       {tab === "money" && <MoneySettings />}
+      {tab === "reminders" && <ReminderSettings />}
     </div>
   );
 }

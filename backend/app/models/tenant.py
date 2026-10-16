@@ -1,8 +1,10 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import ARRAY, DateTime, LargeBinary, Numeric, String, func, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -28,4 +30,8 @@ class Tenant(Base):
     modules: Mapped[list[str]] = mapped_column(ARRAY(String(40)), server_default=text("'{}'"))
     # The tenant's vault data key, encrypted with the master key (app/core/vault.py).
     vault_key_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
+    # The specialist's reminder windows over the defaults (app/core/reminders.py: Settings).
+    reminder_settings: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

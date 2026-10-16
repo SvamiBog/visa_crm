@@ -16,6 +16,7 @@ import {
   type Note,
 } from "../../contacts";
 import { byId } from "../../reference";
+import { AttentionList } from "../cabinet/Attention";
 import { ContactVault } from "../vault/Vault";
 import { Cases } from "./Cases";
 import { ContactForm } from "./ContactForm";
@@ -105,6 +106,7 @@ export function ContactPage() {
       )}
 
       <Hints hints={card.data.hints} />
+      {workspace.data?.modules.includes("tasks") && <AttentionList contactId={contact.id} />}
 
       <div className="card-grid">
         <div className="column">
