@@ -66,9 +66,7 @@ async def test_account_events_are_recorded(client: AsyncClient, make_user: MakeU
     assert "auth.logout" in await actions(client, "/api/admin/audit")
 
 
-async def test_specialist_sees_admin_actions_on_their_workspace(
-    client: AsyncClient, make_user: MakeUser
-):
+async def test_specialist_does_not_see_the_admins_actions(client: AsyncClient, make_user: MakeUser):
     await make_user("root@example.com", role="admin")
     tenant_id = await make_user("anna@example.com")
     await login(client, "root@example.com")
@@ -78,16 +76,28 @@ async def test_specialist_sees_admin_actions_on_their_workspace(
 
     await login(client, "anna@example.com")
     events = (await client.get("/api/audit")).json()["events"]
-    admin_events = [e for e in events if e["action"].startswith("admin.")]
-    assert [e["action"] for e in admin_events] == [
-        "admin.specialist_unblocked",
-        "admin.specialist_blocked",
-    ]
-    assert {e["actor_email"] for e in admin_events} == {"root@example.com"}
-    # The admin's own login is platform-level: not in the specialist's log.
-    assert all(
-        e["actor_email"] != "root@example.com" for e in events if e["action"] == "auth.login"
-    )
+    assert events and {e["actor_email"] for e in events} == {"anna@example.com"}
+    assert not [e for e in events if e["action"].startswith("admin.")]
+    client.cookies.clear()
+    # The admin still sees them, in the workspace's log too.
+    await login(client, "root@example.com")
+    admin_view = await actions(client, f"/api/admin/audit?tenant_id={tenant_id}")
+    assert "admin.specialist_blocked" in admin_view
+
+
+async def test_specialist_sees_their_employees(client: AsyncClient, make_user: MakeUser):
+    tenant_id = await make_user("anna@example.com")
+    await make_user("staff@example.com", role="employee", tenant_id=tenant_id)
+    await login(client, "staff@example.com")
+    client.cookies.clear()
+    await login(client, "anna@example.com")
+    events = (await client.get("/api/audit")).json()["events"]
+    assert {e["actor_email"] for e in events} == {"anna@example.com", "staff@example.com"}
+    actors = (await client.get("/api/audit/actors")).json()
+    assert [a["email"] for a in actors] == ["anna@example.com", "staff@example.com"]
+    staff = next(a["id"] for a in actors if a["email"] == "staff@example.com")
+    only_staff = (await client.get("/api/audit", params={"actor_id": staff})).json()["events"]
+    assert {e["actor_email"] for e in only_staff} == {"staff@example.com"}
 
 
 async def test_specialist_sees_only_own_workspace(client: AsyncClient, make_user: MakeUser):
@@ -124,11 +134,54 @@ async def test_pages_newest_first(client: AsyncClient, make_user: MakeUser):
         await login(client, "anna@example.com", "wrong-password")
     await login(client, "anna@example.com")
     first = (await client.get("/api/audit?limit=2")).json()
-    assert len(first["events"]) == 2 and first["next_before"] is not None
-    second = (await client.get(f"/api/audit?limit=2&before={first['next_before']}")).json()
-    assert len(second["events"]) == 2 and second["next_before"] is None
+    assert len(first["events"]) == 2 and first["next_cursor"] is not None
+    second = (await client.get(f"/api/audit?limit=2&cursor={first['next_cursor']}")).json()
+    assert len(second["events"]) == 2 and second["next_cursor"] is None
     ids = [e["id"] for e in first["events"] + second["events"]]
     assert ids == sorted(ids, reverse=True)
+    # Oldest first, paged the other way.
+    oldest = (await client.get("/api/audit?limit=3&order=asc")).json()
+    rest = (await client.get(f"/api/audit?limit=3&order=asc&cursor={oldest['next_cursor']}")).json()
+    assert [e["id"] for e in oldest["events"] + rest["events"]] == sorted(ids)
+
+
+async def test_admin_filters_the_whole_log(client: AsyncClient, make_user: MakeUser):
+    await make_user("root@example.com", role="admin")
+    anna = await make_user("anna@example.com")
+    await make_user("boris@example.com")
+    await login(client, "anna@example.com", "wrong-password")
+    await login(client, "anna@example.com")
+    await login(client, "boris@example.com")
+    client.cookies.clear()
+    await login(client, "root@example.com")
+    await client.post(f"/api/admin/specialists/{anna}/block")
+
+    actors = {a["email"]: a["id"] for a in (await client.get("/api/admin/audit/actors")).json()}
+    assert set(actors) == {"anna@example.com", "boris@example.com", "root@example.com"}
+
+    async def emails_and_actions(**params) -> list[tuple[str, str]]:
+        response = await client.get("/api/admin/audit", params=params)
+        assert response.status_code == 200, response.text
+        return [(e["actor_email"], e["action"]) for e in response.json()["events"]]
+
+    assert await emails_and_actions(actor_id=actors["anna@example.com"]) == [
+        ("anna@example.com", "auth.login"),
+        ("anna@example.com", "auth.login_failed"),
+    ]
+    assert await emails_and_actions(action="auth.login_failed") == [
+        ("anna@example.com", "auth.login_failed")
+    ]
+    assert {a for _, a in await emails_and_actions(category="admin")} == {
+        "admin.specialist_blocked"
+    }
+    # Outside any workspace: the admin's own login.
+    assert await emails_and_actions(platform=True) == [("root@example.com", "auth.login")]
+    # A day range: nothing before today, everything from today.
+    assert await emails_and_actions(occurred_to="2000-01-01T00:00:00Z") == []
+    everything = await emails_and_actions()
+    assert len(await emails_and_actions(occurred_from="2000-01-01T00:00:00Z")) == len(everything)
+    assert (await client.get("/api/admin/audit", params={"category": "a; drop"})).status_code == 422
+    assert "cases.created" in (await client.get("/api/audit/actions")).json()
 
 
 async def test_cli_admin_creation_is_recorded(client: AsyncClient, owner_engine: AsyncEngine):
