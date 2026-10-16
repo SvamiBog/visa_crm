@@ -147,6 +147,57 @@ export type ContactCard = {
   cases: VisaCase[] | null;
 };
 
+// Client index (backend/app/api/client_status.py): every contact is in one tab.
+
+export const TABS = ["all", "work", "consult", "thinking", "archive"] as const;
+export type Tab = (typeof TABS)[number];
+
+export type CaseBrief = {
+  id: string;
+  number: number;
+  destination_id: string;
+  purpose_id: string | null;
+  stage: CaseStage;
+  outcome: Outcome | null;
+  submission_on: string | null;
+  group_size: number;
+};
+
+export type ContactRow = ContactListItem & {
+  tab: Exclude<Tab, "all">;
+  case: CaseBrief | null;
+  cases_in_work: number;
+  consultation: { held_on: string; decision: Decision | null; destination_ids: string[] } | null;
+};
+
+export type SearchPage = { items: ContactRow[]; has_more: boolean; counts: Record<Tab, number> };
+
+export type BoardCase = {
+  id: string;
+  number: number;
+  contact_id: string;
+  full_name: string;
+  group_id: string | null;
+  destination_id: string;
+  purpose_id: string | null;
+  registrar_id: string | null;
+  stage: CaseStage;
+  outcome: Outcome | null;
+  submission_on: string | null;
+  decided_on: string | null;
+};
+
+export type BoardLead = {
+  contact_id: string;
+  full_name: string;
+  tab: "consult" | "thinking";
+  held_on: string | null;
+  decision: Decision | null;
+  destination_ids: string[];
+};
+
+export type Board = { cases: BoardCase[]; leads: BoardLead[] };
+
 export type Entry = { id: string; name: string; is_active: boolean };
 export type PartnerRef = { id: string; name: string; is_active: boolean };
 

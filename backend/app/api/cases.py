@@ -7,14 +7,16 @@ events carry ids and the names of changed fields only.
 """
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import func, select, text, tuple_
+from sqlalchemy import Date, cast, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.client_status import Tab, latest_consultation, tab_of
 from app.api.deps import CurrentUser, TenantSession, require_module
 from app.core.audit import record
 from app.core.cases import VISA_DETAILS, advance, appeal_until, cleared_by_outcome
@@ -29,6 +31,7 @@ from app.models import (
     Decision,
     Registrar,
     SubmissionGroup,
+    Tenant,
     VisaCase,
     VisaCenter,
     VisaEntries,
@@ -45,6 +48,11 @@ router = APIRouter(
 Member = Annotated[CurrentUser, Depends(require_module("cases"))]
 
 MAX_APPLICANTS = 30
+# Board (backlog 1.5): results stay in the «Результат» column for a month, leads in the
+# «Консультация» column for three months after their latest consultation.
+RECENT_RESULT_DAYS = 30
+RECENT_LEAD_DAYS = 90
+BOARD_LIMIT = 500
 
 
 # --- Schemas -------------------------------------------------------------------------
@@ -409,6 +417,148 @@ async def create_cases(
     for case in cases:
         await session.refresh(case)
     return await cases_out(session, cases)
+
+
+# --- Board (client index, backlog 1.5) ------------------------------------------------
+
+
+class BoardCase(BaseModel):
+    id: uuid.UUID
+    number: int
+    contact_id: uuid.UUID
+    full_name: str
+    group_id: uuid.UUID | None
+    destination_id: uuid.UUID
+    purpose_id: uuid.UUID | None
+    registrar_id: uuid.UUID | None
+    stage: CaseStage
+    outcome: VisaOutcome | None
+    submission_on: date | None
+    decided_on: date | None
+
+
+class BoardLead(BaseModel):
+    """A client in the «Консультация» column: no case in work yet."""
+
+    contact_id: uuid.UUID
+    full_name: str
+    tab: Tab
+    held_on: date | None
+    decision: Decision | None
+    destination_ids: list[uuid.UUID]
+
+
+class Board(BaseModel):
+    cases: list[BoardCase]
+    leads: list[BoardLead]
+
+
+class StageIn(BaseModel):
+    """Drag and drop on the board: a case, or a submission group moved together."""
+
+    case_ids: Annotated[list[uuid.UUID], Field(min_length=1, max_length=MAX_APPLICANTS)]
+    stage: CaseStage
+
+
+async def _today(session: AsyncSession, tenant_id: uuid.UUID) -> date:
+    timezone = await session.scalar(select(Tenant.timezone).where(Tenant.id == tenant_id))
+    return datetime.now(ZoneInfo(timezone or "Europe/Minsk")).date()
+
+
+@router.get("/cases/board")
+async def board(
+    user: Member,
+    session: TenantSession,
+    country_id: Annotated[uuid.UUID | None, Query()] = None,
+    channel_id: Annotated[uuid.UUID | None, Query()] = None,
+    registrar_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> Board:
+    """Kanban of the client index: cases in work by stage, results of the last month, and
+    clients after a consultation without a case in work."""
+    today = await _today(session, user.tenant_id)
+    decided = func.coalesce(VisaCase.decided_on, cast(VisaCase.updated_at, Date))
+    query = (
+        select(VisaCase, Contact.full_name)
+        .join(Contact, Contact.id == VisaCase.contact_id)
+        .where(
+            or_(
+                VisaCase.stage != CaseStage.RESULT,
+                decided >= today - timedelta(days=RECENT_RESULT_DAYS),
+            )
+        )
+    )
+    if country_id is not None:
+        query = query.where(VisaCase.destination_id == country_id)
+    if channel_id is not None:
+        query = query.where(Contact.lead_channel_id == channel_id)
+    if registrar_id is not None:
+        query = query.where(VisaCase.registrar_id == registrar_id)
+    rows = await session.execute(query.order_by(VisaCase.number.desc()).limit(BOARD_LIMIT))
+    cases = [
+        BoardCase(
+            id=c.id,
+            number=c.number,
+            contact_id=c.contact_id,
+            full_name=name,
+            group_id=c.group_id,
+            destination_id=c.destination_id,
+            purpose_id=c.purpose_id,
+            registrar_id=c.registrar_id,
+            stage=c.stage,
+            outcome=c.outcome,
+            submission_on=c.submission_on,
+            decided_on=c.decided_on,
+        )
+        for c, name in rows.tuples()
+    ]
+
+    leads: list[BoardLead] = []
+    if registrar_id is None:  # leads have no registrar yet
+        latest = latest_consultation()
+        tab = tab_of(latest)
+        since = func.coalesce(latest.c.held_on, cast(Contact.created_at, Date))
+        lead_query = (
+            select(Contact.id, Contact.full_name, tab, latest.c.held_on, latest.c.decision)
+            .add_columns(latest.c.destination_ids)
+            .outerjoin(latest, true())
+            .where(
+                tab.in_([Tab.CONSULT.value, Tab.THINKING.value]),
+                since >= today - timedelta(days=RECENT_LEAD_DAYS),
+            )
+        )
+        if country_id is not None:
+            lead_query = lead_query.where(latest.c.destination_ids.any(country_id))
+        if channel_id is not None:
+            lead_query = lead_query.where(Contact.lead_channel_id == channel_id)
+        for contact_id, name, lead_tab, held_on, decision, destinations in (
+            await session.execute(lead_query.order_by(since.desc()).limit(BOARD_LIMIT))
+        ).tuples():
+            leads.append(
+                BoardLead(
+                    contact_id=contact_id,
+                    full_name=name,
+                    tab=Tab(lead_tab),
+                    held_on=held_on,
+                    decision=decision,
+                    destination_ids=destinations or [],
+                )
+            )
+    return Board(cases=cases, leads=leads)
+
+
+@router.post("/cases/stage", status_code=status.HTTP_204_NO_CONTENT)
+async def move_cases(body: StageIn, user: Member, session: TenantSession) -> Response:
+    """Move cases to a stage by hand (the board's drag and drop)."""
+    ids = set(body.case_ids)
+    cases = list(await session.scalars(select(VisaCase).where(VisaCase.id.in_(ids))))
+    if len(cases) != len(ids):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    for case in cases:
+        if case.stage != body.stage:
+            case.stage = body.stage
+            _audit(session, AuditAction.CASE_UPDATED, user, case, {"fields": "stage"})
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/cases/{case_id}")
