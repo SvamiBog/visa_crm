@@ -48,6 +48,12 @@ async def test_new_specialist_gets_default_lists(client: AsyncClient, make_user:
     channels = [c["name"] for c in (await client.get(f"{BASE}/channels")).json()]
     assert purposes == ["Туризм", "Гостевая", "Бизнес", "Учёба"]
     assert channels == ["Instagram", "Сарафан", "Партнёр", "Друзья", "Реклама"]
+    systems = (await client.get(f"{BASE}/vault-systems")).json()
+    assert [(s["name"], s["kind"]) for s in systems][:2] == [
+        ("Почта", "email"),
+        ("VFS Global", "visa_center"),
+    ]
+    assert len(systems) == 6
 
 
 @pytest.mark.parametrize("kind", ["purposes", "channels"])

@@ -3,6 +3,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
+import { rulesSummary, SYSTEM_KINDS, type SystemKind, type VaultSystem } from "../../vault";
 
 // A specialist's own lists (backend/app/api/dictionaries.py).
 
@@ -52,8 +53,23 @@ type Money = {
   tax_rate: string;
 };
 
-type Tab = "purposes" | "channels" | "partners" | "registrars" | "prepayments" | "money";
-const TABS: Tab[] = ["purposes", "channels", "partners", "registrars", "prepayments", "money"];
+type Tab =
+  | "purposes"
+  | "channels"
+  | "partners"
+  | "registrars"
+  | "prepayments"
+  | "vaultSystems"
+  | "money";
+const TABS: Tab[] = [
+  "purposes",
+  "channels",
+  "partners",
+  "registrars",
+  "prepayments",
+  "vaultSystems",
+  "money",
+];
 
 const key = (name: string) => ["dictionaries", name] as const;
 
@@ -118,6 +134,7 @@ export function DictionariesPage() {
       {tab === "partners" && <Partners />}
       {tab === "registrars" && <Registrars />}
       {tab === "prepayments" && <Prepayments />}
+      {tab === "vaultSystems" && <VaultSystems />}
       {tab === "money" && <MoneySettings />}
     </div>
   );
@@ -241,6 +258,214 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
         </div>
       </form>
     </>
+  );
+}
+
+// --- Vault systems -------------------------------------------------------------------
+
+function VaultSystems() {
+  const { t } = useTranslation();
+  const list = useList<VaultSystem[]>("vault-systems");
+  const [editing, setEditing] = useState<VaultSystem | "new" | null>(null);
+
+  return (
+    <>
+      <div className="toolbar">
+        <p className="muted small">{t("dict.vaultSystemsHint")}</p>
+        {editing === null && (
+          <button type="button" className="btn btn-p" onClick={() => setEditing("new")}>
+            {t("dict.addSystem")}
+          </button>
+        )}
+      </div>
+      {editing !== null && (
+        <SystemForm
+          key={editing === "new" ? "new" : editing.id}
+          system={editing === "new" ? undefined : editing}
+          nextOrder={Math.max(-1, ...(list.data ?? []).map((s) => s.sort_order)) + 1}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      <section className="card">
+        {list.isPending && <p className="muted">{t("common.loading")}</p>}
+        {list.data?.length === 0 && <p className="muted">{t("dict.empty")}</p>}
+        {list.data && list.data.length > 0 && (
+          <div className="table-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>{t("dict.name")}</th>
+                  <th>{t("dict.passwordRules")}</th>
+                  <th>{t("admin.colStatus")}</th>
+                  <th aria-label={t("admin.colActions")} />
+                </tr>
+              </thead>
+              <tbody>
+                {list.data.map((s) => (
+                  <tr key={s.id} className={s.is_active ? undefined : "row-off"}>
+                    <td>
+                      {s.url ? (
+                        <a href={s.url} target="_blank" rel="noreferrer">
+                          {s.name}
+                        </a>
+                      ) : (
+                        s.name
+                      )}
+                      <div className="muted small">{t(`dict.systemKind.${s.kind}`)}</div>
+                    </td>
+                    <td className="mono">{rulesSummary(s)}</td>
+                    <td>
+                      <StatusChip active={s.is_active} />
+                    </td>
+                    <td>
+                      <div className="actions">
+                        <button type="button" className="btn btn-sm" onClick={() => setEditing(s)}>
+                          {t("reference.edit")}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function SystemForm({
+  system,
+  nextOrder,
+  onClose,
+}: {
+  system?: VaultSystem;
+  nextOrder: number;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const refresh = useRefresh("vault-systems");
+  const [name, setName] = useState(system?.name ?? "");
+  const [kind, setKind] = useState<SystemKind>(system?.kind ?? "visa_center");
+  const [url, setUrl] = useState(system?.url ?? "");
+  const [length, setLength] = useState(String(system?.password_length ?? 12));
+  const [lower, setLower] = useState(system?.password_lower ?? true);
+  const [upper, setUpper] = useState(system?.password_upper ?? true);
+  const [digits, setDigits] = useState(system?.password_digits ?? true);
+  const [symbols, setSymbols] = useState(system?.password_symbols ?? "!@#$%*?");
+  const [active, setActive] = useState(system?.is_active ?? true);
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body = {
+        name: name.trim(),
+        kind,
+        url: url.trim() || null,
+        password_length: Number(length),
+        password_lower: lower,
+        password_upper: upper,
+        password_digits: digits,
+        password_symbols: symbols.replace(/\s/g, ""),
+        is_active: active,
+      };
+      return system
+        ? apiPatch<VaultSystem>(`${BASE}/vault-systems/${system.id}`, body)
+        : apiPost<VaultSystem>(`${BASE}/vault-systems`, { ...body, sort_order: nextOrder });
+    },
+    onSuccess: () => {
+      void refresh();
+      onClose();
+    },
+  });
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    save.mutate();
+  };
+
+  return (
+    <form className="card form-card" onSubmit={submit}>
+      <h2 className="h2">{system ? system.name : t("dict.newSystem")}</h2>
+      <div className="form-grid">
+        <label className="field">
+          <span>{t("dict.name")}</span>
+          <input required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>{t("dict.kindLabel")}</span>
+          <select value={kind} onChange={(e) => setKind(e.target.value as SystemKind)}>
+            {SYSTEM_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {t(`dict.systemKind.${k}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>{t("dict.siteUrl")}</span>
+          <input
+            type="url"
+            maxLength={300}
+            placeholder="https://"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </label>
+      </div>
+      <fieldset className="module-block">
+        <legend>{t("dict.passwordRules")}</legend>
+        <p className="muted small">{t("dict.passwordRulesHint")}</p>
+        <div className="form-grid">
+          <label className="field">
+            <span>{t("dict.passwordLength")}</span>
+            <input
+              type="number"
+              required
+              min={6}
+              max={64}
+              value={length}
+              onChange={(e) => setLength(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>{t("dict.passwordSymbols")}</span>
+            <input
+              className="mono"
+              maxLength={32}
+              value={symbols}
+              onChange={(e) => setSymbols(e.target.value)}
+            />
+            <small className="muted">{t("dict.passwordSymbolsHint")}</small>
+          </label>
+        </div>
+        <label className="checkbox">
+          <input type="checkbox" checked={lower} onChange={(e) => setLower(e.target.checked)} />
+          <span>{t("dict.passwordLower")}</span>
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={upper} onChange={(e) => setUpper(e.target.checked)} />
+          <span>{t("dict.passwordUpper")}</span>
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={digits} onChange={(e) => setDigits(e.target.checked)} />
+          <span>{t("dict.passwordDigits")}</span>
+        </label>
+      </fieldset>
+      <label className="checkbox">
+        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+        <span>{t("reference.activeLabel")}</span>
+      </label>
+      {save.isError && <ErrorAlert error={save.error} />}
+      <div className="form-actions">
+        <button type="submit" className="btn btn-p" disabled={save.isPending}>
+          {t("common.save")}
+        </button>
+        <button type="button" className="btn" onClick={onClose}>
+          {t("common.cancel")}
+        </button>
+      </div>
+    </form>
   );
 }
 

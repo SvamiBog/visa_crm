@@ -48,6 +48,10 @@ class AuditAction(StrEnum):
     CASE_QUEUE_UPDATED = "cases.queue_updated"
     CASE_ATTEMPT_SENT = "cases.attempt_sent"
     CASE_ATTEMPT_UPDATED = "cases.attempt_updated"
+    VAULT_ENTRY_CREATED = "vault.entry_created"
+    VAULT_ENTRY_UPDATED = "vault.entry_updated"
+    VAULT_ENTRY_DELETED = "vault.entry_deleted"
+    VAULT_PASSWORD_REVEALED = "vault.password_revealed"
     # Reference data; target_type names the reference (country, vac_operator, …).
     REFERENCE_CREATED = "reference.created"
     REFERENCE_UPDATED = "reference.updated"

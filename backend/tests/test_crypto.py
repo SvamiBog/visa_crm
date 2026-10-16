@@ -88,10 +88,13 @@ async def test_tenant_key_is_created_once_and_stored_wrapped(
         )
     assert stored is not None and key not in stored
 
-    blob = encrypt_for_tenant(key, tenant_id, "client-password")
-    assert decrypt_for_tenant(key, tenant_id, blob) == "client-password"
+    entry_id = uuid.uuid4()
+    blob = encrypt_for_tenant(key, tenant_id, entry_id, "client-password")
+    assert decrypt_for_tenant(key, tenant_id, entry_id, blob) == "client-password"
     with pytest.raises(InvalidTag):
-        decrypt_for_tenant(key, uuid.uuid4(), blob)
+        decrypt_for_tenant(key, uuid.uuid4(), entry_id, blob)
+    with pytest.raises(InvalidTag):  # copied onto another entry
+        decrypt_for_tenant(key, tenant_id, uuid.uuid4(), blob)
 
 
 async def test_tenant_cannot_load_another_tenants_key(

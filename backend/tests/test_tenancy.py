@@ -145,3 +145,24 @@ async def test_email_must_be_lowercase(sessionmaker: async_sessionmaker[AsyncSes
         session.add(User(tenant_id=TENANT_A, email="Mixed@Example.com", role=UserRole.EMPLOYEE))
         with pytest.raises(IntegrityError, match="email_lowercase"):
             await session.flush()
+
+
+async def test_every_workspace_table_is_under_row_level_security(owner_engine: AsyncEngine):
+    """A table with tenant_id must have RLS on and the tenant_isolation policy
+    (enable_tenant_rls in its migration): a new table without them fails here."""
+    async with owner_engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT c.relname, c.relrowsecurity, EXISTS ("
+                "  SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public'"
+                "  AND p.tablename = c.relname AND p.policyname = 'tenant_isolation') "
+                "FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public' "
+                "JOIN information_schema.columns col ON col.table_schema = 'public' "
+                "  AND col.table_name = c.relname AND col.column_name = 'tenant_id' "
+                "WHERE c.relkind = 'r'"
+            )
+        )
+        tables = {name: rls and policy for name, rls, policy in rows.tuples()}
+    assert {"vault_entries", "vault_systems", "visa_cases"} <= set(tables)
+    assert [name for name, protected in tables.items() if not protected] == []

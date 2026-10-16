@@ -1,5 +1,6 @@
 """A specialist's own reference lists (backlog 1.1): visa purposes, lead channels, partners
-with terms, registrars with prices, prepayments, currencies and tax.
+with terms, registrars with prices, prepayments, currencies and tax; the systems of the
+vault with their password rules (backlog 1.7).
 
 Everyone in the workspace reads them (forms need them); only the specialist edits.
 Everything runs in the workspace scope, so Row-Level Security keeps other workspaces out.
@@ -11,7 +12,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,8 @@ from app.models import (
     RegistrarKind,
     RegistrarPrice,
     Tenant,
+    VaultSystem,
+    VaultSystemKind,
     VisaPurpose,
 )
 
@@ -189,6 +192,69 @@ class PrepaymentOut(BaseModel):
     amount: Decimal
 
 
+# Special characters a site may accept: printable ASCII other than letters and digits.
+Symbols = Annotated[str, Field(max_length=32, pattern=r"^[!-/:-@\[-`{-~]*$")]
+Url = Annotated[str, Field(max_length=300, pattern=r"^https?://\S+$")]
+
+
+def _blank_is_none(value: str | None) -> str | None:
+    return (value or "").strip() or None
+
+
+def _unique_chars(value: str | None) -> str | None:
+    return None if value is None else "".join(dict.fromkeys(value))
+
+
+class SystemIn(BaseModel):
+    name: Name
+    kind: VaultSystemKind
+    url: Url | None = None
+    password_length: int = Field(default=12, ge=6, le=64)
+    password_lower: bool = True
+    password_upper: bool = True
+    password_digits: bool = True
+    password_symbols: Symbols = "!@#$%*?"
+    sort_order: int = Field(default=0, ge=0, le=999)
+    is_active: bool = True
+
+    _url = field_validator("url", mode="before")(_blank_is_none)
+    _symbols = field_validator("password_symbols")(_unique_chars)
+
+
+class SystemUpdate(BaseModel):
+    """Only the fields sent are changed; null clears the link."""
+
+    name: Name | None = None
+    kind: VaultSystemKind | None = None
+    url: Url | None = None
+    password_length: int | None = Field(default=None, ge=6, le=64)
+    password_lower: bool | None = None
+    password_upper: bool | None = None
+    password_digits: bool | None = None
+    password_symbols: Symbols | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=999)
+    is_active: bool | None = None
+
+    _url = field_validator("url", mode="before")(_blank_is_none)
+    _symbols = field_validator("password_symbols")(_unique_chars)
+
+
+class SystemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    kind: VaultSystemKind
+    url: str | None
+    password_length: int
+    password_lower: bool
+    password_upper: bool
+    password_digits: bool
+    password_symbols: str
+    sort_order: int
+    is_active: bool
+
+
 class MoneyOut(BaseModel):
     """Currencies and tax. The base currency and the tax rate are set by the admin."""
 
@@ -307,6 +373,55 @@ def _simple_list_routes(path: str, model: type[VisaPurpose] | type[LeadChannel],
 
 for _path, (_model, _kind) in SIMPLE_LISTS.items():
     _simple_list_routes(_path, _model, _kind)
+
+
+# --- Vault systems -------------------------------------------------------------------
+
+
+def _check_password_rules(system: VaultSystem) -> None:
+    if not (
+        system.password_lower
+        or system.password_upper
+        or system.password_digits
+        or system.password_symbols
+    ):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "password_rules_empty")
+
+
+@router.get("/vault-systems")
+async def list_systems(session: TenantSession) -> list[SystemOut]:
+    rows = await session.scalars(
+        select(VaultSystem).order_by(VaultSystem.sort_order, VaultSystem.name)
+    )
+    return [SystemOut.model_validate(r) for r in rows]
+
+
+@router.post("/vault-systems", status_code=status.HTTP_201_CREATED)
+async def create_system(body: SystemIn, user: Specialist, session: TenantSession) -> SystemOut:
+    system = VaultSystem(tenant_id=user.tenant_id, **body.model_dump())
+    system.name = system.name.strip()
+    _check_password_rules(system)
+    session.add(system)
+    await _flush_or_conflict(session, "name_taken")
+    _audit(session, AuditAction.REFERENCE_CREATED, user, "vault_system", system.id, system.name)
+    await session.commit()
+    return SystemOut.model_validate(system)
+
+
+@router.patch("/vault-systems/{system_id}")
+async def update_system(
+    system_id: uuid.UUID, body: SystemUpdate, user: Specialist, session: TenantSession
+) -> SystemOut:
+    system = await _get(session, VaultSystem, system_id)
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("name") is not None:
+        changes["name"] = changes["name"].strip()
+    _apply(system, changes, nullable=frozenset({"url"}))
+    _check_password_rules(system)
+    await _flush_or_conflict(session, "name_taken")
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "vault_system", system.id, system.name)
+    await session.commit()
+    return SystemOut.model_validate(system)
 
 
 # --- Partners ------------------------------------------------------------------------

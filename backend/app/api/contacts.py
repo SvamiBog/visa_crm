@@ -36,6 +36,7 @@ from app.models import (
     Partner,
     User,
     UserRole,
+    VaultEntry,
     VisaCase,
     VisaOutcome,
 )
@@ -359,6 +360,11 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
             # The number the visa center knows the client by (ID, application number…).
             exists().where(VisaCase.contact_id == Contact.id, VisaCase.vac_number.ilike(pattern)),
         ]
+        if "vault" in await effective_modules(session, user):
+            # The login of an account in the vault: whose account is on this mailbox.
+            conditions.append(
+                exists().where(VaultEntry.contact_id == Contact.id, VaultEntry.login.ilike(pattern))
+            )
         digits = phone_digits(term)
         if len(digits) >= 3:
             conditions.append(Contact.phone.contains(digits))
