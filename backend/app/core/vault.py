@@ -1,4 +1,4 @@
-"""Per-tenant data keys for the password vault (vault entries arrive with backlog 1.7).
+"""Per-tenant data keys for the password vault (app/models/vault.py).
 
 Each tenant has its own random AES key. It is stored only wrapped by the master key,
 so a database dump alone does not reveal client passwords.
@@ -39,12 +39,19 @@ async def get_tenant_key(session: AsyncSession, tenant_id: uuid.UUID) -> bytes:
     return unseal(tenant.vault_key_encrypted, tenant_key_aad(tenant_id))
 
 
-def encrypt_for_tenant(key: bytes, tenant_id: uuid.UUID, plaintext: str) -> bytes:
-    return encrypt(key, plaintext.encode(), b"vault:" + tenant_id.bytes)
+def _vault_aad(tenant_id: uuid.UUID, row_id: uuid.UUID) -> bytes:
+    return b"vault:" + tenant_id.bytes + row_id.bytes
 
 
-def decrypt_for_tenant(key: bytes, tenant_id: uuid.UUID, blob: bytes) -> str:
-    return decrypt(key, blob, b"vault:" + tenant_id.bytes).decode()
+def encrypt_for_tenant(
+    key: bytes, tenant_id: uuid.UUID, row_id: uuid.UUID, plaintext: str
+) -> bytes:
+    """Bound to the tenant and to the row it is stored in: copied elsewhere, it won't open."""
+    return encrypt(key, plaintext.encode(), _vault_aad(tenant_id, row_id))
+
+
+def decrypt_for_tenant(key: bytes, tenant_id: uuid.UUID, row_id: uuid.UUID, blob: bytes) -> str:
+    return decrypt(key, blob, _vault_aad(tenant_id, row_id)).decode()
 
 
 async def reseal_with_current_master_key(session: AsyncSession) -> int:

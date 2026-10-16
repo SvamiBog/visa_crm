@@ -110,7 +110,7 @@ export type GroupMember = {
   stage: CaseStage;
 };
 
-export const EMAIL_OWNERS = ["client", "specialist", "registrar"] as const;
+export const EMAIL_OWNERS = ["client", "specialist", "specialist_backup", "registrar"] as const;
 export type EmailOwner = (typeof EMAIL_OWNERS)[number];
 
 export type QueueStatus = "in_queue" | "date_received" | "submitted" | "removed";

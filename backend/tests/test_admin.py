@@ -47,7 +47,7 @@ async def test_admin_creates_specialist_who_must_change_password(
         "base_currency": "PLN",
         "tax_rate": "0.00",
         "timezone": "Europe/Minsk",
-        "modules": ["clients", "cases", "tasks", "country_rules", "analytics"],
+        "modules": ["clients", "cases", "vault", "tasks", "country_rules", "analytics"],
     }
 
 

@@ -1473,3 +1473,65 @@ a.nav-a:hover {
     justify-content: flex-start;
   }
 }
+
+/* The vault: accounts with a hidden password */
+.vault-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vault-entry + .vault-entry {
+  padding-top: 16px;
+  border-top: 1px solid var(--c-border);
+}
+
+.vault-entry .card-head {
+  margin-bottom: 4px;
+}
+
+.vault-entry .h3 {
+  margin: 0;
+}
+
+.vault-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.secret {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  column-gap: 2px;
+}
+
+.secret .mono {
+  margin-right: 4px;
+  overflow-wrap: anywhere;
+}
+
+.secret .link-button {
+  padding: 2px 6px;
+  /* A click on «Показать» must not leave a caret that the shown password then
+     turns into a highlighted selection. */
+  user-select: none;
+}
+
+.vault-form {
+  margin-bottom: 16px;
+}
+
+/* An input with a button beside it (e.g. «Сгенерировать») */
+.input-action {
+  display: flex;
+  gap: 8px;
+}
+
+.input-action input {
+  flex: 1;
+  min-width: 0;
+}

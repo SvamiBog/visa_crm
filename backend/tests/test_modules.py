@@ -16,8 +16,8 @@ async def as_admin(client: AsyncClient, make_user: MakeUser) -> None:
 
 
 def test_registry_matches_prd_module_map():
-    assert len(MODULES) == 21
-    assert DEFAULT_MODULES == ("clients", "cases", "tasks", "country_rules", "analytics")
+    assert len(MODULES) == 22
+    assert DEFAULT_MODULES == ("clients", "cases", "vault", "tasks", "country_rules", "analytics")
 
 
 def test_normalize_orders_and_deduplicates():
@@ -66,7 +66,7 @@ async def test_admin_updates_specialist_and_it_is_logged(client: AsyncClient, ma
     assert event["details"] == {
         "changed": ["modules", "name", "tax_rate"],
         "modules_on": ["slots"],
-        "modules_off": ["cases", "tasks", "country_rules", "analytics"],
+        "modules_off": ["cases", "vault", "tasks", "country_rules", "analytics"],
     }
 
 

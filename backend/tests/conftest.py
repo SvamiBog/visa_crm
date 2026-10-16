@@ -100,6 +100,8 @@ WORKSPACE_TABLES = (
     "user_sessions",
     "waiting_list_entries",
     "application_attempts",
+    "vault_entries",
+    "vault_systems",
     "visa_cases",
     "submission_groups",
     "consultations",

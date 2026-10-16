@@ -72,6 +72,7 @@ class EmailOwner(StrEnum):
 
     CLIENT = "client"
     SPECIALIST = "specialist"  # created by the specialist for the client
+    SPECIALIST_BACKUP = "specialist_backup"  # one of the specialist's own backup mailboxes
     REGISTRAR = "registrar"
 
 

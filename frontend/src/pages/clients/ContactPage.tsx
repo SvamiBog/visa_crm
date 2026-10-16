@@ -16,6 +16,7 @@ import {
   type Note,
 } from "../../contacts";
 import { byId } from "../../reference";
+import { ContactVault } from "../vault/Vault";
 import { Cases } from "./Cases";
 import { ContactForm } from "./ContactForm";
 import { Consultations, Hints, QuestionnaireCard } from "./Consultations";
@@ -38,6 +39,10 @@ export function ContactPage() {
   const card = useQuery({
     queryKey: contactKey(id),
     queryFn: () => apiGet<ContactCard>(`/contacts/${id}`),
+  });
+  const workspace = useQuery({
+    queryKey: ["workspace"],
+    queryFn: () => apiGet<{ modules: string[] }>("/workspace"),
   });
   const [editing, setEditing] = useState(false);
   // «Создать кейс» from a consultation, or a new case without one.
@@ -111,6 +116,9 @@ export function ContactPage() {
         <div className="column">
           {card.data.cases !== null && (
             <Cases card={card.data} creating={creatingCase} onCreating={setCreatingCase} />
+          )}
+          {workspace.data?.modules.includes("vault") && (
+            <ContactVault contactId={contact.id} cases={card.data.cases ?? []} />
           )}
           <Consultations
             card={card.data}
