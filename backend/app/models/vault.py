@@ -97,6 +97,8 @@ class VaultEntry(Base):
         _same_tenant("case_id", "visa_cases", "SET NULL (case_id)"),
         Index("ix_vault_entries_contact_id", "contact_id"),
         CheckConstraint("case_id IS NULL OR contact_id IS NOT NULL", name="case_needs_contact"),
+        # Bookings refer to the account they were made in, within the same workspace.
+        UniqueConstraint("id", "tenant_id", name="uq_vault_entries_id_tenant"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

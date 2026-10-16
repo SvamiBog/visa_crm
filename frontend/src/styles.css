@@ -1535,3 +1535,61 @@ a.nav-a:hover {
   flex: 1;
   min-width: 0;
 }
+
+/* Bookings of a case and the deadlines view */
+.bookings {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--c-border);
+}
+
+.bookings .card-head {
+  margin-bottom: 8px;
+}
+
+.bookings .h3 {
+  margin: 0;
+}
+
+.booking-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.booking-item + .booking-item {
+  padding-top: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.booking-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.booking-item .alert {
+  margin: 6px 0 0;
+}
+
+.booking-form {
+  margin-bottom: 12px;
+}
+
+.alert-warn {
+  background: var(--c-orange-bg);
+  color: var(--c-orange);
+}
+
+.warn-text {
+  color: var(--c-orange);
+}
+
+.booking-item.row-off {
+  color: var(--c-gray);
+}

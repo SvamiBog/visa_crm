@@ -44,7 +44,7 @@ export function useNumberLabel() {
     c.identifier_type ? t(`reference.identifier.${c.identifier_type}`) : t("queues.number");
 }
 
-export function Booking({ visaCase: c }: { visaCase: VisaCase }) {
+export function Appointment({ visaCase: c }: { visaCase: VisaCase }) {
   const { t } = useTranslation();
   const numberLabel = useNumberLabel();
   return (
