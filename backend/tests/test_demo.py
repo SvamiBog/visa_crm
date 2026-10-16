@@ -52,6 +52,16 @@ async def test_demo_workspaces_work_like_real_ones(
     shown = await client.post(f"/api/vault/entries/{mailbox['id']}/reveal")
     assert shown.status_code == 200 and len(shown.json()["password"]) >= 12
     assert (await client.get("/api/bookings/deadlines")).status_code == 200
+    # Demo cases carry money: prices, payments and the counted balance and profit.
+    work = (await client.post("/api/contacts/search", json={"tab": "work"})).json()["items"]
+    priced = []
+    for item in work[:10]:
+        for case in (await client.get(f"/api/contacts/{item['id']}")).json()["cases"]:
+            finance = (await client.get(f"/api/cases/{case['id']}/finance")).json()
+            if finance["price"] is not None:
+                priced.append(finance)
+    assert priced and all(f["profit"] is not None for f in priced)
+    assert any(f["payments"] for f in priced)
     assert (await client.get("/api/queues/summary")).status_code == 200
 
     # The other demo specialist sees only their own clients.

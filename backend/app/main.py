@@ -12,6 +12,7 @@ from app.api.contacts import router as contacts_router
 from app.api.dictionaries import router as dictionaries_router
 from app.api.email_change import router as email_change_router
 from app.api.employees import router as employees_router
+from app.api.finances import router as finances_router
 from app.api.health import router as health_router
 from app.api.queues import router as queues_router
 from app.api.reference import admin_router as admin_reference_router
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
         cases_router,
         queues_router,
         bookings_router,
+        finances_router,
         vault_router,
     ):
         app.include_router(router, prefix="/api")

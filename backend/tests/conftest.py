@@ -3,6 +3,7 @@ import base64
 import os
 import uuid
 from collections.abc import AsyncIterator
+from decimal import Decimal
 from pathlib import Path
 
 import asyncpg
@@ -19,7 +20,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from app.core import db, two_factor
+from app.core import db, rates, two_factor
 from app.core.config import get_settings
 from app.core.modules import DEFAULT_MODULES
 from app.core.security import hash_password
@@ -59,6 +60,21 @@ async def _recreate_database(url: str) -> None:
 def fake_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     """TOTP checks use the test clock: helpers.login moves it one step per login."""
     monkeypatch.setattr(two_factor, "_now", CLOCK.time)
+
+
+# BYN for one unit, every day: tests never call the National Bank.
+FAKE_RATES = {"EUR": "3.400000", "USD": "3.100000", "PLN": "0.800000"}
+
+
+@pytest.fixture(autouse=True)
+def fake_rates(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fetch(currency: str, day) -> Decimal:
+        if currency not in FAKE_RATES:
+            raise rates.RateUnavailable(currency)
+        return Decimal(FAKE_RATES[currency])
+
+    monkeypatch.setattr(rates, "_fetch", fetch)
+    monkeypatch.setattr(rates, "_misses", {})
 
 
 @pytest.fixture
@@ -104,6 +120,10 @@ WORKSPACE_TABLES = (
     "vault_entries",
     "vault_systems",
     "bookings",
+    "case_payments",
+    "case_expenses",
+    "case_finances",
+    "exchange_rates",
     "visa_cases",
     "submission_groups",
     "consultations",

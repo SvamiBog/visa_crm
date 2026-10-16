@@ -13,6 +13,7 @@ import {
 } from "../../contacts";
 import { byId } from "../../reference";
 import { useOwnVault, useVaultSystems, vaultKey, type VaultEntry } from "../../vault";
+import { useHasModule } from "../../workspace";
 import { ErrorAlert } from "./ui";
 
 // Bookings for the document package (backlog 1.8): hotels with their free cancellation
@@ -40,18 +41,10 @@ export function DeadlineChip({ days }: { days: number | null }) {
   return <span className={cls}>{text}</span>;
 }
 
-function useHasVault(): boolean {
-  const workspace = useQuery({
-    queryKey: ["workspace"],
-    queryFn: () => apiGet<{ modules: string[] }>("/workspace"),
-  });
-  return workspace.data?.modules.includes("vault") ?? false;
-}
-
 /** Accounts a booking can be made in — the workspace's own and the client's, on booking
  * sites — and labels of every account («Booking.com · login»). Empty without the vault. */
 export function useBookingAccounts(contactId: string | null) {
-  const hasVault = useHasVault();
+  const hasVault = useHasModule("vault");
   const systems = useVaultSystems();
   const own = useOwnVault(hasVault);
   const client = useQuery({

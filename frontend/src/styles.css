@@ -1613,3 +1613,52 @@ a.nav-a:hover {
   font-weight: 600;
   text-align: center;
 }
+
+/* Case finances: the money table of a case, in the base currency */
+.finance {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--c-border);
+}
+
+.finance .card-head {
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.finance .h3 {
+  margin: 0;
+}
+
+.finance-form {
+  margin-bottom: 12px;
+}
+
+.money-table td {
+  vertical-align: top;
+}
+
+.money-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.money-total td {
+  font-weight: 600;
+  border-top: 1px solid var(--c-border);
+}
+
+.finance-chip {
+  margin-left: 6px;
+}
+
+.finance-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.finance-actions .link-button {
+  padding: 0 4px;
+  font-size: 12px;
+}
