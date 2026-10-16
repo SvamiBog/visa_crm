@@ -596,6 +596,8 @@ async def _workspace(
                 else None,
                 vac_number=f"{code}-{rng.randrange(10000, 99999)}" if rng.random() < 0.7 else None,
                 created_by=owner.id,
+                # Opened after the consultation, not on the day the stand was seeded.
+                created_at=datetime.combine(consultation.held_on, datetime.min.time(), UTC),
             )
             if case.decided_on and case.decided_on > today:
                 case.decided_on = today

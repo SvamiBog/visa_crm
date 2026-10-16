@@ -14,6 +14,7 @@ from app.api.email_change import router as email_change_router
 from app.api.employees import router as employees_router
 from app.api.finances import router as finances_router
 from app.api.health import router as health_router
+from app.api.home import router as home_router
 from app.api.queues import router as queues_router
 from app.api.reference import admin_router as admin_reference_router
 from app.api.reference import router as reference_router
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
         two_factor_router,
         admin_router,
         workspace_router,
+        home_router,
         audit_router,
         employees_router,
         reference_router,

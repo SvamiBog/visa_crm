@@ -102,9 +102,11 @@ function ReminderText({ item: r }: { item: Reminder }) {
   }
 }
 
-/** The reminders of the workspace, or of one client in their card (`contactId`). */
-export function AttentionList({ contactId }: { contactId?: string }) {
+/** The reminders of the workspace, or of one client in their card (`contactId`). On the
+ * home screen only the first `limit` show until «Показать все». */
+export function AttentionList({ contactId, limit }: { contactId?: string; limit?: number }) {
   const { t } = useTranslation();
+  const [all, setAll] = useState(false);
   const name = useLocalName();
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
@@ -121,6 +123,8 @@ export function AttentionList({ contactId }: { contactId?: string }) {
 
   // In a client's card the block shows only when there is something to do.
   if (contactId && (!list.data || list.data.length === 0)) return null;
+  const shown = limit && !all ? list.data?.slice(0, limit) : list.data;
+  const hidden = (list.data?.length ?? 0) - (shown?.length ?? 0);
 
   return (
     <section className="card attention">
@@ -129,9 +133,9 @@ export function AttentionList({ contactId }: { contactId?: string }) {
       {list.isError && <ErrorAlert error={list.error} />}
       {done.isError && <ErrorAlert error={done.error} />}
       {list.data?.length === 0 && <p className="muted">{t("attention.none")}</p>}
-      {list.data && list.data.length > 0 && (
+      {shown && shown.length > 0 && (
         <ul className="attention-list">
-          {list.data.map((r) => (
+          {shown.map((r) => (
             <li key={r.key ?? `${r.kind}-${r.registrar_id}`} className="attention-item">
               <div className="attention-main">
                 <div>
@@ -172,6 +176,11 @@ export function AttentionList({ contactId }: { contactId?: string }) {
             </li>
           ))}
         </ul>
+      )}
+      {(hidden > 0 || all) && limit && (
+        <button type="button" className="btn btn-sm" onClick={() => setAll(!all)}>
+          {all ? t("attention.showLess") : t("attention.showAll", { count: list.data?.length })}
+        </button>
       )}
     </section>
   );
