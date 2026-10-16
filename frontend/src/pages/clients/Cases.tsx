@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
 import {
   CASE_STAGES,
+  EMAIL_OWNERS,
   HALLS,
   OUTCOMES,
   VISA_ENTRIES,
@@ -21,6 +22,7 @@ import {
   type CaseStage,
   type Consultation,
   type ContactCard,
+  type EmailOwner,
   type GroupMember,
   type Hall,
   type Outcome,
@@ -35,6 +37,7 @@ import {
   useRules,
   type Country,
 } from "../../reference";
+import { Booking, useNumberLabel } from "./Booking";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
 // the structured visa result and the submission group.
@@ -202,6 +205,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
             {[registrar?.name, c.hall && t(`dict.hall.${c.hall}`)].filter(Boolean).join(" · ")}
           </Row>
           <Row label={t("cases.submissionOn")}>{date(c.submission_on)}</Row>
+          <Booking visaCase={c} />
           {c.outcome && <Result visaCase={c} />}
           <Group visaCase={c} />
           <div className="form-actions">
@@ -672,6 +676,10 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
   const [validTo, setValidTo] = useState(c.visa_valid_to ?? "");
   const [stayDays, setStayDays] = useState(c.stay_days ? String(c.stay_days) : "");
   const [afterAppeal, setAfterAppeal] = useState(c.after_appeal);
+  const [vacNumber, setVacNumber] = useState(c.vac_number ?? "");
+  const [email, setEmail] = useState(c.application_email ?? "");
+  const [emailOwner, setEmailOwner] = useState<EmailOwner | "">(c.application_email_owner ?? "");
+  const numberLabel = useNumberLabel();
   const isVisa = outcome === "visa";
   const decided = outcome === "visa" || outcome === "refusal";
 
@@ -686,6 +694,9 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
         visa_valid_to: isVisa ? validTo || null : null,
         stay_days: isVisa && stayDays ? Number(stayDays) : null,
         after_appeal: decided ? afterAppeal : false,
+        vac_number: vacNumber.trim() || null,
+        application_email: email.trim() || null,
+        application_email_owner: email.trim() ? emailOwner || null : null,
       }),
     onSuccess: () => {
       void refresh();
@@ -702,6 +713,38 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
       }}
     >
       <PlaceFields place={place} onChange={setPlace} />
+      <fieldset className="module-block">
+        <legend>{t("queues.numberAndEmail")}</legend>
+        <div className="form-grid">
+          <label className="field">
+            <span>{numberLabel(c)}</span>
+            <input maxLength={64} value={vacNumber} onChange={(e) => setVacNumber(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>{t("queues.email")}</span>
+            <input
+              type="email"
+              maxLength={320}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>{t("queues.ownerLabel")}</span>
+            <select
+              value={emailOwner}
+              onChange={(e) => setEmailOwner(e.target.value as EmailOwner | "")}
+            >
+              <option value="" />
+              {EMAIL_OWNERS.map((o) => (
+                <option key={o} value={o}>
+                  {t(`queues.owner.${o}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </fieldset>
       <fieldset className="module-block">
         <legend>{t("cases.result")}</legend>
         <div className="form-grid">

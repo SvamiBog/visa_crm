@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "./api";
+import type { BookingType, IdentifierType } from "./reference";
 
 // Contacts (backend/app/api/contacts.py). Search goes in a POST body: names and phones
 // are personal data and must not appear in URLs.
@@ -109,6 +110,34 @@ export type GroupMember = {
   stage: CaseStage;
 };
 
+export const EMAIL_OWNERS = ["client", "specialist", "registrar"] as const;
+export type EmailOwner = (typeof EMAIL_OWNERS)[number];
+
+export type QueueStatus = "in_queue" | "date_received" | "submitted" | "removed";
+export type QueueEntry = {
+  id: string;
+  case_id: string;
+  queued_on: string;
+  letter_on: string | null;
+  removed_on: string | null;
+  removed_reason: string | null;
+  status: QueueStatus;
+  days_waiting: number;
+};
+
+export type AttemptStatus = "open" | "date_received" | "expired" | "cancelled";
+export type Attempt = {
+  id: string;
+  case_id: string;
+  number: number;
+  sent_on: string;
+  deadline_on: string;
+  outcome: Exclude<AttemptStatus, "open"> | null;
+  closed_on: string | null;
+  status: AttemptStatus;
+  days_left: number | null;
+};
+
 export type VisaCase = {
   id: string;
   number: number;
@@ -134,6 +163,15 @@ export type VisaCase = {
   group: GroupMember[];
   appeals_accepted: boolean | null;
   appeal_until: string | null;
+  vac_number: string | null;
+  application_email: string | null;
+  application_email_owner: EmailOwner | null;
+  booking_type: BookingType | null;
+  identifier_type: IdentifierType | null;
+  window_days: number | null;
+  queue_entries: QueueEntry[];
+  attempts: Attempt[];
+  average_wait_days: number | null;
 };
 
 export type ContactCard = {

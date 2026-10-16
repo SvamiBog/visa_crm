@@ -14,6 +14,7 @@ from app.models.dictionaries import (
     RegistrarPrice,
     VisaPurpose,
 )
+from app.models.queue import ApplicationAttempt, AttemptOutcome, WaitingListEntry
 from app.models.recovery_code import RecoveryCode
 from app.models.reference import (
     BookingType,
@@ -26,9 +27,18 @@ from app.models.reference import (
 from app.models.session import UserSession
 from app.models.tenant import Tenant
 from app.models.user import TWO_FACTOR_REQUIRED_ROLES, UiTheme, User, UserRole
-from app.models.visa_case import CaseStage, SubmissionGroup, VisaCase, VisaEntries, VisaOutcome
+from app.models.visa_case import (
+    CaseStage,
+    EmailOwner,
+    SubmissionGroup,
+    VisaCase,
+    VisaEntries,
+    VisaOutcome,
+)
 
 __all__ = [
+    "ApplicationAttempt",
+    "AttemptOutcome",
     "AuditAction",
     "AuditEvent",
     "BookingType",
@@ -40,6 +50,7 @@ __all__ = [
     "Country",
     "CountryRule",
     "Decision",
+    "EmailOwner",
     "Hall",
     "LeadChannel",
     "Messenger",
@@ -65,4 +76,5 @@ __all__ = [
     "VisaEntries",
     "VisaOutcome",
     "VisaPurpose",
+    "WaitingListEntry",
 ]

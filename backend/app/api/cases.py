@@ -9,19 +9,20 @@ events carry ids and the names of changed fields only.
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Annotated, Any
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import Date, cast, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.booking import AttemptOut, QueueEntryOut, average_waits, booking_of
 from app.api.client_status import Tab, latest_consultation, tab_of
-from app.api.deps import CurrentUser, TenantSession, require_module
+from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.cases import VISA_DETAILS, advance, appeal_until, cleared_by_outcome
 from app.models import (
     AuditAction,
+    BookingType,
     CaseStage,
     Consultation,
     Contact,
@@ -29,9 +30,10 @@ from app.models import (
     Country,
     CountryRule,
     Decision,
+    EmailOwner,
     Registrar,
     SubmissionGroup,
-    Tenant,
+    VacIdentifierType,
     VisaCase,
     VisaCenter,
     VisaEntries,
@@ -48,6 +50,7 @@ router = APIRouter(
 Member = Annotated[CurrentUser, Depends(require_module("cases"))]
 
 MAX_APPLICANTS = 30
+EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 # Board (backlog 1.5): results stay in the «Результат» column for a month, leads in the
 # «Консультация» column for three months after their latest consultation.
 RECENT_RESULT_DAYS = 30
@@ -108,6 +111,17 @@ class CaseUpdate(BaseModel):
     visa_valid_to: date | None = None
     stay_days: int | None = Field(default=None, ge=1, le=3660)
     after_appeal: bool | None = None
+    vac_number: Annotated[str, Field(max_length=64)] | None = None
+    application_email: Annotated[str, Field(max_length=320, pattern=EMAIL)] | None = None
+    application_email_owner: EmailOwner | None = None
+
+    @field_validator("vac_number", "application_email", mode="before")
+    @classmethod
+    def blank_is_none(cls, value: object) -> object:
+        """Trimmed before the email pattern is checked; an empty field clears it."""
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class GroupMember(BaseModel):
@@ -149,6 +163,18 @@ class CaseOut(BaseModel):
     # the last day to appeal a refusal.
     appeals_accepted: bool | None = None
     appeal_until: date | None = None
+    # Number and email the visa center knows the client by.
+    vac_number: str | None
+    application_email: str | None
+    application_email_owner: EmailOwner | None
+    # From the country rule: how the appointment is got and what the number is.
+    booking_type: BookingType | None = None
+    identifier_type: VacIdentifierType | None = None
+    window_days: int | None = None
+    queue_entries: list[QueueEntryOut] = []
+    attempts: list[AttemptOut] = []
+    # Average days from the queue to the letter for this country, city and purpose.
+    average_wait_days: int | None = None
 
 
 class GroupIn(BaseModel):
@@ -264,13 +290,23 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
         ):
             rules[(rule.destination_id, rule.submission_id)] = rule
 
+    today = await workspace_today(session, cases[0].tenant_id) if cases else None
+    booking = await booking_of(session, cases, today) if today else {}
+    waits = await average_waits(session) if cases else {}
+
     result = []
     for case in cases:
         out = CaseOut.model_validate(case)
         if case.group_id is not None:
             out.group = [m for m in members[case.group_id] if m.case_id != case.id]
+        out.queue_entries, out.attempts = booking.get(case.id, ([], []))
+        wait = waits.get((case.destination_id, case.visa_center_id, case.purpose_id))
+        out.average_wait_days = wait[0] if wait else None
         rule = rules.get((case.destination_id, case.submission_country_id))
         if rule is not None:
+            out.booking_type = rule.booking_type
+            out.identifier_type = rule.identifier_type
+            out.window_days = rule.window_days
             out.appeals_accepted = rule.appeals_accepted
             out.appeal_until = appeal_until(
                 case.outcome,
@@ -460,11 +496,6 @@ class StageIn(BaseModel):
     stage: CaseStage
 
 
-async def _today(session: AsyncSession, tenant_id: uuid.UUID) -> date:
-    timezone = await session.scalar(select(Tenant.timezone).where(Tenant.id == tenant_id))
-    return datetime.now(ZoneInfo(timezone or "Europe/Minsk")).date()
-
-
 @router.get("/cases/board")
 async def board(
     user: Member,
@@ -475,7 +506,7 @@ async def board(
 ) -> Board:
     """Kanban of the client index: cases in work by stage, results of the last month, and
     clients after a consultation without a case in work."""
-    today = await _today(session, user.tenant_id)
+    today = await workspace_today(session, user.tenant_id)
     decided = func.coalesce(VisaCase.decided_on, cast(VisaCase.updated_at, Date))
     query = (
         select(VisaCase, Contact.full_name)

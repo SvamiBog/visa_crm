@@ -44,6 +44,10 @@ class AuditAction(StrEnum):
     CASE_UPDATED = "cases.updated"
     CASE_GROUPED = "cases.grouped"
     CASE_UNGROUPED = "cases.ungrouped"
+    CASE_QUEUED = "cases.queued"
+    CASE_QUEUE_UPDATED = "cases.queue_updated"
+    CASE_ATTEMPT_SENT = "cases.attempt_sent"
+    CASE_ATTEMPT_UPDATED = "cases.attempt_updated"
     # Reference data; target_type names the reference (country, vac_operator, …).
     REFERENCE_CREATED = "reference.created"
     REFERENCE_UPDATED = "reference.updated"

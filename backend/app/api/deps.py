@@ -1,8 +1,9 @@
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -150,3 +151,9 @@ def require_module(key: str) -> Callable[..., Awaitable[CurrentUser]]:
         return user
 
     return check
+
+
+async def workspace_today(session: AsyncSession, tenant_id: uuid.UUID) -> date:
+    """Today in the specialist's time zone: deadlines and waits are counted in it."""
+    timezone = await session.scalar(select(Tenant.timezone).where(Tenant.id == tenant_id))
+    return datetime.now(ZoneInfo(timezone or "Europe/Minsk")).date()
