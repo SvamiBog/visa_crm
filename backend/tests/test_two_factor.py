@@ -12,6 +12,7 @@ from app.core.crypto import generate_master_key
 from app.core.two_factor import verify_totp
 from tests.helpers import (
     CLOCK,
+    PASSWORD,
     TOTP_SECRET,
     MakeUser,
     enable_two_factor,
@@ -78,12 +79,11 @@ async def test_pending_login_expires(
     assert expired.json() == {"detail": "login_expired"}
 
 
-async def test_setup_is_required_for_specialist_and_admin(client: AsyncClient, make_user: MakeUser):
+async def test_two_factor_is_optional_and_set_up_on_wish(client: AsyncClient, make_user: MakeUser):
     await make_user("anna@example.com", two_factor=False)
     me = (await login(client, "anna@example.com")).json()
-    assert me["must_set_up_two_factor"] is True
-    blocked = await client.get("/api/workspace")
-    assert blocked.json() == {"detail": "two_factor_setup_required"}
+    assert me["two_factor_enabled"] is False and "must_set_up_two_factor" not in me
+    assert (await client.get("/api/workspace")).status_code == 200
 
     setup = (await client.post("/api/auth/two-factor/setup")).json()
     assert setup["qr_code"].startswith("data:image/svg+xml")
@@ -100,11 +100,38 @@ async def test_setup_is_required_for_specialist_and_admin(client: AsyncClient, m
     assert again.json() == {"detail": "two_factor_already_enabled"}
 
 
-async def test_employee_may_work_without_two_factor(client: AsyncClient, make_user: MakeUser):
-    await make_user("staff@example.com", role="employee")
-    me = (await login(client, "staff@example.com")).json()
-    assert me["must_set_up_two_factor"] is False
-    assert (await client.get("/api/workspace")).status_code == 200
+async def test_admin_may_work_without_two_factor(client: AsyncClient, make_user: MakeUser):
+    await make_user("root@example.com", role="admin", two_factor=False)
+    me = (await login(client, "root@example.com")).json()
+    assert me["two_factor_enabled"] is False
+    assert (await client.get("/api/admin/specialists")).status_code == 200
+
+
+async def test_two_factor_is_turned_off_with_password_and_code(
+    client: AsyncClient, make_user: MakeUser
+):
+    await make_user("anna@example.com", two_factor=False)
+    await login(client, "anna@example.com")
+    url = "/api/auth/two-factor/disable"
+    not_on = await client.post(url, json={"password": PASSWORD, "code": "000000"})
+    assert not_on.json() == {"detail": "two_factor_not_enabled"}
+    secret, codes = await enable_two_factor(client)
+
+    wrong_password = await client.post(url, json={"password": "nope-nope", "code": "000000"})
+    assert wrong_password.json() == {"detail": "invalid_current_password"}
+    wrong_code = await client.post(url, json={"password": PASSWORD, "code": "000000"})
+    assert wrong_code.json() == {"detail": "invalid_code"}
+    # A recovery code works too (the phone may be lost).
+    off = await client.post(url, json={"password": PASSWORD, "code": codes[0]})
+    assert off.status_code == 204
+    me = (await client.get("/api/auth/me")).json()
+    assert me["two_factor_enabled"] is False
+
+    # Next login is by password only; the old codes are gone.
+    await client.post("/api/auth/logout")
+    assert (await login(client, "anna@example.com")).json()["two_factor_enabled"] is False
+    events = (await client.get("/api/audit")).json()["events"]
+    assert any(e["action"] == "auth.two_factor_disabled" for e in events)
 
 
 async def test_recovery_code_works_once(client: AsyncClient, make_user: MakeUser):
@@ -141,7 +168,7 @@ async def test_cli_reset_turns_two_factor_off(client: AsyncClient, make_user: Ma
     await make_user("root@example.com", role="admin")
     await reset_user_two_factor("root@example.com")
     me = (await login(client, "root@example.com")).json()
-    assert me["must_set_up_two_factor"] is True
+    assert me["two_factor_enabled"] is False
 
 
 async def test_rotation_keeps_two_factor_working(

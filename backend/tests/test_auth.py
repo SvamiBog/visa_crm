@@ -86,11 +86,9 @@ async def test_temporary_password_allows_only_password_change(
     )
     assert changed.status_code == 200
     assert changed.json()["must_change_password"] is False
-    assert changed.json()["must_set_up_two_factor"] is True
-    blocked = await client.get("/api/workspace")
-    assert blocked.json() == {"detail": "two_factor_setup_required"}
-    secret, _ = await enable_two_factor(client)
+    # Two-factor login is optional: the app opens right away.
     assert (await client.get("/api/workspace")).status_code == 200
+    secret, _ = await enable_two_factor(client)
 
     await client.post("/api/auth/logout")
     assert (await login(client, "anna@example.com")).status_code == 401

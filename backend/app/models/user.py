@@ -34,10 +34,6 @@ class UiTheme(StrEnum):
     MINIMAL = "minimal"  # D
 
 
-# Roles that must turn on two-factor login before using the app.
-TWO_FACTOR_REQUIRED_ROLES = frozenset({UserRole.ADMIN, UserRole.SPECIALIST})
-
-
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (

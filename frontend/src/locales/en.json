@@ -96,7 +96,7 @@
   "twoFactor.useApp": "Use a code from the app",
   "twoFactor.startOver": "Sign in again",
   "twoFactor.setupTitle": "Two-factor sign-in",
-  "twoFactor.setupIntro": "To protect client data, sign-in is confirmed with a code from an app on your phone. Setup takes a minute.",
+  "twoFactor.setupIntro": "Optional: sign-in will be confirmed with a code from an app on your phone, so a password alone will not be enough. Setup takes a minute.",
   "twoFactor.stepInstall": "Install an authenticator app: Google Authenticator, Microsoft Authenticator, 1Password or another.",
   "twoFactor.stepScan": "In the app, add an account and scan the QR code.",
   "twoFactor.stepCode": "Enter the 6-digit code from the app",
@@ -111,7 +111,6 @@
   "twoFactor.continue": "Continue",
   "errors.invalid_code": "Wrong or already used code.",
   "errors.login_expired": "Time to enter the code has run out. Please sign in again.",
-  "errors.two_factor_setup_required": "Turn on two-factor sign-in first.",
   "errors.two_factor_already_enabled": "Two-factor sign-in is already on.",
   "errors.two_factor_setup_not_started": "Reload the page and scan the QR code again.",
   "nav.audit": "Audit log",
@@ -932,5 +931,15 @@
   "audit.action.finances.registrar_payment_added": "Registrar payment added",
   "audit.action.finances.registrar_payment_updated": "Registrar payment changed",
   "audit.action.finances.registrar_payment_deleted": "Registrar payment deleted",
-  "audit.target.registrar_payment": "registrar payment"
+  "audit.target.registrar_payment": "registrar payment",
+  "settings.twoFactor": "Two-factor sign-in",
+  "settings.twoFactorOn": "On: besides the password, sign-in needs a code from the authenticator app.",
+  "settings.twoFactorOff": "Off: the password alone signs you in. Turn it on so sign-in is confirmed with a code from an app on your phone — then a password alone is not enough.",
+  "settings.twoFactorTurnOff": "Turn off",
+  "settings.twoFactorTurnOffHint": "To turn it off, enter your password and a code from the app (or one of the recovery codes).",
+  "settings.twoFactorCode": "App code or recovery code",
+  "settings.twoFactorTurnedOff": "Two-factor sign-in is off.",
+  "twoFactor.notNow": "Not now",
+  "errors.two_factor_not_enabled": "Two-factor sign-in is already off.",
+  "audit.action.auth.two_factor_disabled": "Two-factor sign-in turned off"
 }

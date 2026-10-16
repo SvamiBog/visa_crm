@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_sessionmaker, scope_to_system, scope_to_tenant
 from app.core.security import hash_session_token
-from app.models import TWO_FACTOR_REQUIRED_ROLES, Tenant, User, UserRole, UserSession
+from app.models import Tenant, User, UserRole, UserSession
 
 SESSION_COOKIE = "visacrm_session"
 
@@ -27,10 +27,6 @@ class CurrentUser:
     two_factor_enabled: bool
     ui_theme: str
 
-    @property
-    def must_set_up_two_factor(self) -> bool:
-        return self.role in TWO_FACTOR_REQUIRED_ROLES and not self.two_factor_enabled
-
 
 async def system_session() -> AsyncIterator[AsyncSession]:
     """Sees every tenant: only for login and the admin panel."""
@@ -40,8 +36,8 @@ async def system_session() -> AsyncIterator[AsyncSession]:
 
 
 async def current_user_any(request: Request) -> CurrentUser:
-    """The logged-in user, even one who still has to replace a temporary password
-    or set up two-factor login. A login waiting for its second factor is not logged in."""
+    """The logged-in user, even one who still has to replace a temporary password.
+    A login waiting for its second factor is not logged in."""
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not_authenticated")
@@ -89,9 +85,8 @@ async def current_user_password_set(
 async def current_user(
     user: Annotated[CurrentUser, Depends(current_user_password_set)],
 ) -> CurrentUser:
-    """The logged-in user who may use the app: own password and, where required, 2FA on."""
-    if user.must_set_up_two_factor:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "two_factor_setup_required")
+    """The logged-in user who may use the app: the temporary password is replaced.
+    Two-factor login is optional for every role (docs/decisions.md)."""
     return user
 
 

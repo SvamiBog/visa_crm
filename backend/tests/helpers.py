@@ -1,5 +1,7 @@
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pyotp
 from httpx import AsyncClient, Response
@@ -10,6 +12,12 @@ NEW_PASSWORD = "staple-and-a-pony-42"
 TOTP_SECRET = "JBSWY3DPEHPK3PXP"
 
 MakeUser = Callable[..., Awaitable[uuid.UUID | None]]
+
+
+def workspace_today() -> date:
+    """Today as the app counts it: in the specialist's time zone (Europe/Minsk by default),
+    not in UTC — the two differ for three hours every night."""
+    return datetime.now(ZoneInfo("Europe/Minsk")).date()
 
 
 class FakeClock:
