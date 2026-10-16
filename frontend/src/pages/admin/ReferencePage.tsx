@@ -529,6 +529,7 @@ function CountriesTab() {
                   <th>{t("reference.nameRu")}</th>
                   <th>{t("reference.nameEn")}</th>
                   <th>{t("reference.consultationMinutes")}</th>
+                  <th>{t("reference.passportRule")}</th>
                   <th>{t("admin.colStatus")}</th>
                   <th aria-label={t("admin.colActions")} />
                 </tr>
@@ -540,6 +541,14 @@ function CountriesTab() {
                     <td>{c.name_ru}</td>
                     <td>{c.name_en}</td>
                     <td className="muted">{c.consultation_minutes ?? "—"}</td>
+                    <td className="muted">
+                      {c.passport_max_age_years !== null || c.passport_valid_after_months !== null
+                        ? t("reference.passportRuleValue", {
+                            years: c.passport_max_age_years ?? "—",
+                            months: c.passport_valid_after_months ?? "—",
+                          })
+                        : "—"}
+                    </td>
                     <td>
                       {c.is_active ? (
                         <span className="chip st-green">{t("reference.on")}</span>
@@ -572,6 +581,8 @@ function CountryForm({ country, onClose }: { country?: Country; onClose: () => v
   const [nameRu, setNameRu] = useState(country?.name_ru ?? "");
   const [nameEn, setNameEn] = useState(country?.name_en ?? "");
   const [minutes, setMinutes] = useState(String(country?.consultation_minutes ?? ""));
+  const [maxAge, setMaxAge] = useState(String(country?.passport_max_age_years ?? ""));
+  const [validAfter, setValidAfter] = useState(String(country?.passport_valid_after_months ?? ""));
   const [active, setActive] = useState(country?.is_active ?? true);
 
   const save = useMutation({
@@ -581,6 +592,8 @@ function CountryForm({ country, onClose }: { country?: Country; onClose: () => v
         name_ru: nameRu.trim(),
         name_en: nameEn.trim(),
         consultation_minutes: minutes ? Number(minutes) : null,
+        passport_max_age_years: maxAge ? Number(maxAge) : null,
+        passport_valid_after_months: validAfter ? Number(validAfter) : null,
         is_active: active,
       };
       return country
@@ -631,7 +644,28 @@ function CountryForm({ country, onClose }: { country?: Country; onClose: () => v
             onChange={(e) => setMinutes(e.target.value)}
           />
         </label>
+        <label className="field">
+          <span>{t("reference.passportMaxAge")}</span>
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={maxAge}
+            onChange={(e) => setMaxAge(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>{t("reference.passportValidAfter")}</span>
+          <input
+            type="number"
+            min={0}
+            max={24}
+            value={validAfter}
+            onChange={(e) => setValidAfter(e.target.value)}
+          />
+        </label>
       </div>
+      <p className="muted small">{t("reference.passportHint")}</p>
       <p id="country-code-hint" className="muted small">
         {t("reference.codeHint")}
       </p>

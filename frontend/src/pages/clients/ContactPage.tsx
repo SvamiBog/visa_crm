@@ -16,6 +16,7 @@ import {
 } from "../../contacts";
 import { byId } from "../../reference";
 import { ContactForm } from "./ContactForm";
+import { Consultations, Hints, QuestionnaireCard } from "./Consultations";
 
 function ErrorAlert({ error }: { error: unknown }) {
   const { t } = useTranslation();
@@ -26,7 +27,8 @@ function ErrorAlert({ error }: { error: unknown }) {
   );
 }
 
-/** The client's card: contact details, paperwork, family and links, the notes timeline. */
+/** The client's card: contact details, questionnaire and its checks, consultations,
+ * paperwork, family and links, the notes timeline. */
 export function ContactPage() {
   const { id = "" } = useParams();
   const { t } = useTranslation();
@@ -93,13 +95,19 @@ export function ContactPage() {
         />
       )}
 
+      <Hints hints={card.data.hints} />
+
       <div className="card-grid">
         <div className="column">
           <ContactDetails card={card.data} />
+          <QuestionnaireCard card={card.data} />
           <Paperwork card={card.data} />
           <Relations contactId={contact.id} relations={relations} />
         </div>
-        <Timeline contactId={contact.id} notes={notes} />
+        <div className="column">
+          <Consultations card={card.data} />
+          <Timeline contactId={contact.id} notes={notes} />
+        </div>
       </div>
     </div>
   );

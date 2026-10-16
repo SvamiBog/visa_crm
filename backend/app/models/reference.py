@@ -67,6 +67,14 @@ class Country(Base):
             "consultation_minutes IS NULL OR consultation_minutes BETWEEN 5 AND 600",
             name="consultation_minutes_range",
         ),
+        CheckConstraint(
+            "passport_max_age_years IS NULL OR passport_max_age_years BETWEEN 1 AND 30",
+            name="passport_max_age_range",
+        ),
+        CheckConstraint(
+            "passport_valid_after_months IS NULL OR passport_valid_after_months BETWEEN 0 AND 24",
+            name="passport_valid_after_range",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -77,6 +85,10 @@ class Country(Base):
     # Typical consultation length for this destination: about an hour for the UK,
     # 15–30 minutes for Schengen.
     consultation_minutes: Mapped[int | None] = mapped_column(SmallInteger)
+    # Passport rules for entry, checked in the consultation questionnaire. Schengen:
+    # issued within the last 10 years and valid 3 months after the stay. NULL: no rule.
+    passport_max_age_years: Mapped[int | None] = mapped_column(SmallInteger)
+    passport_valid_after_months: Mapped[int | None] = mapped_column(SmallInteger)
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

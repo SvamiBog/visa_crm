@@ -23,6 +23,8 @@ export type Country = {
   name_ru: string;
   name_en: string;
   consultation_minutes: number | null;
+  passport_max_age_years: number | null;
+  passport_valid_after_months: number | null;
   is_active: boolean;
 };
 
