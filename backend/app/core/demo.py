@@ -9,6 +9,7 @@ DEMO_PASSWORD and DEMO_TOTP_SECRET variables of the stand, never from the code.
 
 import random
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -50,6 +51,8 @@ from app.models import (
     PartnerTermsType,
     Registrar,
     RegistrarKind,
+    RegistrarPayment,
+    RegistrarPaymentMethod,
     RegistrarPrice,
     SubmissionGroup,
     Tenant,
@@ -362,7 +365,7 @@ async def _workspace(
         for s in await session.scalars(select(VaultSystem).where(VaultSystem.tenant_id == t))
     }
     registrars = [
-        Registrar(tenant_id=t, name=n, kind=k)
+        Registrar(tenant_id=t, name=n, kind=k, currency="EUR")
         for n, k in (
             ("Иван", RegistrarKind.INDIVIDUAL),
             ("ВизаСервис", RegistrarKind.COMPANY),
@@ -372,8 +375,8 @@ async def _workspace(
     partners = [Partner(tenant_id=t, name=n) for n in ("Легализатор Пётр", "Коллега Марина")]
     session.add_all(registrars + partners)
     await session.flush()
-    # The demo talon of a country: the first registrar's price, in EUR.
-    registrar_fee: dict[uuid.UUID, Decimal] = {}
+    # The demo talon of a registrar for a country, in EUR.
+    registrar_fee: dict[tuple[uuid.UUID, uuid.UUID], Decimal] = {}
     for registrar in registrars:
         for code in ("PL", "IT", "LV"):
             amount = Decimal(rng.choice((40, 50, 60, 80)))
@@ -387,7 +390,7 @@ async def _workspace(
                     currency="EUR",
                 )
             )
-            registrar_fee.setdefault(countries[code].id, amount)
+            registrar_fee[registrar.id, countries[code].id] = amount
     terms_of = {
         partners[0].id: (PartnerTermsType.PERCENT, Decimal("10")),
         partners[1].id: (PartnerTermsType.FIXED, Decimal("50")),
@@ -487,6 +490,8 @@ async def _workspace(
 
     number = 0
     made = {"clients": 0, "cases": 0}
+    # The talons charged to each registrar: (day, amount in EUR).
+    talons: dict[uuid.UUID, list[tuple[date, Decimal]]] = defaultdict(list)
     while made["clients"] < clients:
         decision = rng.choices(
             (Decision.YES, Decision.THINKING, Decision.NO, None), weights=(55, 15, 10, 20)
@@ -601,7 +606,7 @@ async def _workspace(
             session.add(case)
             made["cases"] += 1
             await session.flush()
-            _appointment(session, case, rule, today, first_seen, rng)
+            queued = _appointment(session, case, rule, today, first_seen, rng)
             if stage != CaseStage.WAITING and rng.random() < 0.6:
                 owner_kind = rng.choice(list(EmailOwner))
                 login = (
@@ -612,10 +617,16 @@ async def _workspace(
                 vault(VaultSystemKind.VISA_CENTER, login, member.id, case.id, owner_kind)
             if member is anchor:
                 _bookings(session, case, booking_account, today, rng)
-            fee = registrar_fee.get(case.destination_id) if registrar else None
+            fee = registrar_fee.get((registrar.id, case.destination_id)) if registrar else None
             partner_terms = terms_of.get(member.partner_id) if member.partner_id else None
             credit = consultation.fee_amount if member is anchor and consultation.fee_paid else None
-            _finance(session, case, fee, partner_terms, credit, first_seen, today, rng)
+            talon_on = queued or first_seen
+            charged = _finance(
+                session, case, fee, talon_on, partner_terms, credit, first_seen, today, rng
+            )
+            if charged:
+                talons[registrar.id].append((talon_on, fee))
+    _registrar_payments(session, registrars, talons, today, rng)
     await session.flush()
     return made
 
@@ -647,10 +658,11 @@ def _appointment(
     today: date,
     since: date,
     rng: random.Random,
-) -> None:
-    """Queued or applied after the consultation, the letter before the submission."""
+) -> date | None:
+    """Queued or applied after the consultation, the letter before the submission; the
+    day the client was queued, if they were."""
     if rule is None:
-        return
+        return None
     if rule.booking_type == BookingType.WAITING_LIST:
         queued = min(today, since + timedelta(days=rng.randrange(1, 15)))
         letter = None
@@ -662,7 +674,8 @@ def _appointment(
                 tenant_id=case.tenant_id, case_id=case.id, queued_on=queued, letter_on=letter
             )
         )
-    elif rule.booking_type == BookingType.WINDOWED_APPLICATION and rule.window_days:
+        return queued
+    if rule.booking_type == BookingType.WINDOWED_APPLICATION and rule.window_days:
         window = timedelta(days=rule.window_days)
         sent = max(since + timedelta(days=1), today - timedelta(days=rng.randrange(5, 50)))
         expired = rng.random() < 0.4 and sent - window - timedelta(days=20) >= since
@@ -693,6 +706,7 @@ def _appointment(
                 else None,
             )
         )
+    return None
 
 
 # Fixed demo rates (BYN for one unit): seeding does not call the National Bank.
@@ -703,16 +717,17 @@ def _finance(
     session: AsyncSession,
     case: VisaCase,
     fee_eur: Decimal | None,
+    fee_on: date,
     partner: tuple[PartnerTermsType, Decimal] | None,
     consultation_credit: Decimal | None,
     since: date,
     today: date,
     rng: random.Random,
-) -> None:
+) -> bool:
     """Price, talon, partner terms and the client's payments: a prepayment once the case
-    is under way, the rest by the submission."""
+    is under way, the rest by the submission. True when the talon is charged."""
     if rng.random() < 0.1:  # some cases are not priced yet
-        return
+        return False
     price = Decimal(rng.choice((600, 750, 900, 1050, 1200, 1350, 1500)))
     finance = CaseFinance(
         case_id=case.id,
@@ -726,6 +741,7 @@ def _finance(
         finance.registrar_fee_currency = "EUR"
         finance.registrar_fee_rate = DEMO_RATES["EUR"]
         finance.registrar_fee_base = to_base(fee_eur, DEMO_RATES["EUR"])
+        finance.registrar_fee_on = fee_on
     if partner is not None:
         finance.partner_terms, value = partner
         if finance.partner_terms == PartnerTermsType.PERCENT:
@@ -772,6 +788,46 @@ def _finance(
                 description=rng.choice(("Перевод справки", "Курьер", "Печать фото")),
             )
         )
+    return fee_eur is not None
+
+
+def _registrar_payments(
+    session: AsyncSession,
+    registrars: list[Registrar],
+    talons: dict[uuid.UUID, list[tuple[date, Decimal]]],
+    today: date,
+    rng: random.Random,
+) -> None:
+    """Talons paid for five at a time: the first registrar also holds an advance that runs
+    low, the second waits for the latest talons (a debt), the third is settled."""
+    for index, registrar in enumerate(registrars):
+        charged = sorted(talons.get(registrar.id, []))
+        batches = [charged[i : i + 5] for i in range(0, len(charged), 5)]
+        if index == 1:
+            batches = batches[:-1]
+        for batch in batches:
+            session.add(
+                RegistrarPayment(
+                    tenant_id=registrar.tenant_id,
+                    registrar_id=registrar.id,
+                    paid_on=batch[0][0],
+                    amount=sum((fee for _, fee in batch), Decimal("0")),
+                    method=rng.choice(list(RegistrarPaymentMethod)),
+                    talons=len(batch),
+                )
+            )
+        if index == 0:
+            registrar.low_balance = Decimal("200")
+            session.add(
+                RegistrarPayment(
+                    tenant_id=registrar.tenant_id,
+                    registrar_id=registrar.id,
+                    paid_on=today - timedelta(days=rng.randrange(1, 10)),
+                    amount=Decimal(rng.choice((120, 150, 180))),
+                    method=RegistrarPaymentMethod.TRANSFER,
+                    note="Аванс",
+                )
+            )
 
 
 def _bookings(

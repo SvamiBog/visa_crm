@@ -9,6 +9,7 @@ base currency (the rate is the National Bank's on that day, and can be corrected
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 
 from sqlalchemy import (
     CheckConstraint,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Numeric,
+    SmallInteger,
     String,
     func,
     text,
@@ -66,6 +68,11 @@ class CaseFinance(Base):
             "AND (registrar_fee_amount IS NULL) = (registrar_fee_base IS NULL)",
             name="registrar_fee_complete",
         ),
+        # The day the talon was charged: set with the talon.
+        CheckConstraint(
+            "(registrar_fee_on IS NULL) = (registrar_fee_amount IS NULL)",
+            name="registrar_fee_dated",
+        ),
         CheckConstraint(
             "(partner_percent IS NULL) OR partner_terms = 'percent'", name="percent_for_percent"
         ),
@@ -93,6 +100,8 @@ class CaseFinance(Base):
     registrar_fee_currency: Mapped[str | None] = mapped_column(String(3))
     registrar_fee_rate: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
     registrar_fee_base: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    # When the registrar put the client in the queue: the talon is charged that day.
+    registrar_fee_on: Mapped[date | None] = mapped_column(Date)
     # The partner's terms copied into the case (changeable here); NULL — no partner.
     partner_terms: Mapped[PartnerTermsType | None] = mapped_column(
         Enum(
@@ -157,3 +166,46 @@ class CaseExpense(_Money, Base):
 
     spent_on: Mapped[date] = mapped_column(Date)
     description: Mapped[str] = mapped_column(String(200))
+
+
+class RegistrarPaymentMethod(StrEnum):
+    CASH = "cash"
+    TRANSFER = "transfer"
+
+
+class RegistrarPayment(Base):
+    """The specialist's payment to a registrar, in the registrar's currency: for some
+    talons (`talons`) or in advance (NULL). Talons are charged from the case finances."""
+
+    __tablename__ = "registrar_payments"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["registrar_id", "tenant_id"],
+            ["registrars.id", "registrars.tenant_id"],
+            ondelete="RESTRICT",
+            name="fk_registrar_payments_registrar_id_same_tenant",
+        ),
+        CheckConstraint("amount > 0", name="amount_positive"),
+        CheckConstraint("talons IS NULL OR talons > 0", name="talons_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    registrar_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    paid_on: Mapped[date] = mapped_column(Date)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    method: Mapped[RegistrarPaymentMethod] = mapped_column(
+        Enum(
+            RegistrarPaymentMethod,
+            name="registrar_payment_method",
+            values_callable=lambda e: [m.value for m in e],
+        )
+    )
+    talons: Mapped[int | None] = mapped_column(SmallInteger)
+    note: Mapped[str | None] = mapped_column(String(200))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

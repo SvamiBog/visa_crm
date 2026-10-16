@@ -166,7 +166,10 @@ class Registrar(Base):
     """A company or a person who puts clients in a visa center queue for a fee (талон)."""
 
     __tablename__ = "registrars"
-    __table_args__ = (UniqueConstraint("id", "tenant_id", name="uq_registrars_id_tenant"),)
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_registrars_id_tenant"),
+        CheckConstraint("low_balance IS NULL OR low_balance >= 0", name="low_balance_not_negative"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -177,6 +180,10 @@ class Registrar(Base):
     contact: Mapped[str | None] = mapped_column(String(200))
     note: Mapped[str | None] = mapped_column(String(1000))
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
+    # Settlements with the registrar are kept in this currency (app/core/registrar_ledger.py).
+    currency: Mapped[str] = mapped_column(String(3))
+    # Remind when the advance falls below this amount; NULL — no reminder.
+    low_balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     prices: Mapped[list["RegistrarPrice"]] = relationship(

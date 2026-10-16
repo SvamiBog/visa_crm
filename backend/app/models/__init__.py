@@ -16,7 +16,14 @@ from app.models.dictionaries import (
     VisaPurpose,
 )
 from app.models.email_change import EmailChange
-from app.models.finance import CaseExpense, CaseFinance, CasePayment, ExchangeRate
+from app.models.finance import (
+    CaseExpense,
+    CaseFinance,
+    CasePayment,
+    ExchangeRate,
+    RegistrarPayment,
+    RegistrarPaymentMethod,
+)
 from app.models.queue import ApplicationAttempt, AttemptOutcome, WaitingListEntry
 from app.models.recovery_code import RecoveryCode
 from app.models.reference import (
@@ -72,6 +79,8 @@ __all__ = [
     "Prepayment",
     "Registrar",
     "RegistrarKind",
+    "RegistrarPayment",
+    "RegistrarPaymentMethod",
     "RegistrarPrice",
     "SubmissionGroup",
     "TWO_FACTOR_REQUIRED_ROLES",

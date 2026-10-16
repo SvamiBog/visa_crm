@@ -42,6 +42,7 @@ type Finance = {
   registrar_fee_currency: string | null;
   registrar_fee_rate: string | null;
   registrar_fee_base: string | null;
+  registrar_fee_on: string | null;
   partner_terms: Terms | null;
   partner_percent: string | null;
   partner_fixed: string | null;
@@ -60,6 +61,7 @@ type Finance = {
     registrar_fee: {
       amount: string;
       currency: string;
+      on: string;
       rate: string | null;
     } | null;
     partner_terms: Terms | null;
@@ -182,7 +184,10 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
       {editing === "payment" && <PaymentForm finance={f} payment={payment} onDone={close} />}
       {editing === "expense" && <ExpenseForm finance={f} expense={expense} onDone={close} />}
 
-      {f.price === null && f.payments.length === 0 ? (
+      {f.price === null &&
+      f.payments.length === 0 &&
+      f.expenses.length === 0 &&
+      f.registrar_fee_base === null ? (
         <p className="muted small">{t("finance.empty")}</p>
       ) : (
         <table className="tbl money-table">
@@ -220,13 +225,21 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
             {f.registrar_fee_base !== null && (
               <MoneyRow
                 label={
-                  f.registrar_fee_currency === base
-                    ? t("finance.talon")
-                    : t("finance.talonForeign", {
-                        amount: money(f.registrar_fee_amount),
-                        currency: f.registrar_fee_currency,
-                        rate: rateText(f.registrar_fee_rate),
-                      })
+                  <>
+                    {f.registrar_fee_currency === base
+                      ? t("finance.talon")
+                      : t("finance.talonForeign", {
+                          amount: money(f.registrar_fee_amount),
+                          currency: f.registrar_fee_currency,
+                          rate: rateText(f.registrar_fee_rate),
+                        })}
+                    {f.registrar_fee_on && (
+                      <span className="muted">
+                        {" "}
+                        · {formatDate(f.registrar_fee_on, i18n.language)}
+                      </span>
+                    )}
+                  </>
                 }
                 value={money(f.registrar_fee_base)}
               />
@@ -419,20 +432,21 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
     f.registrar_fee_currency ?? fee?.currency ?? currencies.find((c) => c !== base) ?? base,
   );
   const [feeRate, setFeeRate] = useState(f.registrar_fee_rate ?? fee?.rate ?? "");
+  // The day the talon is charged to the registrar: when the client was queued.
+  const [feeOn, setFeeOn] = useState(f.registrar_fee_on ?? fee?.on ?? todayIso());
   const [terms, setTerms] = useState<Terms | "">(f.partner_terms ?? hints.partner_terms ?? "");
   const [percent, setPercent] = useState(f.partner_percent ?? hints.partner_percent ?? "");
   const [fixed, setFixed] = useState(f.partner_fixed ?? hints.partner_fixed ?? "");
   const [paidOn, setPaidOn] = useState(f.partner_paid_on ?? "");
-  const today = todayIso();
   const rate = useBankRate(
     feeCurrency,
-    today,
+    feeOn,
     base,
     setFeeRate,
-    f.registrar_fee_currency && f.registrar_fee_rate
+    f.registrar_fee_currency && f.registrar_fee_rate && f.registrar_fee_on
       ? {
           currency: f.registrar_fee_currency,
-          day: today,
+          day: f.registrar_fee_on,
           rate: f.registrar_fee_rate,
         }
       : null,
@@ -446,6 +460,7 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
         ? {
             registrar_fee_amount: toDecimal(feeAmount),
             registrar_fee_currency: feeCurrency,
+            registrar_fee_on: feeOn,
             ...(feeCurrency !== base && feeRate ? { registrar_fee_rate: toDecimal(feeRate) } : {}),
           }
         : { registrar_fee_amount: null }),
@@ -494,6 +509,15 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
                 </option>
               ))}
             </select>
+          </label>
+          <label className="field">
+            <span>{t("finance.talonOn")}</span>
+            <input
+              type="date"
+              required={Boolean(feeAmount)}
+              value={feeOn}
+              onChange={(e) => setFeeOn(e.target.value)}
+            />
           </label>
           {feeCurrency !== base && (
             <RateField value={feeRate} onChange={setFeeRate} missing={rate.isError} base={base} />

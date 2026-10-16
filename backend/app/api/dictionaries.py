@@ -12,14 +12,21 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, require_specialist, require_tenant_user
 from app.core.audit import record
-from app.core.money import CURRENCIES, Amount, Currency, Percent
+from app.core.money import CENT, CURRENCIES, Amount, Currency, Percent
 from app.models import (
     AuditAction,
     Country,
@@ -148,12 +155,23 @@ class PriceOut(BaseModel):
     currency: str
 
 
+# Remind when the advance with a registrar falls below this; 0 — only when in debt.
+Threshold = Annotated[
+    Decimal,
+    Field(ge=0, max_digits=14, decimal_places=2),
+    AfterValidator(lambda value: value.quantize(CENT)),
+]
+
+
 class RegistrarIn(BaseModel):
     name: LongName
     kind: RegistrarKind
     contact: Contact | None = None
     note: Note | None = None
     is_active: bool = True
+    # The currency of the settlements; omitted — the workspace's base currency.
+    currency: Currency | None = None
+    low_balance: Threshold | None = None
 
 
 class RegistrarUpdate(BaseModel):
@@ -162,6 +180,8 @@ class RegistrarUpdate(BaseModel):
     contact: Contact | None = None
     note: Note | None = None
     is_active: bool | None = None
+    currency: Currency | None = None
+    low_balance: Threshold | None = None
 
 
 class RegistrarOut(BaseModel):
@@ -173,6 +193,8 @@ class RegistrarOut(BaseModel):
     contact: str | None
     note: str | None
     is_active: bool
+    currency: str
+    low_balance: Decimal | None
     created_at: datetime
     prices: list[PriceOut]
 
@@ -489,7 +511,9 @@ async def list_registrars(session: TenantSession) -> list[RegistrarOut]:
 async def create_registrar(
     body: RegistrarIn, user: Specialist, session: TenantSession
 ) -> RegistrarOut:
-    registrar = Registrar(tenant_id=user.tenant_id, **body.model_dump())
+    values = body.model_dump()
+    values["currency"] = values["currency"] or (await _tenant(session, user)).base_currency
+    registrar = Registrar(tenant_id=user.tenant_id, **values)
     session.add(registrar)
     await session.flush()
     _audit(session, AuditAction.REFERENCE_CREATED, user, "registrar", registrar.id, registrar.name)
@@ -503,7 +527,11 @@ async def update_registrar(
     registrar_id: uuid.UUID, body: RegistrarUpdate, user: Specialist, session: TenantSession
 ) -> RegistrarOut:
     registrar = await _get(session, Registrar, registrar_id)
-    _apply(registrar, body.model_dump(exclude_unset=True), nullable=frozenset({"contact", "note"}))
+    _apply(
+        registrar,
+        body.model_dump(exclude_unset=True),
+        nullable=frozenset({"contact", "note", "low_balance"}),
+    )
     _audit(session, AuditAction.REFERENCE_UPDATED, user, "registrar", registrar.id, registrar.name)
     await session.commit()
     return RegistrarOut.model_validate(registrar)
