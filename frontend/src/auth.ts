@@ -10,7 +10,6 @@ export type Me = {
   role: Role;
   must_change_password: boolean;
   two_factor_enabled: boolean;
-  must_set_up_two_factor: boolean;
   tenant_id: string | null;
   ui_theme: UiTheme;
 };
@@ -37,6 +36,5 @@ export function useMe() {
 /** Where a user lands after login. */
 export function homePath(me: Me): string {
   if (me.must_change_password) return "/change-password";
-  if (me.must_set_up_two_factor) return "/setup-two-factor";
   return me.role === "admin" ? "/admin" : "/app";
 }

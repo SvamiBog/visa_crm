@@ -39,8 +39,6 @@ async def test_admin_creates_specialist_who_must_change_password(
         "/api/auth/change-password",
         json={"current_password": temporary, "new_password": NEW_PASSWORD},
     )
-    blocked = await client.get("/api/workspace")
-    assert blocked.json() == {"detail": "two_factor_setup_required"}
     await enable_two_factor(client)
     assert (await client.get("/api/workspace")).json() == {
         "name": "Anna Visa",
@@ -99,7 +97,6 @@ async def test_reset_password_issues_new_temporary_password(
     # A new temporary password also turns two-factor login off (lost phone).
     assert me["must_change_password"] is True
     assert me["two_factor_enabled"] is False
-    assert me["must_set_up_two_factor"] is True
 
 
 async def test_specialist_cannot_use_admin_api(client: AsyncClient, make_user: MakeUser):

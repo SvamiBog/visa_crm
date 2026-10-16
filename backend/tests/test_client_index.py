@@ -1,12 +1,12 @@
 """Client index (backlog 1.5): tabs, filters, row summaries, the board and moving cases."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, login, workspace_today
 
 CONTACTS = "/api/contacts"
 
@@ -28,7 +28,7 @@ async def contact(client: AsyncClient, name: str, **fields) -> str:
 
 
 async def consult(client: AsyncClient, contact_id: str, **fields) -> dict:
-    body = {"held_on": date.today().isoformat(), **fields}
+    body = {"held_on": workspace_today().isoformat(), **fields}
     response = await client.post(f"{CONTACTS}/{contact_id}/consultations", json=body)
     assert response.status_code == 201, response.text
     return response.json()
@@ -168,10 +168,10 @@ async def test_board(client: AsyncClient, make_user: MakeUser):
     recent = await open_case(client, await contact(client, "Свежая виза"), destination="FR")
     await client.patch(
         f"/api/cases/{recent['id']}",
-        json={"outcome": "visa", "decided_on": date.today().isoformat()},
+        json={"outcome": "visa", "decided_on": workspace_today().isoformat()},
     )
     old = await open_case(client, await contact(client, "Давняя виза"))
-    long_ago = (date.today() - timedelta(days=60)).isoformat()
+    long_ago = (workspace_today() - timedelta(days=60)).isoformat()
     await client.patch(f"/api/cases/{old['id']}", json={"outcome": "visa", "decided_on": long_ago})
     await consult(
         client,

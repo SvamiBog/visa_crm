@@ -32,7 +32,7 @@ async def test_specialist_invites_employee_who_works_with_granted_modules(
         "/api/auth/change-password",
         json={"current_password": created["temporary_password"], "new_password": NEW_PASSWORD},
     )
-    assert changed.json()["must_set_up_two_factor"] is False  # optional for employees
+    assert changed.json()["two_factor_enabled"] is False  # optional, as for everyone
     workspace = (await client.get("/api/workspace")).json()
     assert workspace["modules"] == ["clients", "analytics"]
 

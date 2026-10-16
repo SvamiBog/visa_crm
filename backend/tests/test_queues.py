@@ -1,10 +1,10 @@
 """Waiting lists and application attempts (backlog 1.6)."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from httpx import AsyncClient
 
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, login, workspace_today
 
 CONTACTS = "/api/contacts"
 
@@ -128,7 +128,7 @@ async def test_application_attempts(client: AsyncClient, make_user: MakeUser):
     [france] = await open_cases(client, anna, destination="FR")
     assert france["booking_type"] == "windowed_application" and france["window_days"] == 60
     url = f"/api/cases/{france['id']}/attempts"
-    today = date.today()
+    today = workspace_today()
 
     old = (
         await client.post(url, json={"sent_on": (today - timedelta(days=70)).isoformat()})
@@ -178,7 +178,7 @@ async def test_country_queue_view(client: AsyncClient, make_user: MakeUser):
     await client.patch(f"/api/queue-entries/{b['id']}", json={"letter_on": "2026-09-29"})
     await client.patch(f"/api/queue-entries/{v['id']}", json={"removed_on": "2026-04-20"})
     await client.post(
-        f"/api/cases/{france['id']}/attempts", json={"sent_on": date.today().isoformat()}
+        f"/api/cases/{france['id']}/attempts", json={"sent_on": workspace_today().isoformat()}
     )
 
     view = (await client.get("/api/queues", params={"country_id": codes["PL"]})).json()
@@ -221,7 +221,7 @@ async def test_other_workspaces_queues_are_not_found(client: AsyncClient, make_u
     [france] = await open_cases(client, await contact(client), destination="FR")
     attempt = (
         await client.post(
-            f"/api/cases/{france['id']}/attempts", json={"sent_on": date.today().isoformat()}
+            f"/api/cases/{france['id']}/attempts", json={"sent_on": workspace_today().isoformat()}
         )
     ).json()
     client.cookies.clear()

@@ -18,6 +18,7 @@ class AuditAction(StrEnum):
     PASSWORD_CHANGED = "auth.password_changed"
     TWO_FACTOR_ENABLED = "auth.two_factor_enabled"
     TWO_FACTOR_RESET = "auth.two_factor_reset"
+    TWO_FACTOR_DISABLED = "auth.two_factor_disabled"
     EMAIL_CHANGE_REQUESTED = "auth.email_change_requested"
     EMAIL_CHANGED = "auth.email_changed"
     ADMIN_CREATED = "admin.admin_created"

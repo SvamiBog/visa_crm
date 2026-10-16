@@ -31,7 +31,6 @@ from app.core.two_factor import (
     verify_totp,
 )
 from app.models import (
-    TWO_FACTOR_REQUIRED_ROLES,
     AuditAction,
     RecoveryCode,
     Tenant,
@@ -74,7 +73,6 @@ class MeOut(BaseModel):
     role: UserRole
     must_change_password: bool
     two_factor_enabled: bool
-    must_set_up_two_factor: bool
     tenant_id: uuid.UUID | None
     ui_theme: str
 
@@ -97,7 +95,6 @@ def _me(user: User | CurrentUser) -> MeOut:
         role=user.role,
         must_change_password=user.must_change_password,
         two_factor_enabled=enabled,
-        must_set_up_two_factor=user.role in TWO_FACTOR_REQUIRED_ROLES and not enabled,
         tenant_id=user.tenant_id,
         ui_theme=user.ui_theme,
     )

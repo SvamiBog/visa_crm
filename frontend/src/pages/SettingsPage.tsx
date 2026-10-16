@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../api";
 import { ME_KEY, useMe, type Me } from "../auth";
 import { applyTheme, DEFAULT_THEME, THEMES, type UiTheme } from "../theme";
@@ -32,6 +33,7 @@ export function SettingsPage() {
       </header>
 
       <EmailChange />
+      <TwoFactor />
 
       <section className="card form-card">
         <h2 className="h2">{t("settings.theme")}</h2>
@@ -95,6 +97,96 @@ function ErrorAlert({ error }: { error: unknown }) {
     <div className="alert alert-error" role="alert">
       {t(`errors.${errorCode(error)}`, { defaultValue: t("errors.unknown") })}
     </div>
+  );
+}
+
+/** Two-factor login is optional: turned on with the authenticator app, turned off with the
+ * password and a current code (or a recovery code). */
+function TwoFactor() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const me = useMe();
+  const [turningOff, setTurningOff] = useState(false);
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const disable = useMutation({
+    mutationFn: () => apiPost<void>("/auth/two-factor/disable", { password, code }),
+    onSuccess: () => {
+      setTurningOff(false);
+      setPassword("");
+      setCode("");
+      void queryClient.invalidateQueries({ queryKey: ME_KEY });
+    },
+    onError: () => setCode(""),
+  });
+  const on = me.data?.two_factor_enabled ?? false;
+
+  return (
+    <section className="card form-card">
+      <h2 className="h2">{t("settings.twoFactor")}</h2>
+      <p className="muted small">{t(on ? "settings.twoFactorOn" : "settings.twoFactorOff")}</p>
+      {disable.isSuccess && !on && (
+        <div className="alert alert-ok" role="status">
+          {t("settings.twoFactorTurnedOff")}
+        </div>
+      )}
+      {!on && (
+        <div className="form-actions">
+          <Link to="/setup-two-factor" className="btn btn-p">
+            {t("twoFactor.turnOn")}
+          </Link>
+        </div>
+      )}
+      {on && !turningOff && (
+        <div className="form-actions">
+          <button type="button" className="btn" onClick={() => setTurningOff(true)}>
+            {t("settings.twoFactorTurnOff")}
+          </button>
+        </div>
+      )}
+      {on && turningOff && (
+        <form
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            disable.mutate();
+          }}
+        >
+          <p className="muted small">{t("settings.twoFactorTurnOffHint")}</p>
+          <div className="form-grid">
+            <label className="field">
+              <span>{t("auth.currentPassword")}</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>{t("settings.twoFactorCode")}</span>
+              <input
+                autoComplete="one-time-code"
+                required
+                minLength={6}
+                maxLength={32}
+                value={code}
+                onChange={(e) => setCode(e.target.value.trim())}
+              />
+            </label>
+          </div>
+          {disable.isError && <ErrorAlert error={disable.error} />}
+          <div className="form-actions">
+            <button type="submit" className="btn btn-p" disabled={disable.isPending}>
+              {t("settings.twoFactorTurnOff")}
+            </button>
+            <button type="button" className="btn" onClick={() => setTurningOff(false)}>
+              {t("common.cancel")}
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
 

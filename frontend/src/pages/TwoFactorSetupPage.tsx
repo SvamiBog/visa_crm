@@ -38,6 +38,7 @@ export function TwoFactorSetupPage() {
 
 function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
   const { t } = useTranslation();
+  const me = useMe();
   const [code, setCode] = useState("");
   // A query (not an effect) so a double render in development does not start setup twice.
   const setup = useQuery({
@@ -110,6 +111,12 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
       >
         {t("twoFactor.enable")}
       </button>
+      {/* Optional: the user may leave and turn it on later in Settings. */}
+      {me.data && (
+        <Link to={homePath(me.data)} className="btn btn-block">
+          {t("twoFactor.notNow")}
+        </Link>
+      )}
     </form>
   );
 }

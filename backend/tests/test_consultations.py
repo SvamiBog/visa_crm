@@ -1,8 +1,8 @@
-from datetime import date, timedelta
+from datetime import timedelta
 
 from httpx import AsyncClient
 
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, login, workspace_today
 
 CONTACTS = "/api/contacts"
 
@@ -176,7 +176,7 @@ async def test_passport_rules_come_from_the_reference(client: AsyncClient, make_
 
     await as_specialist(client, make_user)
     contact = await new_contact(client)
-    expires = (date.today() + timedelta(days=100)).isoformat()
+    expires = (workspace_today() + timedelta(days=100)).isoformat()
     await client.put(
         f"{CONTACTS}/{contact['id']}/questionnaire", json={"passport_expires_on": expires}
     )

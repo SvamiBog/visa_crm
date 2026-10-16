@@ -96,7 +96,7 @@
   "twoFactor.useApp": "Ввести код из приложения",
   "twoFactor.startOver": "Войти заново",
   "twoFactor.setupTitle": "Двухфакторный вход",
-  "twoFactor.setupIntro": "Для защиты данных клиентов вход подтверждается кодом из приложения на телефоне. Настройка занимает минуту.",
+  "twoFactor.setupIntro": "По желанию: вход будет подтверждаться кодом из приложения на телефоне, и одного пароля для входа станет мало. Настройка занимает минуту.",
   "twoFactor.stepInstall": "Установите приложение-аутентификатор: Google Authenticator, Microsoft Authenticator, 1Password или другое.",
   "twoFactor.stepScan": "В приложении добавьте аккаунт и отсканируйте QR-код.",
   "twoFactor.stepCode": "Введите 6-значный код из приложения",
@@ -111,7 +111,6 @@
   "twoFactor.continue": "Продолжить",
   "errors.invalid_code": "Неверный или уже использованный код.",
   "errors.login_expired": "Время на ввод кода истекло. Войдите заново.",
-  "errors.two_factor_setup_required": "Сначала включите двухфакторный вход.",
   "errors.two_factor_already_enabled": "Двухфакторный вход уже включён.",
   "errors.two_factor_setup_not_started": "Обновите страницу и отсканируйте QR-код ещё раз.",
   "nav.audit": "Журнал",
@@ -932,5 +931,15 @@
   "audit.action.finances.registrar_payment_added": "Оплата регистратору добавлена",
   "audit.action.finances.registrar_payment_updated": "Оплата регистратору изменена",
   "audit.action.finances.registrar_payment_deleted": "Оплата регистратору удалена",
-  "audit.target.registrar_payment": "оплата регистратору"
+  "audit.target.registrar_payment": "оплата регистратору",
+  "settings.twoFactor": "Двухфакторный вход",
+  "settings.twoFactorOn": "Включён: при входе кроме пароля нужен код из приложения-аутентификатора.",
+  "settings.twoFactorOff": "Выключен: вход только по паролю. Включите, чтобы вход подтверждался кодом из приложения на телефоне — тогда одного пароля для входа мало.",
+  "settings.twoFactorTurnOff": "Выключить",
+  "settings.twoFactorTurnOffHint": "Для выключения введите пароль и код из приложения (или один из кодов восстановления).",
+  "settings.twoFactorCode": "Код из приложения или код восстановления",
+  "settings.twoFactorTurnedOff": "Двухфакторный вход выключен.",
+  "twoFactor.notNow": "Не сейчас",
+  "errors.two_factor_not_enabled": "Двухфакторный вход и так выключен.",
+  "audit.action.auth.two_factor_disabled": "Двухфакторный вход выключен"
 }

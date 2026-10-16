@@ -220,7 +220,8 @@ class DemoRefused(RuntimeError):
 @dataclass(frozen=True)
 class DemoSettings:
     password: str
-    totp_secret: str
+    # Optional: the admin and the specialists get two-factor login with this secret.
+    totp_secret: str = ""
     specialists: int = 5
     clients: int = 300
 
@@ -230,6 +231,8 @@ def check_settings(env: str, password: str, totp_secret: str) -> None:
         raise DemoRefused(f"demo data is only for {', '.join(ALLOWED_ENVS)}, not {env!r}")
     if len(password) < 10:
         raise DemoRefused("DEMO_PASSWORD must be at least 10 characters")
+    if not totp_secret:
+        return  # demo accounts sign in with the password only
     try:
         pyotp.TOTP(totp_secret).now()
     except Exception as error:  # noqa: BLE001 — any malformed secret
@@ -259,7 +262,7 @@ def _user(
     modules: list[str] | None = None,
 ) -> User:
     user_id = uuid.uuid4()
-    two_factor = role != UserRole.EMPLOYEE
+    two_factor = role != UserRole.EMPLOYEE and bool(settings.totp_secret)
     return User(
         id=user_id,
         tenant_id=tenant_id,

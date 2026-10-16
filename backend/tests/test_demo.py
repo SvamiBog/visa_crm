@@ -1,6 +1,9 @@
 """Demo data for the staging stand: it fills empty workspaces, works through the API like
 real data and never runs in production."""
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -10,11 +13,13 @@ from app.core.demo import (
     ADMIN_EMAIL,
     DemoRefused,
     DemoSettings,
+    _user,
     already_seeded,
     check_settings,
     seed,
     specialist_email,
 )
+from app.models import UserRole
 from tests.helpers import TOTP_SECRET, login
 
 PASSWORD = "demo-password-42"
@@ -28,6 +33,17 @@ def test_demo_data_is_refused_outside_the_stand():
     with pytest.raises(DemoRefused):
         check_settings("staging", PASSWORD, "not base32!")
     check_settings("staging", PASSWORD, TOTP_SECRET)
+    check_settings("staging", PASSWORD, "")  # no secret: demo accounts without the code
+
+
+def test_demo_accounts_get_two_factor_only_with_a_secret():
+    now = datetime.now(UTC)
+    plain = _user("visa1@x.test", UserRole.SPECIALIST, DemoSettings(PASSWORD), uuid4(), now)
+    assert plain.totp_enabled_at is None and plain.totp_secret_encrypted is None
+    coded = _user(
+        "visa1@x.test", UserRole.SPECIALIST, DemoSettings(PASSWORD, TOTP_SECRET), uuid4(), now
+    )
+    assert coded.totp_enabled_at is not None
 
 
 async def test_demo_workspaces_work_like_real_ones(

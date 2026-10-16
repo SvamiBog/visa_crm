@@ -36,7 +36,7 @@ from app.models.reference import (
 )
 from app.models.session import UserSession
 from app.models.tenant import Tenant
-from app.models.user import TWO_FACTOR_REQUIRED_ROLES, UiTheme, User, UserRole
+from app.models.user import UiTheme, User, UserRole
 from app.models.vault import VaultEntry, VaultSystem, VaultSystemKind
 from app.models.visa_case import (
     CaseStage,
@@ -83,7 +83,6 @@ __all__ = [
     "RegistrarPaymentMethod",
     "RegistrarPrice",
     "SubmissionGroup",
-    "TWO_FACTOR_REQUIRED_ROLES",
     "RecoveryCode",
     "Tenant",
     "UiTheme",
