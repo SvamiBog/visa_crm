@@ -1593,3 +1593,23 @@ a.nav-a:hover {
 .booking-item.row-off {
   color: var(--c-gray);
 }
+
+/* The confirmation code of a new login email */
+.code-field input {
+  max-width: 200px;
+  letter-spacing: 0.2em;
+  font-family: var(--font-num);
+}
+
+/* The staging stand: a strip above every page */
+.env-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 6px 16px;
+  background: var(--c-orange-bg);
+  color: var(--c-orange);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}

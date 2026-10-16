@@ -15,6 +15,7 @@ from app.models.dictionaries import (
     RegistrarPrice,
     VisaPurpose,
 )
+from app.models.email_change import EmailChange
 from app.models.queue import ApplicationAttempt, AttemptOutcome, WaitingListEntry
 from app.models.recovery_code import RecoveryCode
 from app.models.reference import (
@@ -55,6 +56,7 @@ __all__ = [
     "Country",
     "CountryRule",
     "Decision",
+    "EmailChange",
     "EmailOwner",
     "Hall",
     "LeadChannel",

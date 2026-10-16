@@ -43,3 +43,65 @@ jobs:
           node-version: 22
       - run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - run: npm run build
+
+  # Known vulnerabilities in dependencies block the merge; the ZAP scan of the running
+  # app (with demo data, like the staging stand) is a report to read, in the run's
+  # artifacts. docs/staging.md → «Проверка на уязвимости».
+  security:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: visacrm
+          POSTGRES_PASSWORD: visacrm
+          POSTGRES_DB: visacrm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # A throwaway database of this run only: these are not secrets.
+      DATABASE_URL: postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm
+      ENV: staging
+      DEMO_PASSWORD: ci-demo-password
+      DEMO_TOTP_SECRET: JBSWY3DPEHPK3PXP
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Python dependencies with known vulnerabilities
+        working-directory: backend
+        run: |
+          uv export --no-dev --no-emit-project --format requirements-txt > /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt --disable-pip --progress-spinner off
+      - name: npm dependencies with known high or critical vulnerabilities
+        working-directory: frontend
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+      - name: Start the app with demo data
+        run: |
+          (cd frontend && npm run build)
+          cd backend
+          uv sync
+          export VAULT_MASTER_KEY="$(uv run python -m app.cli generate-master-key)"
+          uv run alembic upgrade head
+          uv run python -m app.cli seed-demo --specialists 1 --clients 30
+          nohup uv run uvicorn app.main:app --port 8000 > /tmp/app.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:8000/api/health && exit 0; sleep 1; done
+          cat /tmp/app.log; exit 1
+      - name: ZAP baseline scan
+        continue-on-error: true
+        run: |
+          mkdir -p zap && chmod 777 zap
+          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:8000 -r zap-report.html -J zap-report.json -I
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-report
+          path: zap/
+          if-no-files-found: ignore

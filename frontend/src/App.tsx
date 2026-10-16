@@ -67,6 +67,22 @@ function Settings() {
   );
 }
 
+/** On the staging stand: a strip on every page, so nobody takes it for the real system. */
+function EnvBanner() {
+  const { t } = useTranslation();
+  const health = useQuery({
+    queryKey: ["health"],
+    queryFn: () => apiGet<{ env: string }>("/health"),
+    staleTime: Infinity,
+  });
+  if (health.data?.env !== "staging") return null;
+  return (
+    <div className="env-banner" role="note">
+      {t("env.staging")}
+    </div>
+  );
+}
+
 export default function App() {
   const me = useMe();
   const theme = me.data?.ui_theme;
@@ -76,163 +92,166 @@ export default function App() {
   }, [theme]);
 
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/change-password"
-        element={
-          <RequireUser>
-            <ChangePasswordPage />
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/setup-two-factor"
-        element={
-          <RequireUser>
-            <TwoFactorSetupPage />
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/admin"
-        element={
-          <RequireUser roles={["admin"]}>
-            <Shell area="admin">
-              <SpecialistsPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/admin/audit"
-        element={
-          <RequireUser roles={["admin"]}>
-            <Shell area="admin">
-              <AuditPage scope="admin" />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/admin/reference"
-        element={
-          <RequireUser roles={["admin"]}>
-            <Shell area="admin">
-              <ReferencePage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/countries"
-        element={
-          <RequireUser roles={["specialist", "employee"]}>
-            <Shell area="cabinet">
-              <CountriesPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/clients"
-        element={
-          <RequireUser roles={["specialist", "employee"]}>
-            <Shell area="cabinet">
-              <ClientsPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/clients/:id"
-        element={
-          <RequireUser roles={["specialist", "employee"]}>
-            <Shell area="cabinet">
-              <ContactPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/queues"
-        element={
-          <RequireUser roles={["specialist", "employee"]}>
-            <Shell area="cabinet">
-              <QueuesPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/bookings"
-        element={
-          <RequireUser roles={["specialist", "employee"]}>
-            <Shell area="cabinet">
-              <BookingsPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/vault"
-        element={
-          <RequireUser roles={["specialist", "employee"]}>
-            <Shell area="cabinet">
-              <VaultPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/dictionaries"
-        element={
-          <RequireUser roles={["specialist"]}>
-            <Shell area="cabinet">
-              <DictionariesPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/employees"
-        element={
-          <RequireUser roles={["specialist"]}>
-            <Shell area="cabinet">
-              <EmployeesPage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app/audit"
-        element={
-          <RequireUser roles={["specialist"]}>
-            <Shell area="cabinet">
-              <WorkspaceAudit />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/app"
-        element={
-          <RequireUser roles={["specialist", "employee"]}>
-            <Shell area="cabinet">
-              <HomePage />
-            </Shell>
-          </RequireUser>
-        }
-      />
-      <Route
-        path="/settings"
-        element={
-          <RequireUser>
-            <Settings />
-          </RequireUser>
-        }
-      />
-      <Route path="*" element={<RootRedirect />} />
-    </Routes>
+    <>
+      <EnvBanner />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/change-password"
+          element={
+            <RequireUser>
+              <ChangePasswordPage />
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/setup-two-factor"
+          element={
+            <RequireUser>
+              <TwoFactorSetupPage />
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <RequireUser roles={["admin"]}>
+              <Shell area="admin">
+                <SpecialistsPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/admin/audit"
+          element={
+            <RequireUser roles={["admin"]}>
+              <Shell area="admin">
+                <AuditPage scope="admin" />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/admin/reference"
+          element={
+            <RequireUser roles={["admin"]}>
+              <Shell area="admin">
+                <ReferencePage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/countries"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <CountriesPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/clients"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <ClientsPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/clients/:id"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <ContactPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/queues"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <QueuesPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/bookings"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <BookingsPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/vault"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <VaultPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/dictionaries"
+          element={
+            <RequireUser roles={["specialist"]}>
+              <Shell area="cabinet">
+                <DictionariesPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/employees"
+          element={
+            <RequireUser roles={["specialist"]}>
+              <Shell area="cabinet">
+                <EmployeesPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/audit"
+          element={
+            <RequireUser roles={["specialist"]}>
+              <Shell area="cabinet">
+                <WorkspaceAudit />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <HomePage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <RequireUser>
+              <Settings />
+            </RequireUser>
+          }
+        />
+        <Route path="*" element={<RootRedirect />} />
+      </Routes>
+    </>
   );
 }

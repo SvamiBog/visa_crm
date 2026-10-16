@@ -97,6 +97,7 @@ def migrated_database() -> str:
 WORKSPACE_TABLES = (
     "audit_events",
     "user_recovery_codes",
+    "email_changes",
     "user_sessions",
     "waiting_list_entries",
     "application_attempts",
