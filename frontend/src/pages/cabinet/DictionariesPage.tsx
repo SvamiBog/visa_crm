@@ -43,6 +43,8 @@ type Registrar = {
   contact: string | null;
   note: string | null;
   is_active: boolean;
+  currency: string;
+  low_balance: string | null;
   prices: Price[];
 };
 type Prepayment = { country_id: string; purpose_id: string | null; amount: string };
@@ -855,7 +857,9 @@ function Registrars() {
                   <tr key={r.id} className={r.is_active ? undefined : "row-off"}>
                     <td>
                       {r.name}
-                      <div className="muted small">{t(`dict.kind.${r.kind}`)}</div>
+                      <div className="muted small">
+                        {t(`dict.kind.${r.kind}`)} · {t("dict.settlesIn", { currency: r.currency })}
+                      </div>
                     </td>
                     <td className="muted">{r.contact ?? "—"}</td>
                     <td>
@@ -914,6 +918,11 @@ function RegistrarForm({
   const [note, setNote] = useState(registrar?.note ?? "");
   const [active, setActive] = useState(registrar?.is_active ?? true);
   const [prices, setPrices] = useState<Price[]>(registrar?.prices ?? []);
+  const money = useList<Money>("money");
+  // A new registrar settles in the base currency until another is chosen.
+  const [chosenCurrency, setCurrency] = useState<string | null>(registrar?.currency ?? null);
+  const currency = chosenCurrency ?? money.data?.base_currency ?? CURRENCIES[0];
+  const [lowBalance, setLowBalance] = useState(registrar?.low_balance ?? "");
 
   const setRow = (index: number, patch: Partial<Price>) =>
     setPrices((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -926,6 +935,8 @@ function RegistrarForm({
         contact: contact.trim() || null,
         note: note.trim() || null,
         is_active: active,
+        currency,
+        low_balance: lowBalance.trim() ? toAmount(lowBalance) : null,
       };
       const saved = registrar
         ? await apiPatch<Registrar>(`${BASE}/registrars/${registrar.id}`, body)
@@ -973,6 +984,30 @@ function RegistrarForm({
         <span>{t("reference.notes")}</span>
         <input maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
+
+      <fieldset className="module-block">
+        <legend>{t("dict.settlements")}</legend>
+        <p className="muted small">{t("dict.settlementsHint")}</p>
+        <div className="form-grid">
+          <label className="field">
+            <span>{t("dict.settlementCurrency")}</span>
+            <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              {CURRENCIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>{t("dict.lowBalance", { currency })}</span>
+            <input
+              inputMode="decimal"
+              pattern="[0-9 ]*([.,][0-9]{1,2})?"
+              value={lowBalance}
+              onChange={(e) => setLowBalance(e.target.value)}
+            />
+          </label>
+        </div>
+      </fieldset>
 
       <fieldset className="module-block">
         <legend>{t("dict.prices")}</legend>

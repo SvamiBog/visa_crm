@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
@@ -35,6 +35,7 @@ from app.models import (
     RegistrarPrice,
     Tenant,
     VisaCase,
+    WaitingListEntry,
 )
 from app.models.dictionaries import Hall
 
@@ -60,6 +61,7 @@ FINANCE_FIELDS = (
     "registrar_fee_amount",
     "registrar_fee_currency",
     "registrar_fee_rate",
+    "registrar_fee_on",
     "partner_terms",
     "partner_percent",
     "partner_fixed",
@@ -80,7 +82,9 @@ def _strip(value: object) -> object:
 
 class FinanceUpdate(BaseModel):
     """Only the fields sent are changed; null clears one. The talon is sent whole
-    (amount, currency and rate) or cleared with a null amount."""
+    (amount, currency and rate) or cleared with a null amount. Its day (when it is
+    charged in the settlements with the registrar) defaults to the day the client was
+    queued, else today; a rate not sent is the bank's of that day."""
 
     price: Price | None = None
     prepayment: Amount | None = None
@@ -88,6 +92,7 @@ class FinanceUpdate(BaseModel):
     registrar_fee_amount: Amount | None = None
     registrar_fee_currency: Currency | None = None
     registrar_fee_rate: Rate | None = None
+    registrar_fee_on: date | None = None
     partner_terms: PartnerTermsType | None = None
     partner_percent: Percent | None = None
     partner_fixed: Amount | None = None
@@ -165,7 +170,9 @@ class ExpenseOut(BaseModel):
 class FeeSuggestion(BaseModel):
     amount: Decimal
     currency: str
-    # Base units for one unit today; None when the bank's rate cannot be had.
+    # The day it is charged: when the client was queued, else today.
+    on: date
+    # Base units for one unit that day; None when the bank's rate cannot be had.
     rate: Decimal | None
 
 
@@ -191,6 +198,7 @@ class FinanceOut(BaseModel):
     registrar_fee_currency: str | None = None
     registrar_fee_rate: Decimal | None = None
     registrar_fee_base: Decimal | None = None
+    registrar_fee_on: date | None = None
     partner_terms: PartnerTermsType | None = None
     partner_percent: Decimal | None = None
     partner_fixed: Decimal | None = None
@@ -259,6 +267,31 @@ def _audit(
     )
 
 
+async def registrar_price_for(session: AsyncSession, case: VisaCase) -> RegistrarPrice | None:
+    """The talon of the case's registrar for its country, hall and purpose (the purpose's
+    own price wins over «any purpose»)."""
+    if case.registrar_id is None:
+        return None
+    prices = {
+        p.purpose_id: p
+        for p in await session.scalars(
+            select(RegistrarPrice).where(
+                RegistrarPrice.registrar_id == case.registrar_id,
+                RegistrarPrice.country_id == case.destination_id,
+                RegistrarPrice.hall == (case.hall or Hall.STANDARD),
+            )
+        )
+    }
+    return prices.get(case.purpose_id, prices.get(None))
+
+
+async def first_queued_on(session: AsyncSession, case_id: uuid.UUID) -> date | None:
+    """When the client was first put in a waiting list: the day the talon is charged."""
+    return await session.scalar(
+        select(func.min(WaitingListEntry.queued_on)).where(WaitingListEntry.case_id == case_id)
+    )
+
+
 async def _suggestions(
     session: AsyncSession, case: VisaCase, tenant: Tenant, today: date
 ) -> Suggestions:
@@ -272,24 +305,15 @@ async def _suggestions(
     out.prepayment = prepayments.get(case.purpose_id, prepayments.get(None))
 
     if case.registrar_id is not None:
-        prices = {
-            p.purpose_id: p
-            for p in await session.scalars(
-                select(RegistrarPrice).where(
-                    RegistrarPrice.registrar_id == case.registrar_id,
-                    RegistrarPrice.country_id == case.destination_id,
-                    RegistrarPrice.hall == (case.hall or Hall.STANDARD),
-                )
-            )
-        }
-        price = prices.get(case.purpose_id, prices.get(None))
+        price = await registrar_price_for(session, case)
         if price is not None:
+            day = await first_queued_on(session, case.id) or today
             try:
-                rate = await rate_to_base(price.currency, tenant.base_currency, today)
+                rate = await rate_to_base(price.currency, tenant.base_currency, day)
             except RateUnavailable:
                 rate = None
             out.registrar_fee = FeeSuggestion(
-                amount=price.amount, currency=price.currency, rate=rate
+                amount=price.amount, currency=price.currency, on=day, rate=rate
             )
 
     contact = await _get(session, Contact, case.contact_id)
@@ -389,6 +413,7 @@ def _check_finance(finance: CaseFinance) -> None:
         finance.registrar_fee_amount,
         finance.registrar_fee_currency,
         finance.registrar_fee_rate,
+        finance.registrar_fee_on,
     )
     if any(v is None for v in fee) and any(v is not None for v in fee):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "registrar_fee_incomplete")
@@ -442,15 +467,26 @@ async def update_finance(
     changes = body.model_dump(exclude_unset=True)
     if "consultation_credit" in changes and changes["consultation_credit"] is None:
         changes["consultation_credit"] = Decimal("0")
-    currency = changes.get("registrar_fee_currency")
-    if currency == tenant.base_currency:
-        changes["registrar_fee_rate"] = Decimal("1")
-    elif currency is not None and "registrar_fee_rate" not in changes:
-        # A new currency without a rate: today's rate of the bank.
-        today = await workspace_today(session, tenant.id)
-        changes["registrar_fee_rate"] = await _rate(currency, tenant.base_currency, today, None)
     if "registrar_fee_amount" in changes and changes["registrar_fee_amount"] is None:
-        changes.update(registrar_fee_currency=None, registrar_fee_rate=None)
+        changes.update(registrar_fee_currency=None, registrar_fee_rate=None, registrar_fee_on=None)
+    else:
+        if (
+            changes.get("registrar_fee_amount") is not None
+            and finance.registrar_fee_on is None
+            and changes.get("registrar_fee_on") is None
+        ):
+            # A new talon: charged the day the client was queued, else today.
+            changes["registrar_fee_on"] = await first_queued_on(
+                session, case.id
+            ) or await workspace_today(session, tenant.id)
+        currency = changes.get("registrar_fee_currency")
+        if currency == tenant.base_currency:
+            changes["registrar_fee_rate"] = Decimal("1")
+        elif currency is not None and "registrar_fee_rate" not in changes:
+            # A new currency without a rate: the bank's rate of the talon's day.
+            day = changes.get("registrar_fee_on") or finance.registrar_fee_on
+            day = day or await workspace_today(session, tenant.id)
+            changes["registrar_fee_rate"] = await _rate(currency, tenant.base_currency, day, None)
     changed = [f for f, v in changes.items() if getattr(finance, f) != v]
     for field, value in changes.items():
         setattr(finance, field, value)

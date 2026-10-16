@@ -62,6 +62,12 @@ async def test_demo_workspaces_work_like_real_ones(
                 priced.append(finance)
     assert priced and all(f["profit"] is not None for f in priced)
     assert any(f["payments"] for f in priced)
+    # Settlements with registrars: talons charged, one advance runs low.
+    ledgers = (await client.get("/api/registrars/ledgers")).json()
+    assert len(ledgers) == 3 and sum(r["talons"] for r in ledgers) > 0
+    assert any(r["low"] and not r["balance"].startswith("-") for r in ledgers)
+    ledger = (await client.get(f"/api/registrars/{ledgers[0]['id']}/ledger")).json()
+    assert ledger["lines"] and ledger["missing"] == len(ledger["missing_talons"])
     assert (await client.get("/api/queues/summary")).status_code == 200
 
     # The other demo specialist sees only their own clients.

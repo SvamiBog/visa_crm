@@ -1662,3 +1662,24 @@ a.nav-a:hover {
   padding: 0 4px;
   font-size: 12px;
 }
+
+/* Registrar settlements */
+.chips-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ledger-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.amount-plus {
+  color: var(--c-green);
+}
+
+.actions-cell {
+  text-align: right;
+}

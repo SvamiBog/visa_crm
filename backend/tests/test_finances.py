@@ -264,7 +264,9 @@ async def test_suggestions_from_the_lists_and_the_consultation(
     )
     hints = (await client.get(finance_url(case))).json()["suggestions"]
     assert hints["prepayment"] == "150.00"  # the purpose's own wins over «any»
-    assert hints["registrar_fee"] == {"amount": "60.00", "currency": "EUR", "rate": "3.400000"}
+    fee = hints["registrar_fee"]
+    assert (fee["amount"], fee["currency"], fee["rate"]) == ("60.00", "EUR", "3.400000")
+    assert fee["on"]  # not queued yet: today
     assert (hints["partner_terms"], hints["partner_fixed"]) == ("fixed", "68.00")  # Poland's
     assert hints["consultation_credit"] == "93.00"  # 30 USD × 3.10
     # The daughter's case does not count the same consultation again.

@@ -13,6 +13,7 @@ import { ClientsPage } from "./pages/clients/ClientsPage";
 import { ContactPage } from "./pages/clients/ContactPage";
 import { BookingsPage } from "./pages/bookings/BookingsPage";
 import { QueuesPage } from "./pages/queues/QueuesPage";
+import { RegistrarsPage } from "./pages/registrars/RegistrarsPage";
 import { VaultPage } from "./pages/vault/VaultPage";
 import { DictionariesPage } from "./pages/cabinet/DictionariesPage";
 import { EmployeesPage } from "./pages/cabinet/EmployeesPage";
@@ -192,6 +193,19 @@ export default function App() {
             </RequireUser>
           }
         />
+        {["/app/registrars", "/app/registrars/:id"].map((path) => (
+          <Route
+            key={path}
+            path={path}
+            element={
+              <RequireUser roles={["specialist", "employee"]}>
+                <Shell area="cabinet">
+                  <RegistrarsPage />
+                </Shell>
+              </RequireUser>
+            }
+          />
+        ))}
         <Route
           path="/app/vault"
           element={
