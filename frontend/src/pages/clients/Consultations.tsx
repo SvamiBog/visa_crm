@@ -147,7 +147,14 @@ const DECISION_CHIP: Record<Decision, string> = {
   thinking: "chip st-orange",
 };
 
-export function Consultations({ card }: { card: ContactCard }) {
+/** `onCreateCase` is given when the user may open cases («Создать кейс»). */
+export function Consultations({
+  card,
+  onCreateCase,
+}: {
+  card: ContactCard;
+  onCreateCase?: (consultation: Consultation) => void;
+}) {
   const { t, i18n } = useTranslation();
   const name = useLocalName();
   const countries = useCountries();
@@ -201,9 +208,16 @@ export function Consultations({ card }: { card: ContactCard }) {
               </div>
               {c.notes && <p className="note-body">{c.notes}</p>}
             </div>
-            <button type="button" className="btn btn-sm" onClick={() => setEditing(c)}>
-              {t("reference.edit")}
-            </button>
+            <div className="actions">
+              {onCreateCase && c.decision !== "no" && (
+                <button type="button" className="btn btn-sm btn-p" onClick={() => onCreateCase(c)}>
+                  {t("cases.createFromHere")}
+                </button>
+              )}
+              <button type="button" className="btn btn-sm" onClick={() => setEditing(c)}>
+                {t("reference.edit")}
+              </button>
+            </div>
           </li>
         ))}
       </ul>
@@ -378,7 +392,6 @@ function ConsultationForm({
           {t("common.cancel")}
         </button>
       </div>
-      {decision === "yes" && <p className="muted small">{t("contacts.casesLater")}</p>}
     </form>
   );
 }

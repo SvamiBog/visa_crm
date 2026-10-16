@@ -18,8 +18,18 @@ from app.api.deps import CurrentUser, TenantSession, require_module
 from app.core.audit import record
 from app.core.consultation_checks import Destination, check
 from app.core.money import Amount, Currency
-from app.core.questionnaire import Questionnaire
-from app.models import AuditAction, Consultation, Contact, Country, Decision, LeadChannel, Tenant
+from app.core.questionnaire import Questionnaire, Refusal
+from app.models import (
+    AuditAction,
+    Consultation,
+    Contact,
+    Country,
+    Decision,
+    LeadChannel,
+    Tenant,
+    VisaCase,
+    VisaOutcome,
+)
 
 router = APIRouter(tags=["consultations"], dependencies=[Depends(require_module("clients"))])
 
@@ -158,35 +168,57 @@ async def consultations_of(session: AsyncSession, contact_id: uuid.UUID) -> list
 
 
 async def hints_for(session: AsyncSession, contact: Contact) -> list[HintOut]:
-    """Questionnaire checks against the latest consultation's countries and trip date,
-    with «today» in the specialist's time zone."""
+    """Questionnaire checks against the countries of the latest consultation and of the
+    cases still in work, and the trip date of that consultation, with «today» in the
+    specialist's time zone. Refusals from the contact's cases count as in the
+    questionnaire: a new case for the same country is warned about."""
     latest = await session.scalar(
         select(Consultation)
         .where(Consultation.contact_id == contact.id)
         .order_by(Consultation.held_on.desc(), Consultation.created_at.desc())
         .limit(1)
     )
-    destinations: list[Destination] = []
-    if latest is not None and latest.destination_ids:
-        countries = {
-            c.id: c
-            for c in await session.scalars(
-                select(Country).where(Country.id.in_(latest.destination_ids))
-            )
-        }
-        destinations = [
-            Destination(
-                code=countries[i].code,
-                passport_max_age_years=countries[i].passport_max_age_years,
-                passport_valid_after_months=countries[i].passport_valid_after_months,
-            )
-            for i in latest.destination_ids
-            if i in countries
-        ]
+    cases = list(
+        await session.scalars(
+            select(VisaCase).where(VisaCase.contact_id == contact.id).order_by(VisaCase.number)
+        )
+    )
+    destination_ids = list(latest.destination_ids) if latest is not None else []
+    destination_ids += [c.destination_id for c in cases if c.outcome is None]
+    destination_ids = list(dict.fromkeys(destination_ids))  # unique, in order
+    refused = [c for c in cases if c.outcome == VisaOutcome.REFUSAL]
+    wanted = set(destination_ids) | {c.destination_id for c in refused}
+    countries = (
+        {c.id: c for c in await session.scalars(select(Country).where(Country.id.in_(wanted)))}
+        if wanted
+        else {}
+    )
+    destinations = [
+        Destination(
+            code=countries[i].code,
+            passport_max_age_years=countries[i].passport_max_age_years,
+            passport_valid_after_months=countries[i].passport_valid_after_months,
+        )
+        for i in destination_ids
+        if i in countries
+    ]
+    questionnaire = Questionnaire.model_validate(contact.questionnaire)
+    case_refusals = [
+        Refusal(
+            country=countries[c.destination_id].code,
+            year=c.decided_on.year if c.decided_on else None,
+        )
+        for c in refused
+        if c.destination_id in countries
+    ]
+    if case_refusals:
+        questionnaire = questionnaire.model_copy(
+            update={"refusals": questionnaire.refusals + case_refusals}
+        )
     timezone = await session.scalar(select(Tenant.timezone).where(Tenant.id == contact.tenant_id))
     today = datetime.now(ZoneInfo(timezone or "Europe/Minsk")).date()
     hints = check(
-        Questionnaire.model_validate(contact.questionnaire),
+        questionnaire,
         destinations,
         trip_on=latest.trip_planned_on if latest else None,
         today=today,

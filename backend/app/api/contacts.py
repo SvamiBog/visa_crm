@@ -16,8 +16,9 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.cases import CaseOut, cases_of
 from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
-from app.api.deps import CurrentUser, TenantSession, require_module
+from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.core.audit import record
 from app.core.phone import normalize_phone, phone_digits
 from app.core.questionnaire import Questionnaire
@@ -184,8 +185,11 @@ class ContactCard(BaseModel):
     relations: list[RelationOut]
     consultations: list[ConsultationOut]
     questionnaire: Questionnaire
-    # Questionnaire checks against the latest consultation (app/core/consultation_checks.py).
+    # Questionnaire checks against the latest consultation and the cases in work
+    # (app/core/consultation_checks.py).
     hints: list[HintOut]
+    # None when the user has no «cases» module.
+    cases: list[CaseOut] | None
 
 
 # --- Helpers -------------------------------------------------------------------------
@@ -268,7 +272,8 @@ async def _relations(session: AsyncSession, contact_id: uuid.UUID) -> list[Relat
     return [RelationOut(related_id=r, full_name=n, label=lb) for r, n, lb in rows.tuples()]
 
 
-async def _card(session: AsyncSession, contact: Contact) -> ContactCard:
+async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> ContactCard:
+    with_cases = "cases" in await effective_modules(session, user)
     return ContactCard(
         contact=ContactOut.model_validate(contact),
         notes=await _notes(session, contact.id),
@@ -276,6 +281,7 @@ async def _card(session: AsyncSession, contact: Contact) -> ContactCard:
         consultations=await consultations_of(session, contact.id),
         questionnaire=Questionnaire.model_validate(contact.questionnaire),
         hints=await hints_for(session, contact),
+        cases=await cases_of(session, contact.id) if with_cases else None,
     )
 
 
@@ -346,8 +352,8 @@ async def create_contact(body: ContactIn, user: Member, session: TenantSession) 
 
 
 @router.get("/{contact_id}")
-async def get_contact(contact_id: uuid.UUID, session: TenantSession) -> ContactCard:
-    return await _card(session, await _contact(session, contact_id))
+async def get_contact(contact_id: uuid.UUID, user: Member, session: TenantSession) -> ContactCard:
+    return await _card(session, user, await _contact(session, contact_id))
 
 
 @router.patch("/{contact_id}", response_model=ContactOut)

@@ -10,11 +10,13 @@ import {
   formatPhone,
   telegramUrl,
   useContactLists,
+  type Consultation,
   type ContactCard,
   type ContactListItem,
   type Note,
 } from "../../contacts";
 import { byId } from "../../reference";
+import { Cases } from "./Cases";
 import { ContactForm } from "./ContactForm";
 import { Consultations, Hints, QuestionnaireCard } from "./Consultations";
 
@@ -27,8 +29,8 @@ function ErrorAlert({ error }: { error: unknown }) {
   );
 }
 
-/** The client's card: contact details, questionnaire and its checks, consultations,
- * paperwork, family and links, the notes timeline. */
+/** The client's card: contact details, questionnaire and its checks, cases,
+ * consultations, paperwork, family and links, the notes timeline. */
 export function ContactPage() {
   const { id = "" } = useParams();
   const { t } = useTranslation();
@@ -38,6 +40,8 @@ export function ContactPage() {
     queryFn: () => apiGet<ContactCard>(`/contacts/${id}`),
   });
   const [editing, setEditing] = useState(false);
+  // «Создать кейс» from a consultation, or a new case without one.
+  const [creatingCase, setCreatingCase] = useState<Consultation | "blank" | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["contacts"] });
 
   if (card.isPending) return <p className="muted">{t("common.loading")}</p>;
@@ -105,7 +109,13 @@ export function ContactPage() {
           <Relations contactId={contact.id} relations={relations} />
         </div>
         <div className="column">
-          <Consultations card={card.data} />
+          {card.data.cases !== null && (
+            <Cases card={card.data} creating={creatingCase} onCreating={setCreatingCase} />
+          )}
+          <Consultations
+            card={card.data}
+            onCreateCase={card.data.cases !== null ? setCreatingCase : undefined}
+          />
           <Timeline contactId={contact.id} notes={notes} />
         </div>
       </div>
