@@ -40,6 +40,10 @@ class AuditAction(StrEnum):
     QUESTIONNAIRE_UPDATED = "contacts.questionnaire_updated"
     CONSULTATION_CREATED = "consultations.created"
     CONSULTATION_UPDATED = "consultations.updated"
+    CASE_CREATED = "cases.created"
+    CASE_UPDATED = "cases.updated"
+    CASE_GROUPED = "cases.grouped"
+    CASE_UNGROUPED = "cases.ungrouped"
     # Reference data; target_type names the reference (country, vac_operator, …).
     REFERENCE_CREATED = "reference.created"
     REFERENCE_UPDATED = "reference.updated"

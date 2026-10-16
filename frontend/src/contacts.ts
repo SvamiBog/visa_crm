@@ -88,6 +88,54 @@ export type Questionnaire = {
 
 export type Hint = { code: string; country: string | null };
 
+// Cases (backend/app/api/cases.py): one visa for one applicant; a family applying
+// together is a submission group of several cases.
+
+export const CASE_STAGES = ["waiting", "documents", "submission", "review", "result"] as const;
+export type CaseStage = (typeof CASE_STAGES)[number];
+export const OUTCOMES = ["visa", "refusal", "not_submitted"] as const;
+export type Outcome = (typeof OUTCOMES)[number];
+export const VISA_ENTRIES = ["single", "double", "multiple"] as const;
+export type VisaEntries = (typeof VISA_ENTRIES)[number];
+export const HALLS = ["standard", "premium"] as const;
+export type Hall = (typeof HALLS)[number];
+
+export type GroupMember = {
+  case_id: string;
+  number: number;
+  contact_id: string;
+  full_name: string;
+  destination_id: string;
+  stage: CaseStage;
+};
+
+export type VisaCase = {
+  id: string;
+  number: number;
+  contact_id: string;
+  group_id: string | null;
+  consultation_id: string | null;
+  destination_id: string;
+  purpose_id: string | null;
+  submission_country_id: string;
+  visa_center_id: string | null;
+  registrar_id: string | null;
+  hall: Hall | null;
+  stage: CaseStage;
+  submission_on: string | null;
+  outcome: Outcome | null;
+  decided_on: string | null;
+  visa_entries: VisaEntries | null;
+  visa_valid_from: string | null;
+  visa_valid_to: string | null;
+  stay_days: number | null;
+  after_appeal: boolean;
+  created_at: string;
+  group: GroupMember[];
+  appeals_accepted: boolean | null;
+  appeal_until: string | null;
+};
+
 export type ContactCard = {
   contact: Contact;
   notes: Note[];
@@ -95,6 +143,8 @@ export type ContactCard = {
   consultations: Consultation[];
   questionnaire: Questionnaire;
   hints: Hint[];
+  /** null when the user has no «cases» module. */
+  cases: VisaCase[] | null;
 };
 
 export type Entry = { id: string; name: string; is_active: boolean };
@@ -113,6 +163,19 @@ export function useContactLists() {
     queryFn: () => apiGet<PartnerRef[]>("/dictionaries/partners"),
   });
   return { channels: channels.data ?? [], partners: partners.data ?? [] };
+}
+
+/** Visa purposes and registrars for the case form. */
+export function useCaseLists() {
+  const purposes = useQuery({
+    queryKey: ["dictionaries", "purposes"],
+    queryFn: () => apiGet<Entry[]>("/dictionaries/purposes"),
+  });
+  const registrars = useQuery({
+    queryKey: ["dictionaries", "registrars"],
+    queryFn: () => apiGet<PartnerRef[]>("/dictionaries/registrars"),
+  });
+  return { purposes: purposes.data ?? [], registrars: registrars.data ?? [] };
 }
 
 /** "+375291234567" → "+375 29 123-45-67" for Belarus; other numbers in groups of 3. */

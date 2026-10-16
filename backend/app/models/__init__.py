@@ -26,11 +26,13 @@ from app.models.reference import (
 from app.models.session import UserSession
 from app.models.tenant import Tenant
 from app.models.user import TWO_FACTOR_REQUIRED_ROLES, UiTheme, User, UserRole
+from app.models.visa_case import CaseStage, SubmissionGroup, VisaCase, VisaEntries, VisaOutcome
 
 __all__ = [
     "AuditAction",
     "AuditEvent",
     "BookingType",
+    "CaseStage",
     "Consultation",
     "Contact",
     "ContactNote",
@@ -48,6 +50,7 @@ __all__ = [
     "Registrar",
     "RegistrarKind",
     "RegistrarPrice",
+    "SubmissionGroup",
     "TWO_FACTOR_REQUIRED_ROLES",
     "RecoveryCode",
     "Tenant",
@@ -57,6 +60,9 @@ __all__ = [
     "UserSession",
     "VacIdentifierType",
     "VacOperator",
+    "VisaCase",
     "VisaCenter",
+    "VisaEntries",
+    "VisaOutcome",
     "VisaPurpose",
 ]

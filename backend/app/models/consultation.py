@@ -22,6 +22,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     func,
     text,
@@ -51,6 +52,7 @@ def _same_tenant(column: str, parent: str, ondelete: str) -> ForeignKeyConstrain
 class Consultation(Base):
     __tablename__ = "consultations"
     __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_consultations_id_tenant"),
         _same_tenant("contact_id", "contacts", "CASCADE"),
         _same_tenant("lead_channel_id", "lead_channels", "RESTRICT"),
         Index("ix_consultations_contact_held", "contact_id", "held_on"),
