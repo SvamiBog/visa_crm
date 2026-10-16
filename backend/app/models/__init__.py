@@ -47,6 +47,7 @@ from app.models.visa_case import (
     VisaEntries,
     VisaOutcome,
 )
+from app.models.visa_center_note import VisaCenterNote
 
 __all__ = [
     "ApplicationAttempt",
@@ -97,6 +98,7 @@ __all__ = [
     "VaultSystem",
     "VaultSystemKind",
     "VisaCase",
+    "VisaCenterNote",
     "VisaCenter",
     "VisaEntries",
     "VisaOutcome",

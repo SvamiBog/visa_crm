@@ -121,6 +121,7 @@ WORKSPACE_TABLES = (
     "vault_systems",
     "bookings",
     "reminder_dismissals",
+    "visa_center_notes",
     "registrar_payments",
     "case_payments",
     "case_expenses",

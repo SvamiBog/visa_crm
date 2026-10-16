@@ -351,7 +351,8 @@ async def _queues(session: AsyncSession, today: date) -> QueuesBlock:
     )
 
 
-async def _money(session: AsyncSession, currency: str) -> MoneyBlock:
+async def money_block(session: AsyncSession, currency: str) -> MoneyBlock:
+    """What clients owe and what is due to partners and registrars, as of now."""
     debt, debtors = ZERO, set()
     partners_due, partner_cases = ZERO, 0
     for f, contact_id, left in await _balances(session):
@@ -399,7 +400,7 @@ async def home(user: Member, session: TenantSession) -> HomeOut:
         submissions=await _submissions(session, today, money_on) if cases else None,
         funnel=await _funnel(session, month_start) if cases else None,
         queues=await _queues(session, today) if cases else None,
-        money=await _money(session, tenant.base_currency) if money_on else None,
+        money=await money_block(session, tenant.base_currency) if money_on else None,
     )
 
 
