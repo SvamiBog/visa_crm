@@ -5,7 +5,7 @@ edits it in the admin panel. Entries are switched off, never deleted: cases refe
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -52,6 +52,7 @@ class CountryIn(BaseModel):
     consultation_minutes: Annotated[int, Field(ge=5, le=600)] | None = None
     passport_max_age_years: PassportAge | None = None
     passport_valid_after_months: PassportMargin | None = None
+    schengen_since: date | None = None
     is_active: bool = True
 
     @model_validator(mode="after")
@@ -69,6 +70,7 @@ class CountryUpdate(BaseModel):
     consultation_minutes: Annotated[int, Field(ge=5, le=600)] | None = None
     passport_max_age_years: PassportAge | None = None
     passport_valid_after_months: PassportMargin | None = None
+    schengen_since: date | None = None
     is_active: bool | None = None
 
 
@@ -82,6 +84,7 @@ class CountryOut(BaseModel):
     consultation_minutes: int | None
     passport_max_age_years: int | None
     passport_valid_after_months: int | None
+    schengen_since: date | None
     is_active: bool
 
 
@@ -368,7 +371,12 @@ async def update_country(
         country,
         changes,
         nullable=frozenset(
-            {"consultation_minutes", "passport_max_age_years", "passport_valid_after_months"}
+            {
+                "consultation_minutes",
+                "passport_max_age_years",
+                "passport_valid_after_months",
+                "schengen_since",
+            }
         ),
     )
     await _flush_or_conflict(session, "country_code_taken")

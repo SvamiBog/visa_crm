@@ -45,6 +45,10 @@ class AuditAction(StrEnum):
     CONTACT_DOCUMENT_OPENED = "contacts.document_opened"
     CONTACT_DOCUMENT_DELETED = "contacts.document_deleted"
     QUESTIONNAIRE_UPDATED = "contacts.questionnaire_updated"
+    # A trip for the 90/180 calculator: details carry ids, not countries or dates.
+    TRIP_ADDED = "contacts.trip_added"
+    TRIP_UPDATED = "contacts.trip_updated"
+    TRIP_DELETED = "contacts.trip_deleted"
     CONSULTATION_CREATED = "consultations.created"
     CONSULTATION_UPDATED = "consultations.updated"
     CASE_CREATED = "cases.created"

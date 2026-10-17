@@ -25,6 +25,8 @@ export type Country = {
   consultation_minutes: number | null;
   passport_max_age_years: number | null;
   passport_valid_after_months: number | null;
+  // The day it joined the Schengen area: its days count towards 90/180 from then on.
+  schengen_since: string | null;
   is_active: boolean;
 };
 

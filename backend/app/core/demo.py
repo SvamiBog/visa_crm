@@ -1,6 +1,7 @@
 """Demo data for the staging stand (docs/staging.md): specialists with a few hundred
 fictional clients each — consultations, cases at every stage, queues, applications,
-vault accounts and bookings — so the system can be tried, and attacked, without real data.
+vault accounts, bookings and trips — so the system can be tried, and attacked, without
+real data.
 
 Everything is made up: names from lists, phones from random digits, emails on example.com.
 Refuses to run in production. Passwords and the shared authenticator secret come from the
@@ -56,6 +57,7 @@ from app.models import (
     RegistrarPrice,
     SubmissionGroup,
     Tenant,
+    Trip,
     User,
     UserRole,
     VaultEntry,
@@ -226,6 +228,10 @@ class DemoSettings:
     clients: int = 300
 
 
+# The core CRM and the stage 2 modules built so far, so the stand shows them.
+DEMO_MODULES = (*DEFAULT_MODULES, "stay_calculator")
+
+
 def check_settings(env: str, password: str, totp_secret: str) -> None:
     if env not in ALLOWED_ENVS:
         raise DemoRefused(f"demo data is only for {', '.join(ALLOWED_ENVS)}, not {env!r}")
@@ -344,7 +350,7 @@ async def _workspace(
 ) -> dict[str, int]:
     today = now.date()
     name = SPECIALIST_NAMES[(index - 1) % len(SPECIALIST_NAMES)]
-    tenant = Tenant(id=uuid.uuid4(), name=f"{name} (демо {index})", modules=list(DEFAULT_MODULES))
+    tenant = Tenant(id=uuid.uuid4(), name=f"{name} (демо {index})", modules=list(DEMO_MODULES))
     session.add(tenant)
     await session.flush()
     owner = _user(specialist_email(index), UserRole.SPECIALIST, settings, tenant.id, now)
@@ -493,6 +499,8 @@ async def _workspace(
 
     number = 0
     made = {"clients": 0, "cases": 0}
+    # Its own sequence: adding trips does not change the rest of the demo data.
+    trip_rng = random.Random(f"trips-{index}")
     # The talons charged to each registrar: (day, amount in EUR).
     talons: dict[uuid.UUID, list[tuple[date, Decimal]]] = defaultdict(list)
     while made["clients"] < clients:
@@ -622,6 +630,8 @@ async def _workspace(
                 vault(VaultSystemKind.VISA_CENTER, login, member.id, case.id, owner_kind)
             if member is anchor:
                 _bookings(session, case, booking_account, today, rng)
+            if outcome == VisaOutcome.VISA:
+                _trips(session, case, countries[code], today, trip_rng)
             fee = registrar_fee.get((registrar.id, case.destination_id)) if registrar else None
             partner_terms = terms_of.get(member.partner_id) if member.partner_id else None
             credit = consultation.fee_amount if member is anchor and consultation.fee_paid else None
@@ -885,5 +895,39 @@ def _bookings(
                 starts_on=trip,
                 ends_on=trip + timedelta(days=10),
                 valid_until=today + timedelta(days=rng.randrange(5, 40)),
+            )
+        )
+
+
+def _trips(
+    session: AsyncSession, case: VisaCase, country: Country, today: date, rng: random.Random
+) -> None:
+    """Trips on the visa, for the 90/180 calculator: a few short ones, now and then one
+    still going on."""
+    if country.schengen_since is None or case.visa_valid_from is None:
+        return
+    start, end = case.visa_valid_from, min(case.visa_valid_to or today, today)
+    day = start + timedelta(days=rng.randrange(3, 20))
+    for _ in range(rng.randrange(1, 4)):
+        length = rng.randrange(3, 22)
+        if day + timedelta(days=length) > end:
+            break
+        session.add(
+            Trip(
+                tenant_id=case.tenant_id,
+                contact_id=case.contact_id,
+                country_id=country.id,
+                entered_on=day,
+                left_on=day + timedelta(days=length - 1),
+            )
+        )
+        day += timedelta(days=length + rng.randrange(10, 60))
+    if end == today and day < today and rng.random() < 0.25:
+        session.add(
+            Trip(
+                tenant_id=case.tenant_id,
+                contact_id=case.contact_id,
+                country_id=country.id,
+                entered_on=max(day, today - timedelta(days=rng.randrange(1, 15))),
             )
         )

@@ -23,6 +23,7 @@ import { HomePage } from "./pages/cabinet/HomePage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { StayCalculatorPage } from "./pages/stay/StayCalculatorPage";
 import { TwoFactorSetupPage } from "./pages/TwoFactorSetupPage";
 import { applyTheme } from "./theme";
 
@@ -226,6 +227,16 @@ export default function App() {
             <RequireUser roles={["specialist", "employee"]}>
               <Shell area="cabinet">
                 <VaultPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/stay-calculator"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <StayCalculatorPage />
               </Shell>
             </RequireUser>
           }

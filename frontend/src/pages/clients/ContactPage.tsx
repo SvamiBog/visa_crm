@@ -32,6 +32,7 @@ import { ContactVault } from "../vault/Vault";
 import { Cases } from "./Cases";
 import { ContactForm } from "./ContactForm";
 import { Consultations, Hints, QuestionnaireCard } from "./Consultations";
+import { ContactTrips } from "./Trips";
 
 function ErrorAlert({ error }: { error: unknown }) {
   const { t } = useTranslation();
@@ -123,6 +124,9 @@ export function ContactPage() {
         <div className="column">
           <ContactDetails card={card.data} />
           <QuestionnaireCard card={card.data} />
+          {workspace.data?.modules.includes("stay_calculator") && (
+            <ContactTrips contactId={contact.id} />
+          )}
           <Paperwork card={card.data} fileStorage={workspace.data?.file_storage === true} />
           <Relations contactId={contact.id} relations={relations} />
         </div>

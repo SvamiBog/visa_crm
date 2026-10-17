@@ -5,11 +5,12 @@ changes it (Row-Level Security in migration 0009 allows writes in the system sco
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -89,6 +90,9 @@ class Country(Base):
     # issued within the last 10 years and valid 3 months after the stay. NULL: no rule.
     passport_max_age_years: Mapped[int | None] = mapped_column(SmallInteger)
     passport_valid_after_months: Mapped[int | None] = mapped_column(SmallInteger)
+    # The day it joined the Schengen area: from then on its days count towards 90/180
+    # (app/core/stay.py). NULL: not in the area.
+    schengen_since: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
