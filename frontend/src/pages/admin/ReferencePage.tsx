@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiPatch, apiPost, errorCode } from "../../api";
 import { AppealsLabel, BookingLabel, OperatorLabel } from "../../components/RuleLabels";
+import { formatDate } from "../../contacts";
 import {
   BOOKING_TYPES,
   DEFAULT_SUBMISSION_CODE,
@@ -490,7 +491,7 @@ function VisaCenters({ rule }: { rule: Rule }) {
 // --- Countries -----------------------------------------------------------------------
 
 function CountriesTab() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const name = useLocalName();
   const countries = useCountries(true);
   const [editing, setEditing] = useState<Country | "new" | null>(null);
@@ -530,6 +531,7 @@ function CountriesTab() {
                   <th>{t("reference.nameEn")}</th>
                   <th>{t("reference.consultationMinutes")}</th>
                   <th>{t("reference.passportRule")}</th>
+                  <th>{t("reference.schengenSince")}</th>
                   <th>{t("admin.colStatus")}</th>
                   <th aria-label={t("admin.colActions")} />
                 </tr>
@@ -548,6 +550,9 @@ function CountriesTab() {
                             months: c.passport_valid_after_months ?? "—",
                           })
                         : "—"}
+                    </td>
+                    <td className="muted nowrap">
+                      {formatDate(c.schengen_since, i18n.language) || "—"}
                     </td>
                     <td>
                       {c.is_active ? (
@@ -583,6 +588,7 @@ function CountryForm({ country, onClose }: { country?: Country; onClose: () => v
   const [minutes, setMinutes] = useState(String(country?.consultation_minutes ?? ""));
   const [maxAge, setMaxAge] = useState(String(country?.passport_max_age_years ?? ""));
   const [validAfter, setValidAfter] = useState(String(country?.passport_valid_after_months ?? ""));
+  const [schengenSince, setSchengenSince] = useState(country?.schengen_since ?? "");
   const [active, setActive] = useState(country?.is_active ?? true);
 
   const save = useMutation({
@@ -594,6 +600,7 @@ function CountryForm({ country, onClose }: { country?: Country; onClose: () => v
         consultation_minutes: minutes ? Number(minutes) : null,
         passport_max_age_years: maxAge ? Number(maxAge) : null,
         passport_valid_after_months: validAfter ? Number(validAfter) : null,
+        schengen_since: schengenSince || null,
         is_active: active,
       };
       return country
@@ -664,8 +671,17 @@ function CountryForm({ country, onClose }: { country?: Country; onClose: () => v
             onChange={(e) => setValidAfter(e.target.value)}
           />
         </label>
+        <label className="field">
+          <span>{t("reference.schengenSince")}</span>
+          <input
+            type="date"
+            value={schengenSince}
+            onChange={(e) => setSchengenSince(e.target.value)}
+          />
+        </label>
       </div>
       <p className="muted small">{t("reference.passportHint")}</p>
+      <p className="muted small">{t("reference.schengenHint")}</p>
       <p id="country-code-hint" className="muted small">
         {t("reference.codeHint")}
       </p>

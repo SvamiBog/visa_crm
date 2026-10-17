@@ -45,6 +45,7 @@ from app.models.reference import (
 from app.models.reminder import ReminderDismissal
 from app.models.session import UserSession
 from app.models.tenant import Tenant
+from app.models.trip import Trip
 from app.models.user import UiTheme, User, UserRole
 from app.models.vault import VaultEntry, VaultSystem, VaultSystemKind
 from app.models.visa_case import (
@@ -102,6 +103,7 @@ __all__ = [
     "SubmissionGroup",
     "RecoveryCode",
     "Tenant",
+    "Trip",
     "UiTheme",
     "User",
     "UserRole",

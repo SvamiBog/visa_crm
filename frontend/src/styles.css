@@ -2102,3 +2102,102 @@ a.kpi:hover {
     width: 100%;
   }
 }
+
+/* Калькулятор 90/180: дни за 180 дней, поездки, проверка поездки */
+.stay-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.stay-meter {
+  display: block;
+  height: 6px;
+  margin-top: 4px;
+  background: var(--c-row);
+  border-radius: var(--radius-chip);
+  overflow: hidden;
+}
+
+.stay-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--c-primary);
+  border-radius: inherit;
+}
+
+.stay-meter.is-high > span {
+  background: var(--c-orange);
+}
+
+.stay-meter.is-full > span {
+  background: var(--c-red);
+}
+
+.stay-block .kpi-value {
+  font-size: 20px;
+}
+
+.stay-now {
+  align-self: flex-start;
+  margin: 0;
+}
+
+.stay-block .alert {
+  margin: 0;
+}
+
+.stay-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.stay-check {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--c-border);
+}
+
+.stay-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stay-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 2fr) repeat(2, minmax(130px, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.stay-trip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stay-trip + .stay-trip {
+  padding-top: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.stay-row > .link-button {
+  justify-self: start;
+  padding-bottom: 10px;
+}
+
+@media (max-width: 720px) {
+  .stay-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stay-row > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+

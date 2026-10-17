@@ -85,6 +85,12 @@ async def test_demo_workspaces_work_like_real_ones(
     ledger = (await client.get(f"/api/registrars/{ledgers[0]['id']}/ledger")).json()
     assert ledger["lines"] and ledger["missing"] == len(ledger["missing_talons"])
     assert (await client.get("/api/queues/summary")).status_code == 200
+    # Clients with a visa have trips for the 90/180 calculator.
+    counted = []
+    for item in index["items"]:
+        stay = (await client.get(f"/api/contacts/{item['id']}/trips")).json()
+        counted += [r for r in stay["stay"]["trips"] if r["counts"]]
+    assert counted and all(r["days"] > 0 for r in counted)
 
     # The other demo specialist sees only their own clients.
     client.cookies.clear()

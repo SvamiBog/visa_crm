@@ -139,6 +139,7 @@ WORKSPACE_TABLES = (
     "visa_cases",
     "submission_groups",
     "consultations",
+    "trips",
     "contact_documents",
     "contact_relations",
     "contact_notes",
