@@ -1,7 +1,8 @@
 """Security headers on every response.
 
-The page may load scripts only from its own origin and fonts from Google Fonts, cannot be
-framed, and API responses are not cached (they carry clients' data). Outside production
+The page may load scripts only from its own origin (and compile WebAssembly, not eval
+strings) and fonts from Google Fonts, cannot be framed, and API responses are not cached
+(they carry clients' data). Outside production
 the site asks search engines not to index it: the staging stand must not be found.
 """
 
@@ -12,7 +13,9 @@ from app.core.config import get_settings
 CONTENT_SECURITY_POLICY = "; ".join(
     (
         "default-src 'self'",
-        "script-src 'self'",
+        # WebAssembly, not eval: the passport reader runs its engine in the browser so the
+        # photo never leaves the device (frontend/src/ocr.ts).
+        "script-src 'self' 'wasm-unsafe-eval'",
         "style-src 'self' https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data:",  # the two-factor QR code is a data: image

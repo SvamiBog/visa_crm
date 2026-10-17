@@ -6,7 +6,7 @@ Countries are ISO 3166-1 alpha-2 codes, the same as in the countries reference."
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 CountryCode = Annotated[str, Field(pattern=r"^[A-Z]{2}$")]
 ShortText = Annotated[str, Field(max_length=500)]
@@ -30,9 +30,25 @@ class Refusal(BaseModel):
     reason: ShortText | None = None
 
 
+# A passport or personal number as in the machine-readable zone: letters and digits.
+DocumentNumber = Annotated[str, Field(max_length=20, pattern=r"^[A-Z0-9]+$")]
+
+
+def _document_number(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    return value.replace(" ", "").upper() or None
+
+
 class Questionnaire(BaseModel):
     passport_issued_on: date | None = None
     passport_expires_on: date | None = None
+    # From the passport (or its machine-readable zone, backlog 2.5): for visa forms.
+    passport_number: DocumentNumber | None = None
+    nationality: CountryCode | None = None
+    sex: Literal["M", "F", "X"] | None = None
+    # The national identity number: in Belarus, the identification number.
+    personal_number: DocumentNumber | None = None
     visas: Annotated[list[VisaRecord], Field(max_length=50)] = []
     # Countries where relatives or friends could invite the client.
     relatives_abroad: Annotated[list[CountryCode], Field(max_length=50)] = []
@@ -42,3 +58,7 @@ class Questionnaire(BaseModel):
     # Childhood trips under humanitarian programmes (e.g. the Chernobyl programme).
     humanitarian_trips: Annotated[list[CountryCode], Field(max_length=10)] = []
     note: Annotated[str, Field(max_length=2000)] | None = None
+
+    _numbers = field_validator("passport_number", "personal_number", mode="before")(
+        _document_number
+    )

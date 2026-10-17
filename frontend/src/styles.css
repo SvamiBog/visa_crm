@@ -32,6 +32,8 @@
   --font-body: "Onest", system-ui, sans-serif;
   --font-heading: var(--font-body);
   --font-num: var(--font-body);
+  /* Lines of a passport's machine-readable zone: every character the same width. */
+  --font-code: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --radius: 12px;
   --radius-sm: 8px;
   --radius-btn: 8px;
@@ -2199,5 +2201,22 @@ a.kpi:hover {
   .stay-row > :first-child {
     grid-column: 1 / -1;
   }
+}
+
+/* Распознавание паспорта: строки MRZ и что из них перенести в карточку */
+.passport-reader {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.passport-reader .alert {
+  margin: 0;
+}
+
+.mrz-lines {
+  font-family: var(--font-code);
+  font-size: 13px;
+  text-transform: uppercase;
 }
 

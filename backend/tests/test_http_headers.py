@@ -12,7 +12,8 @@ async def test_responses_carry_security_headers(client: AsyncClient):
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["x-frame-options"] == "DENY"
     assert "frame-ancestors 'none'" in headers["content-security-policy"]
-    assert "script-src 'self'" in headers["content-security-policy"]
+    assert "script-src 'self' 'wasm-unsafe-eval'" in headers["content-security-policy"]
+    assert "unsafe-inline" not in headers["content-security-policy"]
     assert headers["cache-control"] == "no-store"
     # Tests and local development: no HTTPS, and not for search engines.
     assert "strict-transport-security" not in headers
