@@ -103,7 +103,12 @@ jobs:
             zap-baseline.py -t http://localhost:8000 -r zap-report.html -J zap-report.json -I
       - uses: actions/upload-artifact@v4
         if: always()
+        # The report is for reading, like the scan: a full artifact quota must not fail the job
+        # (the scan's summary is in the job log anyway).
+        continue-on-error: true
         with:
           name: zap-report
           path: zap/
           if-no-files-found: ignore
+          # Kept a week, not 90 days, so the reports do not fill the account's artifact quota.
+          retention-days: 7

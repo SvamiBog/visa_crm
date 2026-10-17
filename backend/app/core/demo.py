@@ -37,6 +37,7 @@ from app.models import (
     CaseFinance,
     CasePayment,
     CaseStage,
+    ChecklistItem,
     Consultation,
     Contact,
     ContactNote,
@@ -47,9 +48,11 @@ from app.models import (
     EmailOwner,
     LeadChannel,
     Messenger,
+    OwnChecklistItem,
     Partner,
     PartnerTerms,
     PartnerTermsType,
+    PurposeKind,
     Registrar,
     RegistrarKind,
     RegistrarPayment,
@@ -229,7 +232,37 @@ class DemoSettings:
 
 
 # The core CRM and the stage 2 modules built so far, so the stand shows them.
-DEMO_MODULES = (*DEFAULT_MODULES, "passport_mrz", "stay_calculator")
+DEMO_MODULES = (*DEFAULT_MODULES, "passport_mrz", "package_check", "stay_calculator")
+
+# A demo checklist for Poland: the shared items (only while the admin has none there)
+# and a few of the specialist's own. Made up for the stand, not a consulate's list.
+DEMO_SHARED_CHECKLIST: tuple[dict[str, object], ...] = (
+    {"name": "Анкета, подписанная заявителем"},
+    {"name": "Фото 3,5×4,5 см", "max_age_days": 180, "note": "Светлый фон"},
+    {
+        "name": "Паспорт и копия страницы с данными",
+        "note": "Выдан не раньше 10 лет назад, действует ещё 3 месяца после поездки",
+    },
+    {"name": "Медицинская страховка", "note": "Покрытие от 30 000 € на все дни поездки"},
+    {"name": "Бронь жилья", "purposes": [PurposeKind.TOURISM]},
+    {"name": "Приглашение", "purposes": [PurposeKind.VISIT], "note": "Оригинал и копия"},
+    {
+        "name": "Справка с места работы",
+        "required": False,
+        "max_age_days": 30,
+        "note": "Для работающих: должность, стаж, зарплата",
+    },
+    {
+        "name": "Выписка со счёта",
+        "required": False,
+        "max_age_days": 30,
+        "note": "Если поездку оплачивает сам заявитель",
+    },
+)
+DEMO_OWN_CHECKLIST: tuple[dict[str, object], ...] = (
+    {"name": "Копии прежних шенгенских виз", "required": False},
+    {"name": "Согласие на обработку данных", "note": "Бланк визовика"},
+)
 
 
 def check_settings(env: str, password: str, totp_secret: str) -> None:
@@ -301,6 +334,13 @@ async def _ensure_visa_centers(session: AsyncSession, rules: dict[str, CountryRu
     await session.flush()
 
 
+async def _shared_checklist(session: AsyncSession, country: Country) -> None:
+    if await session.scalar(select(ChecklistItem.id).where(ChecklistItem.country_id == country.id)):
+        return
+    for order, item in enumerate(DEMO_SHARED_CHECKLIST):
+        session.add(ChecklistItem(country_id=country.id, sort_order=order, **item))
+
+
 async def seed(session: AsyncSession, settings: DemoSettings) -> dict[str, int]:
     """Create the demo admin and specialists. The session must be in the system scope."""
     now = datetime.now(UTC)
@@ -314,6 +354,7 @@ async def seed(session: AsyncSession, settings: DemoSettings) -> dict[str, int]:
         )
     }
     await _ensure_visa_centers(session, rules)
+    await _shared_checklist(session, countries["PL"])
     centers: dict[str, list[VisaCenter]] = {}
     for code, rule in rules.items():
         centers[code] = list(
@@ -364,6 +405,12 @@ async def _workspace(
     )
     session.add_all([owner, staff])
     add_default_dictionaries(session, tenant.id)
+    for order, item in enumerate(DEMO_OWN_CHECKLIST):
+        session.add(
+            OwnChecklistItem(
+                tenant_id=tenant.id, country_id=countries["PL"].id, sort_order=order, **item
+            )
+        )
     await session.flush()
     t = tenant.id
 

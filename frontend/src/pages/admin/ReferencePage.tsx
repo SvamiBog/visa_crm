@@ -1,7 +1,8 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { apiPatch, apiPost, errorCode } from "../../api";
+import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { CHECKLISTS_KEY, type ChecklistItem } from "../../checklists";
 import { AppealsLabel, BookingLabel, OperatorLabel } from "../../components/RuleLabels";
 import { formatDate } from "../../contacts";
 import {
@@ -19,9 +20,15 @@ import {
   type Operator,
   type Rule,
 } from "../../reference";
+import {
+  ChecklistCountrySelect,
+  ChecklistItems,
+  ItemForm,
+  useChecklistCountry,
+} from "../checklists/ChecklistParts";
 
-type Tab = "rules" | "countries" | "operators";
-const TABS: Tab[] = ["rules", "countries", "operators"];
+type Tab = "rules" | "checklists" | "countries" | "operators";
+const TABS: Tab[] = ["rules", "checklists", "countries", "operators"];
 
 /** Admin: the shared reference of countries, operators and appointment rules. */
 export function ReferencePage() {
@@ -50,6 +57,7 @@ export function ReferencePage() {
         ))}
       </div>
       {tab === "rules" && <RulesTab />}
+      {tab === "checklists" && <ChecklistsTab />}
       {tab === "countries" && <CountriesTab />}
       {tab === "operators" && <OperatorsTab />}
     </div>
@@ -485,6 +493,64 @@ function VisaCenters({ rule }: { rule: Rule }) {
         </button>
       </div>
     </fieldset>
+  );
+}
+
+// --- Checklists ----------------------------------------------------------------------
+
+/** The shared document checklist of each country (backlog 2.2): every workspace gets it. */
+function ChecklistsTab() {
+  const { t } = useTranslation();
+  const [countryId, setCountryId] = useChecklistCountry(true);
+  const [adding, setAdding] = useState(false);
+  const items = useQuery({
+    queryKey: [...CHECKLISTS_KEY, "admin", countryId],
+    queryFn: () => apiGet<ChecklistItem[]>(`/admin/checklists/${countryId}`),
+    enabled: !!countryId,
+  });
+
+  return (
+    <>
+      <div className="toolbar">
+        <label className="field field-inline">
+          <span>{t("checklists.country")}</span>
+          <ChecklistCountrySelect
+            admin
+            value={countryId}
+            onChange={(id) => {
+              setCountryId(id);
+              setAdding(false);
+            }}
+          />
+        </label>
+        {countryId && !adding && (
+          <button type="button" className="btn btn-p" onClick={() => setAdding(true)}>
+            {t("checklists.add")}
+          </button>
+        )}
+      </div>
+      <p className="muted small">{t("checklists.adminHint")}</p>
+      {adding && (
+        <section className="card">
+          <ItemForm admin countryId={countryId} onDone={() => setAdding(false)} />
+        </section>
+      )}
+      <section className="card">
+        {!countryId && <p className="muted">{t("checklists.pickCountry")}</p>}
+        {countryId && items.isPending && <p className="muted">{t("common.loading")}</p>}
+        {items.isError && <ErrorAlert error={items.error} />}
+        {countryId && items.data && (
+          <ChecklistItems
+            admin
+            countryId={countryId}
+            items={items.data}
+            editable
+            reorderable
+            empty={t("checklists.sharedEmpty")}
+          />
+        )}
+      </section>
+    </>
   );
 }
 

@@ -50,6 +50,24 @@ class RegistrarKind(StrEnum):
     INDIVIDUAL = "individual"
 
 
+class PurposeKind(StrEnum):
+    """What a specialist's visa purpose is, in words shared by the platform: the purposes
+    of the Schengen application form, plus work. Shared checklists (backlog 2.2) and the
+    forms (2.4) go by it, since every specialist names her purposes her own way."""
+
+    TOURISM = "tourism"
+    VISIT = "visit"  # visiting family or friends: гостевая
+    BUSINESS = "business"
+    STUDY = "study"
+    WORK = "work"
+    CULTURE = "culture"
+    SPORTS = "sports"
+    OFFICIAL = "official"
+    MEDICAL = "medical"
+    TRANSIT = "transit"
+    OTHER = "other"
+
+
 class Hall(StrEnum):
     """Visa center hall: the registrar's fee depends on it."""
 
@@ -88,6 +106,9 @@ class VisaPurpose(_NamedEntry, Base):
         UniqueConstraint("tenant_id", "name", name="uq_visa_purposes_tenant_name"),
         UniqueConstraint("id", "tenant_id", name="uq_visa_purposes_id_tenant"),
     )
+
+    # NULL: not given yet; a case with this purpose gets the checklist items for any purpose.
+    kind: Mapped[PurposeKind | None] = mapped_column(_enum(PurposeKind, "purpose_kind"))
 
 
 class LeadChannel(_NamedEntry, Base):

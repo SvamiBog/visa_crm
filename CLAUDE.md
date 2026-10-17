@@ -80,6 +80,8 @@ npm run build                            # проверка типов + сбо�
 | поездка (для правила 90/180) | trip |
 | калькулятор 90/180 | stay_calculator (`app/core/stay.py`) |
 | распознавание паспорта (MRZ) | passport_mrz (`app/core/mrz.py`, `frontend/src/ocr.ts`) |
+| чек-лист документов: общий пункт / свой пункт визовика | checklist_item / own_checklist_item (`app/core/checklists.py`) |
+| тип цели (общий для платформы) | purpose_kind (`PurposeKind`) |
 
 ## Как работать
 

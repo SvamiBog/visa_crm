@@ -1,6 +1,7 @@
 # Import every model module here so Alembic autogenerate sees all tables.
 from app.models.audit import AuditAction, AuditEvent
 from app.models.booking import Booking, BookingKind, BookingStatus
+from app.models.checklist import ChecklistItem, OwnChecklistItem
 from app.models.consultation import Consultation, Decision
 from app.models.contact import (
     Contact,
@@ -18,6 +19,7 @@ from app.models.dictionaries import (
     PartnerTerms,
     PartnerTermsType,
     Prepayment,
+    PurposeKind,
     Registrar,
     RegistrarKind,
     RegistrarPrice,
@@ -71,6 +73,7 @@ __all__ = [
     "CaseFinance",
     "CasePayment",
     "CaseStage",
+    "ChecklistItem",
     "Consultation",
     "Contact",
     "ContactDocument",
@@ -90,10 +93,12 @@ __all__ = [
     "ImportRun",
     "LeadChannel",
     "Messenger",
+    "OwnChecklistItem",
     "Partner",
     "PartnerTerms",
     "PartnerTermsType",
     "Prepayment",
+    "PurposeKind",
     "Registrar",
     "RegistrarKind",
     "RegistrarPayment",

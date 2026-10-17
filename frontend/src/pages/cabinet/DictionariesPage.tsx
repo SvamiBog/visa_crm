@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
+import { PURPOSE_KINDS, type PurposeKind } from "../../checklists";
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
 import { rulesSummary, SYSTEM_KINDS, type SystemKind, type VaultSystem } from "../../vault";
 import { ReminderSettings } from "./Attention";
@@ -14,7 +15,14 @@ const TERMS_TYPES = ["percent", "fixed", "none", "unspecified"] as const;
 const HALLS = ["standard", "premium"] as const;
 const KINDS = ["company", "individual"] as const;
 
-type Entry = { id: string; name: string; sort_order: number; is_active: boolean };
+type Entry = {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  // Purposes only: the platform's kind, which the shared checklists go by.
+  kind?: PurposeKind | null;
+};
 type Terms = {
   country_id: string | null;
   terms_type: (typeof TERMS_TYPES)[number];
@@ -153,7 +161,9 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
   const list = useList<Entry[]>(name);
   const refresh = useRefresh(name);
   const [newName, setNewName] = useState("");
+  const [newKind, setNewKind] = useState<PurposeKind | "">("");
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const withKind = name === "purposes";
 
   const add = useMutation({
     mutationFn: () =>
@@ -161,9 +171,11 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
         name: newName.trim(),
         // New entries go to the end of the list.
         sort_order: Math.max(-1, ...(list.data ?? []).map((e) => e.sort_order)) + 1,
+        ...(withKind ? { kind: newKind || null } : {}),
       }),
     onSuccess: () => {
       setNewName("");
+      setNewKind("");
       void refresh();
     },
   });
@@ -220,6 +232,15 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
                       {entry.name} {!entry.is_active && <StatusChip active={false} />}
                     </span>
                     <span className="actions">
+                      {withKind && (
+                        <KindSelect
+                          value={entry.kind ?? ""}
+                          disabled={update.isPending}
+                          onChange={(kind) =>
+                            update.mutate({ id: entry.id, body: { kind: kind || null } })
+                          }
+                        />
+                      )}
                       <button
                         type="button"
                         className="btn btn-sm"
@@ -256,6 +277,13 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
             onChange={(e) => setNewName(e.target.value)}
           />
         </label>
+        {withKind && (
+          <label className="field">
+            <span>{t("dict.purposeKind")}</span>
+            <KindSelect value={newKind} onChange={setNewKind} />
+            <small className="muted">{t("dict.purposeKindHint")}</small>
+          </label>
+        )}
         {add.isError && <ErrorAlert error={add.error} />}
         <div className="form-actions">
           <button type="submit" className="btn btn-p" disabled={add.isPending || !newName.trim()}>
@@ -264,6 +292,34 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
         </div>
       </form>
     </>
+  );
+}
+
+/** A purpose's kind: the shared checklists (and later the forms) go by it. */
+function KindSelect({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: PurposeKind | "";
+  disabled?: boolean;
+  onChange: (kind: PurposeKind | "") => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <select
+      aria-label={t("dict.purposeKind")}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value as PurposeKind | "")}
+    >
+      <option value="">{t("dict.purposeKindNone")}</option>
+      {PURPOSE_KINDS.map((kind) => (
+        <option key={kind} value={kind}>
+          {t(`purposeKind.${kind}`)}
+        </option>
+      ))}
+    </select>
   );
 }
 

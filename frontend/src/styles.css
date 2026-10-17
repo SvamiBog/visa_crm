@@ -2220,3 +2220,37 @@ a.kpi:hover {
   text-transform: uppercase;
 }
 
+
+/* Document checklists */
+.checklist .chips {
+  margin-top: 4px;
+}
+
+.checklist-purposes {
+  margin-bottom: 12px;
+}
+
+.checklist-kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0 12px;
+}
+
+/* A purpose's kind, chosen right in the list of purposes */
+.plain-list .actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.plain-list .actions select {
+  min-height: 36px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font: inherit;
+  color: inherit;
+}
