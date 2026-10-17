@@ -36,6 +36,7 @@ from app.models import (
     PartnerTerms,
     PartnerTermsType,
     Prepayment,
+    PurposeKind,
     Registrar,
     RegistrarKind,
     RegistrarPrice,
@@ -80,6 +81,18 @@ class EntryOut(BaseModel):
     name: str
     sort_order: int
     is_active: bool
+
+
+class PurposeIn(EntryIn):
+    kind: PurposeKind | None = None
+
+
+class PurposeUpdate(EntryUpdate):
+    kind: PurposeKind | None = None
+
+
+class PurposeOut(EntryOut):
+    kind: PurposeKind | None
 
 
 class TermsIn(BaseModel):
@@ -356,45 +369,50 @@ def _unique_keys(keys: list[tuple[Any, ...]]) -> None:
 
 # --- Visa purposes and lead channels -------------------------------------------------
 
-SIMPLE_LISTS: dict[str, tuple[type[VisaPurpose] | type[LeadChannel], str]] = {
-    "purposes": (VisaPurpose, "visa_purpose"),
-    "channels": (LeadChannel, "lead_channel"),
-}
+SimpleModel = type[VisaPurpose] | type[LeadChannel]
 
 
-def _simple_list_routes(path: str, model: type[VisaPurpose] | type[LeadChannel], kind: str):
+def _simple_list_routes(
+    path: str,
+    model: SimpleModel,
+    kind: str,
+    schemas: tuple[type[EntryIn], type[EntryUpdate], type[EntryOut]],
+):
+    entry_in, entry_update, entry_out = schemas
+
     @router.get(f"/{path}", name=f"list_{path}")
-    async def list_entries(session: TenantSession) -> list[EntryOut]:
+    async def list_entries(session: TenantSession) -> list[entry_out]:
         rows = await session.scalars(select(model).order_by(model.sort_order, model.name))
-        return [EntryOut.model_validate(r) for r in rows]
+        return [entry_out.model_validate(r) for r in rows]
 
     @router.post(f"/{path}", status_code=status.HTTP_201_CREATED, name=f"create_{path}")
-    async def create_entry(body: EntryIn, user: Specialist, session: TenantSession) -> EntryOut:
+    async def create_entry(body: entry_in, user: Specialist, session: TenantSession) -> entry_out:
         entry = model(tenant_id=user.tenant_id, **body.model_dump())
         entry.name = entry.name.strip()
         session.add(entry)
         await _flush_or_conflict(session, "name_taken")
         _audit(session, AuditAction.REFERENCE_CREATED, user, kind, entry.id, entry.name)
         await session.commit()
-        return EntryOut.model_validate(entry)
+        return entry_out.model_validate(entry)
 
     @router.patch(f"/{path}/{{entry_id}}", name=f"update_{path}")
     async def update_entry(
-        entry_id: uuid.UUID, body: EntryUpdate, user: Specialist, session: TenantSession
-    ) -> EntryOut:
+        entry_id: uuid.UUID, body: entry_update, user: Specialist, session: TenantSession
+    ) -> entry_out:
         entry = await _get(session, model, entry_id)
         changes = body.model_dump(exclude_unset=True)
         if changes.get("name") is not None:
             changes["name"] = changes["name"].strip()
-        _apply(entry, changes)
+        # A purpose's kind can be taken back: then it gets the items for any purpose.
+        _apply(entry, changes, nullable=frozenset({"kind"}))
         await _flush_or_conflict(session, "name_taken")
         _audit(session, AuditAction.REFERENCE_UPDATED, user, kind, entry.id, entry.name)
         await session.commit()
-        return EntryOut.model_validate(entry)
+        return entry_out.model_validate(entry)
 
 
-for _path, (_model, _kind) in SIMPLE_LISTS.items():
-    _simple_list_routes(_path, _model, _kind)
+_simple_list_routes("purposes", VisaPurpose, "visa_purpose", (PurposeIn, PurposeUpdate, PurposeOut))
+_simple_list_routes("channels", LeadChannel, "lead_channel", (EntryIn, EntryUpdate, EntryOut))
 
 
 # --- Vault systems -------------------------------------------------------------------

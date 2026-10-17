@@ -140,6 +140,7 @@ WORKSPACE_TABLES = (
     "submission_groups",
     "consultations",
     "trips",
+    "own_checklist_items",
     "contact_documents",
     "contact_relations",
     "contact_notes",
@@ -157,7 +158,13 @@ WORKSPACE_TABLES = (
 
 # Shared reference data seeded by migrations, parents first. Tests may change it, so it is
 # restored from a snapshot after each test.
-REFERENCE_TABLES = ("countries", "vac_operators", "country_rules", "visa_centers")
+REFERENCE_TABLES = (
+    "countries",
+    "vac_operators",
+    "country_rules",
+    "visa_centers",
+    "checklist_items",
+)
 
 
 async def _snapshot_reference(url: str) -> None:

@@ -8,6 +8,8 @@ from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.bookings import router as bookings_router
 from app.api.cases import router as cases_router
+from app.api.checklists import admin_router as admin_checklists_router
+from app.api.checklists import router as checklists_router
 from app.api.consultations import router as consultations_router
 from app.api.contacts import router as contacts_router
 from app.api.dictionaries import router as dictionaries_router
@@ -60,6 +62,8 @@ def create_app() -> FastAPI:
         employees_router,
         reference_router,
         admin_reference_router,
+        checklists_router,
+        admin_checklists_router,
         dictionaries_router,
         contacts_router,
         documents_router,

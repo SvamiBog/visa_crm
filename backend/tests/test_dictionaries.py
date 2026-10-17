@@ -44,9 +44,14 @@ async def test_new_specialist_gets_default_lists(client: AsyncClient, make_user:
     )
     await enable_two_factor(client)
 
-    purposes = [p["name"] for p in (await client.get(f"{BASE}/purposes")).json()]
+    purposes = [(p["name"], p["kind"]) for p in (await client.get(f"{BASE}/purposes")).json()]
     channels = [c["name"] for c in (await client.get(f"{BASE}/channels")).json()]
-    assert purposes == ["Туризм", "Гостевая", "Бизнес", "Учёба"]
+    assert purposes == [
+        ("Туризм", "tourism"),
+        ("Гостевая", "visit"),
+        ("Бизнес", "business"),
+        ("Учёба", "study"),
+    ]
     assert channels == ["Instagram", "Сарафан", "Партнёр", "Друзья", "Реклама"]
     systems = (await client.get(f"{BASE}/vault-systems")).json()
     assert [(s["name"], s["kind"]) for s in systems][:2] == [
@@ -71,6 +76,25 @@ async def test_specialist_keeps_simple_lists(client: AsyncClient, make_user: Mak
     assert off.json()["is_active"] is False
     # Switched-off entries stay in the list (old cases use them) but are marked.
     assert [i["is_active"] for i in (await client.get(f"{BASE}/{kind}")).json()] == [False]
+
+
+async def test_purpose_has_a_kind_for_shared_lists(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    purpose_id = await add_purpose(client, "Работа в Польше")
+    entry = (await client.get(f"{BASE}/purposes")).json()[0]
+    assert entry["kind"] is None
+    changed = await client.patch(f"{BASE}/purposes/{purpose_id}", json={"kind": "work"})
+    assert changed.status_code == 200 and changed.json()["kind"] == "work"
+    # Renaming keeps the kind; it is taken back only when sent as null.
+    renamed = await client.patch(f"{BASE}/purposes/{purpose_id}", json={"name": "Работа"})
+    assert renamed.json()["kind"] == "work"
+    cleared = await client.patch(f"{BASE}/purposes/{purpose_id}", json={"kind": None})
+    assert cleared.json()["kind"] is None
+    bad = await client.patch(f"{BASE}/purposes/{purpose_id}", json={"kind": "holiday"})
+    assert bad.status_code == 422
+    # Lead channels have no kind.
+    channel = await client.post(f"{BASE}/channels", json={"name": "Сайт", "kind": "work"})
+    assert channel.status_code == 201 and "kind" not in channel.json()
 
 
 async def test_employee_reads_but_does_not_edit(client: AsyncClient, make_user: MakeUser):

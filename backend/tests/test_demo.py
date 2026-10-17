@@ -91,6 +91,12 @@ async def test_demo_workspaces_work_like_real_ones(
         stay = (await client.get(f"/api/contacts/{item['id']}/trips")).json()
         counted += [r for r in stay["stay"]["trips"] if r["counts"]]
     assert counted and all(r["days"] > 0 for r in counted)
+    # A checklist for Poland: the shared items and the specialist's own.
+    poland = next(
+        c["id"] for c in (await client.get("/api/reference/countries")).json() if c["code"] == "PL"
+    )
+    checklist = (await client.get(f"/api/checklists/{poland}")).json()
+    assert len(checklist["shared"]) == 8 and len(checklist["own"]) == 2
 
     # The other demo specialist sees only their own clients.
     client.cookies.clear()
