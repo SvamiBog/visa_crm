@@ -12,6 +12,7 @@ from app.api.deps import (
     effective_modules,
     require_tenant_user,
 )
+from app.core import storage
 from app.core.modules import MODULES
 from app.models import Tenant
 
@@ -25,6 +26,8 @@ class WorkspaceOut(BaseModel):
     timezone: str
     # What this user may open: the menu shows these.
     modules: list[str]
+    # Files (consents, contracts) can be attached: a file storage is set (app/core/storage.py).
+    file_storage: bool
 
 
 class ModuleOut(BaseModel):
@@ -46,6 +49,7 @@ async def workspace(
         tax_rate=tenant.tax_rate,
         timezone=tenant.timezone,
         modules=await effective_modules(session, user),
+        file_storage=storage.is_configured(),
     )
 
 

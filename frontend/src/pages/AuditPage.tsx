@@ -276,8 +276,10 @@ function EventTime({ value, timeZone }: { value: string; timeZone?: string }) {
 
 function EventDetails({ event }: { event: AuditEvent }) {
   const { t } = useTranslation();
-  const { method, reason, name, email } = event.details;
+  const { method, reason, name, email, kind } = event.details;
   if (method) return <>{t(`audit.method.${method}`, { defaultValue: method })}</>;
+  // Consent and contract files: which paper (the file name is not logged).
+  if (kind && event.action.startsWith("contacts.document_")) return <>{t(`contacts.${kind}`)}</>;
   if (reason) return <>{t(`audit.reason.${reason}`, { defaultValue: reason })}</>;
   if (name && email) return <>{`${name} · ${email}`}</>;
   if (email) return <>{email}</>;

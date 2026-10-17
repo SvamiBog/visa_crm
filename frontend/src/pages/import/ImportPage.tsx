@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet, apiPost } from "../../api";
 import { useCaseLists, useContactLists, type Entry } from "../../contacts";
+import { readBase64 } from "../../files";
 import { useCountries, useLocalName, type Country } from "../../reference";
 import { ErrorAlert } from "../clients/ui";
 
@@ -89,15 +90,6 @@ type RunSummary = {
   created_at: string;
 };
 type Upload = { name: string; content: string };
-
-function readBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
 
 export function ImportPage() {
   const { t } = useTranslation();

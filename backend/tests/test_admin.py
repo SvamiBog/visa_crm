@@ -46,6 +46,7 @@ async def test_admin_creates_specialist_who_must_change_password(
         "tax_rate": "0.00",
         "timezone": "Europe/Minsk",
         "modules": ["clients", "cases", "vault", "finances", "tasks", "country_rules", "analytics"],
+        "file_storage": True,  # tests keep files in memory
     }
 
 

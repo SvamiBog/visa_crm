@@ -40,6 +40,10 @@ class AuditAction(StrEnum):
     CONTACT_NOTE_DELETED = "contacts.note_deleted"
     CONTACT_LINKED = "contacts.linked"
     CONTACT_UNLINKED = "contacts.unlinked"
+    # A file of the consent or the contract: details carry its id and kind, not its name.
+    CONTACT_DOCUMENT_ADDED = "contacts.document_added"
+    CONTACT_DOCUMENT_OPENED = "contacts.document_opened"
+    CONTACT_DOCUMENT_DELETED = "contacts.document_deleted"
     QUESTIONNAIRE_UPDATED = "contacts.questionnaire_updated"
     CONSULTATION_CREATED = "consultations.created"
     CONSULTATION_UPDATED = "consultations.updated"

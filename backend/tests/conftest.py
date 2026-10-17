@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from app.core import db, rates, two_factor
+from app.core import db, rates, storage, two_factor
 from app.core.config import get_settings
 from app.core.modules import DEFAULT_MODULES
 from app.core.security import hash_password
@@ -75,6 +75,12 @@ def fake_rates(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(rates, "_fetch", fetch)
     monkeypatch.setattr(rates, "_misses", {})
+
+
+@pytest.fixture(autouse=True)
+def empty_file_storage() -> None:
+    """Tests keep files in memory (no S3_BUCKET): each test starts with none."""
+    storage.MEMORY.clear()
 
 
 @pytest.fixture
@@ -133,6 +139,7 @@ WORKSPACE_TABLES = (
     "visa_cases",
     "submission_groups",
     "consultations",
+    "contact_documents",
     "contact_relations",
     "contact_notes",
     "contacts",

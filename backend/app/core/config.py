@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_tls: Literal["starttls", "ssl", "none"] = "starttls"
     mail_from: str = "VisaCRM <no-reply@localhost>"
+    # File storage (app/core/storage.py): any S3-compatible service in the EU, files are
+    # encrypted before upload. Without S3_BUCKET, local development and tests keep files in
+    # memory and other environments refuse uploads.
+    s3_endpoint: str = ""
+    s3_region: str = "auto"
+    s3_bucket: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
     # The staging stand only (docs/staging.md; SEED_DEMO=1 in start.sh): every demo account
     # gets this password and authenticator secret.
     demo_password: str = ""

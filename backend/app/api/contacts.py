@@ -20,6 +20,7 @@ from app.api.cases import CaseOut, cases_of
 from app.api.client_status import TABS, Tab, filter_contacts, latest_consultation, tab_of
 from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
+from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
 from app.core.phone import normalize_phone, phone_digits
 from app.core.questionnaire import Questionnaire
@@ -233,6 +234,8 @@ class ContactCard(BaseModel):
     hints: list[HintOut]
     # None when the user has no «cases» module.
     cases: list[CaseOut] | None
+    # Files of the consent and the contract, newest first.
+    documents: list[DocumentOut]
 
 
 # --- Helpers -------------------------------------------------------------------------
@@ -325,6 +328,7 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
         questionnaire=Questionnaire.model_validate(contact.questionnaire),
         hints=await hints_for(session, contact),
         cases=await cases_of(session, contact.id) if with_cases else None,
+        documents=await documents_of(session, contact.id),
     )
 
 
