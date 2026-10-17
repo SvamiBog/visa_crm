@@ -111,7 +111,9 @@ export function PassportReader({ card, onDone }: { card: ContactCard; onDone: ()
         </button>
       </div>
       {read.isError && <ErrorAlert error={read.error} />}
-      {read.data && <Reading key={read.data.lines.join()} card={card} mrz={read.data} onDone={onDone} />}
+      {read.data && (
+        <Reading key={read.data.lines.join()} card={card} mrz={read.data} onDone={onDone} />
+      )}
     </div>
   );
 }
@@ -137,55 +139,55 @@ function Reading({
   const c = card.contact;
 
   const fields: Field[] = [
-      {
-        key: "full_name_latin",
-        label: t("contacts.fullNameLatin"),
-        value: mrz.full_name_latin || null,
-        shown: mrz.full_name_latin,
-        current: c.full_name_latin,
-      },
-      {
-        key: "birth_date",
-        label: t("contacts.birthDate"),
-        value: mrz.birth_date,
-        shown: date(mrz.birth_date),
-        current: date(c.birth_date),
-      },
-      {
-        key: "passport_number",
-        label: t("contacts.passportNumber"),
-        value: mrz.document_number || null,
-        shown: mrz.document_number,
-        current: q.passport_number,
-      },
-      {
-        key: "passport_expires_on",
-        label: t("contacts.passportExpiresOn"),
-        value: mrz.expiry_date,
-        shown: date(mrz.expiry_date),
-        current: date(q.passport_expires_on),
-      },
-      {
-        key: "nationality",
-        label: t("contacts.nationality"),
-        value: mrz.nationality_country,
-        shown: country(mrz.nationality_country) || mrz.nationality,
-        current: country(q.nationality),
-      },
-      {
-        key: "sex",
-        label: t("contacts.sex"),
-        value: mrz.sex,
-        shown: sex(mrz.sex),
-        current: sex(q.sex),
-      },
-      {
-        key: "personal_number",
-        label: t("contacts.personalNumber"),
-        value: mrz.personal_number,
-        shown: mrz.personal_number,
-        current: q.personal_number,
-      },
+    {
+      key: "full_name_latin",
+      label: t("contacts.fullNameLatin"),
+      value: mrz.full_name_latin || null,
+      shown: mrz.full_name_latin,
+      current: c.full_name_latin,
+    },
+    {
+      key: "birth_date",
+      label: t("contacts.birthDate"),
+      value: mrz.birth_date,
+      shown: date(mrz.birth_date),
+      current: date(c.birth_date),
+    },
+    {
+      key: "passport_number",
+      label: t("contacts.passportNumber"),
+      value: mrz.document_number || null,
+      shown: mrz.document_number,
+      current: q.passport_number,
+    },
+    {
+      key: "passport_expires_on",
+      label: t("contacts.passportExpiresOn"),
+      value: mrz.expiry_date,
+      shown: date(mrz.expiry_date),
+      current: date(q.passport_expires_on),
+    },
+    {
+      key: "nationality",
+      label: t("contacts.nationality"),
+      value: mrz.nationality_country,
+      shown: country(mrz.nationality_country) || mrz.nationality,
+      current: country(q.nationality),
+    },
+    {
+      key: "sex",
+      label: t("contacts.sex"),
+      value: mrz.sex,
+      shown: sex(mrz.sex),
+      current: sex(q.sex),
+    },
+    {
+      key: "personal_number",
+      label: t("contacts.personalNumber"),
+      value: mrz.personal_number,
+      shown: mrz.personal_number,
+      current: q.personal_number,
+    },
   ];
   // What differs from the card is ticked; a reading with failed checks is left to the
   // specialist to tick after comparing with the passport.
