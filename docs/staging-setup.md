@@ -100,7 +100,7 @@ python3 -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"  
 
 **На каждый PR — свой стенд:**
 
-1. **Project Settings → Environments → Enable PR Environments**, базовое окружение — `staging`.
+1. **Project Settings → Environments → Enable PR Environments**, базовое окружение — `staging`. **Focused PR Environments** — выключить: с ней Railway поднимает в окружении PR только сервисы, которые PR затрагивает, Mailpit (готовый образ) не поднимается никогда, а приложение, которое ссылается на него в `SMTP_HOST`, час ждёт его в очереди и стартует без писем (выключено 2026-10-17).
 2. Когда открывается PR, Railway создаёт окружение `<проект>-pr-<номер>`: копию `staging` со своей пустой базой, Mailpit и приложением из ветки PR. Переменные копируются из `staging`, демо-данные создаются при старте.
 3. Каждый пуш в PR пересобирает его стенд; база сохраняется, демо-данные не дублируются.
 4. Адрес — в окружении PR: сервис приложения → **Settings → Networking**. Если адреса нет — **Generate Domain**.
