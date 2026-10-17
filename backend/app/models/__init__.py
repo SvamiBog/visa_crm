@@ -2,7 +2,14 @@
 from app.models.audit import AuditAction, AuditEvent
 from app.models.booking import Booking, BookingKind, BookingStatus
 from app.models.consultation import Consultation, Decision
-from app.models.contact import Contact, ContactNote, ContactRelation, Messenger
+from app.models.contact import (
+    Contact,
+    ContactDocument,
+    ContactNote,
+    ContactRelation,
+    DocumentKind,
+    Messenger,
+)
 from app.models.data_import import ImportKind, ImportMapping, ImportRow, ImportRun
 from app.models.dictionaries import (
     Hall,
@@ -65,11 +72,13 @@ __all__ = [
     "CaseStage",
     "Consultation",
     "Contact",
+    "ContactDocument",
     "ContactNote",
     "ContactRelation",
     "Country",
     "CountryRule",
     "Decision",
+    "DocumentKind",
     "EmailChange",
     "EmailOwner",
     "ExchangeRate",

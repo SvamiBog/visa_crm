@@ -11,6 +11,7 @@ from app.api.cases import router as cases_router
 from app.api.consultations import router as consultations_router
 from app.api.contacts import router as contacts_router
 from app.api.dictionaries import router as dictionaries_router
+from app.api.documents import router as documents_router
 from app.api.email_change import router as email_change_router
 from app.api.employees import router as employees_router
 from app.api.finances import router as finances_router
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
         admin_reference_router,
         dictionaries_router,
         contacts_router,
+        documents_router,
         consultations_router,
         cases_router,
         queues_router,

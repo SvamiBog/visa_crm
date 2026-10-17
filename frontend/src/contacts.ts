@@ -199,6 +199,21 @@ export type Booking = {
   warnings: BookingWarning[];
 };
 
+export const DOCUMENT_KINDS = ["consent", "contract"] as const;
+export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+
+/** A file of the signed consent or contract (backend/app/api/documents.py). */
+export type ContactDocument = {
+  id: string;
+  kind: DocumentKind;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  uploaded_by: string | null;
+  uploaded_by_email: string | null;
+  created_at: string;
+};
+
 export type ContactCard = {
   contact: Contact;
   notes: Note[];
@@ -208,6 +223,8 @@ export type ContactCard = {
   hints: Hint[];
   /** null when the user has no «cases» module. */
   cases: VisaCase[] | null;
+  /** Newest first. */
+  documents: ContactDocument[];
 };
 
 // Client index (backend/app/api/client_status.py): every contact is in one tab.

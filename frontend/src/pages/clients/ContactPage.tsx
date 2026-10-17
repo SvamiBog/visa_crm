@@ -2,7 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
-import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import {
+  ApiError,
+  apiDelete,
+  apiDownload,
+  apiGet,
+  apiPatch,
+  apiPost,
+  errorCode,
+} from "../../api";
 import { useMe } from "../../auth";
 import {
   contactKey,
@@ -12,9 +20,12 @@ import {
   useContactLists,
   type Consultation,
   type ContactCard,
+  type ContactDocument,
   type ContactListItem,
+  type DocumentKind,
   type Note,
 } from "../../contacts";
+import { formatSize, readBase64 } from "../../files";
 import { byId } from "../../reference";
 import { AttentionList } from "../cabinet/Attention";
 import { ContactVault } from "../vault/Vault";
@@ -43,7 +54,7 @@ export function ContactPage() {
   });
   const workspace = useQuery({
     queryKey: ["workspace"],
-    queryFn: () => apiGet<{ modules: string[] }>("/workspace"),
+    queryFn: () => apiGet<{ modules: string[]; file_storage: boolean }>("/workspace"),
   });
   const [editing, setEditing] = useState(false);
   // «Создать кейс» from a consultation, or a new case without one.
@@ -112,7 +123,7 @@ export function ContactPage() {
         <div className="column">
           <ContactDetails card={card.data} />
           <QuestionnaireCard card={card.data} />
-          <Paperwork card={card.data} />
+          <Paperwork card={card.data} fileStorage={workspace.data?.file_storage === true} />
           <Relations contactId={contact.id} relations={relations} />
         </div>
         <div className="column">
@@ -190,9 +201,19 @@ function ContactDetails({ card }: { card: ContactCard }) {
   );
 }
 
-function Paperwork({ card }: { card: ContactCard }) {
+function Paperwork({ card, fileStorage }: { card: ContactCard; fileStorage: boolean }) {
   const { t, i18n } = useTranslation();
   const c = card.contact;
+  // A paper with a file but no date yet is not flagged as missing.
+  const hasFiles = (kind: DocumentKind) => card.documents.some((d) => d.kind === kind);
+  const files = (kind: DocumentKind) => (
+    <DocumentFiles
+      contactId={c.id}
+      kind={kind}
+      documents={card.documents.filter((d) => d.kind === kind)}
+      fileStorage={fileStorage}
+    />
+  );
   return (
     <section className="card">
       <h2 className="h2">{t("contacts.paperwork")}</h2>
@@ -200,9 +221,12 @@ function Paperwork({ card }: { card: ContactCard }) {
         {c.consent_signed_on ? (
           t("contacts.signedOn", { date: formatDate(c.consent_signed_on, i18n.language) })
         ) : (
-          <span className="chip st-orange">{t("contacts.consentMissing")}</span>
+          !hasFiles("consent") && (
+            <span className="chip st-orange">{t("contacts.consentMissing")}</span>
+          )
         )}
       </Row>
+      {files("consent")}
       <Row label={t("contacts.contract")}>
         {c.contract_signed_on || c.contract_number ? (
           [
@@ -212,11 +236,142 @@ function Paperwork({ card }: { card: ContactCard }) {
             .filter(Boolean)
             .join(" · ")
         ) : (
-          <span className="chip st-orange">{t("contacts.contractMissing")}</span>
+          !hasFiles("contract") && (
+            <span className="chip st-orange">{t("contacts.contractMissing")}</span>
+          )
         )}
       </Row>
-      <p className="muted small">{t("contacts.filesLater")}</p>
+      {files("contract")}
+      <p className="muted small">
+        {fileStorage ? t("contacts.documentsHint") : t("contacts.documentsOff")}
+      </p>
     </section>
+  );
+}
+
+const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+const DOCUMENT_TYPES = [
+  ".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif",
+  "application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif",
+].join(",");
+
+/** Files of one paper: download, attach, delete. The server checks the type by content
+ * and keeps the file encrypted; every download goes to the audit log. */
+function DocumentFiles({
+  contactId,
+  kind,
+  documents,
+  fileStorage,
+}: {
+  contactId: string;
+  kind: DocumentKind;
+  documents: ContactDocument[];
+  fileStorage: boolean;
+}) {
+  const { t, i18n } = useTranslation();
+  const me = useMe();
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<unknown>(null);
+  // A new input after each pick: choosing the same file again fires onChange.
+  const [inputKey, setInputKey] = useState(0);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: contactKey(contactId) });
+  const url = `/contacts/${contactId}/documents`;
+
+  const add = useMutation({
+    mutationFn: async (file: File) =>
+      apiPost<ContactDocument>(url, {
+        kind,
+        file_name: file.name.slice(-255),
+        content: await readBase64(file),
+      }),
+    onSuccess: () => void refresh(),
+    onError: setError,
+  });
+  const download = useMutation({
+    mutationFn: (document: ContactDocument) =>
+      apiDownload(`${url}/${document.id}`, document.file_name),
+    onError: setError,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => apiDelete<void>(`${url}/${id}`),
+    onSuccess: () => void refresh(),
+    onError: setError,
+  });
+
+  const choose = (file: File | undefined) => {
+    setInputKey((key) => key + 1);
+    setError(null);
+    if (!file) return;
+    if (file.size > MAX_DOCUMENT_BYTES) {
+      setError(new ApiError(413, "document_too_large"));
+      return;
+    }
+    add.mutate(file);
+  };
+  const mayDelete = (document: ContactDocument) =>
+    me.data?.role === "specialist" || document.uploaded_by === me.data?.id;
+  const added = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium" });
+
+  if (documents.length === 0 && !fileStorage) return null;
+  return (
+    <div className="documents">
+      {documents.length > 0 && (
+        <ul className="plain-list">
+          {documents.map((document) => (
+            <li key={document.id}>
+              <span>
+                <button
+                  type="button"
+                  className="link-button"
+                  title={t("contacts.downloadDocument")}
+                  disabled={download.isPending}
+                  onClick={() => {
+                    setError(null);
+                    download.mutate(document);
+                  }}
+                >
+                  {document.file_name}
+                </button>
+                <span className="muted small">
+                  {" · "}
+                  {formatSize(document.size_bytes, i18n.language)} ·{" "}
+                  {added.format(new Date(document.created_at))}
+                </span>
+              </span>
+              {mayDelete(document) && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    setError(null);
+                    const name = document.file_name;
+                    if (window.confirm(t("contacts.confirmDeleteDocument", { name })))
+                      remove.mutate(document.id);
+                  }}
+                >
+                  {t("contacts.deleteDocument")}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {fileStorage && (
+        <label className="btn btn-sm file-button">
+          {add.isPending ? t("contacts.uploadingDocument") : t(`contacts.attach.${kind}`)}
+          <input
+            key={inputKey}
+            type="file"
+            className="visually-hidden"
+            accept={DOCUMENT_TYPES}
+            disabled={add.isPending}
+            onChange={(e) => choose(e.target.files?.[0])}
+          />
+        </label>
+      )}
+      {error !== null && <ErrorAlert error={error} />}
+    </div>
   );
 }
 

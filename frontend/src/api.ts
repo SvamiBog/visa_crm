@@ -11,6 +11,19 @@ export class ApiError extends Error {
   }
 }
 
+async function failure(response: Response): Promise<ApiError> {
+  let code = "unknown";
+  let data: Record<string, unknown> = {};
+  try {
+    data = (await response.json()) as Record<string, unknown>;
+    if (typeof data.detail === "string") code = data.detail;
+    else if (response.status === 422) code = "validation";
+  } catch {
+    // not JSON: keep "unknown"
+  }
+  return new ApiError(response.status, code, data);
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method,
@@ -18,19 +31,23 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!response.ok) {
-    let code = "unknown";
-    let data: Record<string, unknown> = {};
-    try {
-      data = (await response.json()) as Record<string, unknown>;
-      if (typeof data.detail === "string") code = data.detail;
-      else if (response.status === 422) code = "validation";
-    } catch {
-      // not JSON: keep "unknown"
-    }
-    throw new ApiError(response.status, code, data);
-  }
+  if (!response.ok) throw await failure(response);
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+}
+
+/** Fetch a file from the API and save it under the given name. Fetched rather than
+ * linked, so an error shows in the page instead of being saved as the file. */
+export async function apiDownload(path: string, fileName: string): Promise<void> {
+  const response = await fetch(`/api${path}`, { credentials: "include" });
+  if (!response.ok) throw await failure(response);
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export const apiGet = <T>(path: string) => request<T>("GET", path);

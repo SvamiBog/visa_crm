@@ -17,6 +17,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -27,6 +28,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+
+
+class DocumentKind(StrEnum):
+    """A signed paper kept as a file in the contact's card."""
+
+    CONSENT = "consent"  # consent to personal data processing
+    CONTRACT = "contract"
 
 
 class Messenger(StrEnum):
@@ -134,4 +142,35 @@ class ContactRelation(Base):
     contact_id: Mapped[uuid.UUID] = mapped_column(index=True)
     related_id: Mapped[uuid.UUID]
     label: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ContactDocument(Base):
+    """A file of the consent or the contract (backlog 1.2). The row describes it; the content
+    lives encrypted in the file storage under documents/<tenant>/<id> (app/core/documents.py).
+    """
+
+    __tablename__ = "contact_documents"
+    __table_args__ = (
+        _same_tenant("contact_documents", "contact_id", "contacts", "CASCADE"),
+        Index("ix_contact_documents_contact_created", "contact_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    contact_id: Mapped[uuid.UUID]
+    kind: Mapped[DocumentKind] = mapped_column(
+        Enum(DocumentKind, name="document_kind", values_callable=lambda e: [m.value for m in e])
+    )
+    # As uploaded, cleaned (app/core/documents.py → clean_file_name).
+    file_name: Mapped[str] = mapped_column(String(200))
+    # Found from the file's first bytes, not taken from the browser.
+    content_type: Mapped[str] = mapped_column(String(50))
+    # Of the file itself, before encryption.
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

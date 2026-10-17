@@ -984,6 +984,35 @@ a.nav-a:hover {
   text-align: right;
 }
 
+/* Files of the consent and the contract under their row in the card */
+.documents {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0 12px;
+}
+
+.documents .plain-list {
+  align-self: stretch;
+  margin: 0;
+}
+
+.documents .link-button {
+  padding: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.file-button {
+  cursor: pointer;
+}
+
+.file-button:has(input:focus-visible) {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}
+
 .notes {
   list-style: none;
   margin: 16px 0 0;
