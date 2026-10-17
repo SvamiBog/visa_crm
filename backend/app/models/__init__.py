@@ -3,6 +3,7 @@ from app.models.audit import AuditAction, AuditEvent
 from app.models.booking import Booking, BookingKind, BookingStatus
 from app.models.consultation import Consultation, Decision
 from app.models.contact import Contact, ContactNote, ContactRelation, Messenger
+from app.models.data_import import ImportKind, ImportMapping, ImportRow, ImportRun
 from app.models.dictionaries import (
     Hall,
     LeadChannel,
@@ -73,6 +74,10 @@ __all__ = [
     "EmailOwner",
     "ExchangeRate",
     "Hall",
+    "ImportKind",
+    "ImportMapping",
+    "ImportRow",
+    "ImportRun",
     "LeadChannel",
     "Messenger",
     "Partner",

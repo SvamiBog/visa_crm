@@ -16,6 +16,7 @@ from app.api.employees import router as employees_router
 from app.api.finances import router as finances_router
 from app.api.health import router as health_router
 from app.api.home import router as home_router
+from app.api.imports import router as imports_router
 from app.api.queues import router as queues_router
 from app.api.reference import admin_router as admin_reference_router
 from app.api.reference import router as reference_router
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
         registrar_ledger_router,
         reminders_router,
         analytics_router,
+        imports_router,
         vault_router,
     ):
         app.include_router(router, prefix="/api")
