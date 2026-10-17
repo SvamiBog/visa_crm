@@ -8,6 +8,7 @@ import { Shell } from "./components/Shell";
 import { ReferencePage } from "./pages/admin/ReferencePage";
 import { SpecialistsPage } from "./pages/admin/SpecialistsPage";
 import { AnalyticsPage } from "./pages/analytics/AnalyticsPage";
+import { ImportPage } from "./pages/import/ImportPage";
 import { AuditPage } from "./pages/AuditPage";
 import { CountriesPage } from "./pages/cabinet/CountriesPage";
 import { ClientsPage } from "./pages/clients/ClientsPage";
@@ -225,6 +226,16 @@ export default function App() {
             <RequireUser roles={["specialist", "employee"]}>
               <Shell area="cabinet">
                 <VaultPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/import"
+          element={
+            <RequireUser roles={["specialist"]}>
+              <Shell area="cabinet">
+                <ImportPage />
               </Shell>
             </RequireUser>
           }

@@ -27,6 +27,7 @@ const MENU: Record<Area, MenuItem[]> = {
     { key: "nav.vault", to: "/app/vault", module: "vault" },
     { key: "nav.analytics", to: "/app/analytics", module: "analytics" },
     { key: "nav.countries", to: "/app/countries", module: "country_rules" },
+    { key: "nav.import", to: "/app/import", roles: ["specialist"], module: "clients" },
     { key: "nav.dictionaries", to: "/app/dictionaries", roles: ["specialist"] },
     { key: "nav.employees", to: "/app/employees", roles: ["specialist"] },
     { key: "nav.audit", to: "/app/audit", roles: ["specialist"] },

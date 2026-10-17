@@ -90,7 +90,9 @@ jobs:
           export VAULT_MASTER_KEY="$(uv run python -m app.cli generate-master-key)"
           uv run alembic upgrade head
           uv run python -m app.cli seed-demo --specialists 1 --clients 30
-          nohup uv run uvicorn app.main:app --port 8000 > /tmp/app.log 2>&1 &
+          # From the venv, not «uv run»: a running uv holds the cache lock and setup-uv's
+          # cache pruning at the end of the job would wait for it until it fails.
+          nohup .venv/bin/uvicorn app.main:app --port 8000 > /tmp/app.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:8000/api/health && exit 0; sleep 1; done
           cat /tmp/app.log; exit 1
       - name: ZAP baseline scan

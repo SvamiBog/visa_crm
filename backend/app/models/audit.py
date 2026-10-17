@@ -66,6 +66,8 @@ class AuditAction(StrEnum):
     REGISTRAR_PAYMENT_UPDATED = "finances.registrar_payment_updated"
     REGISTRAR_PAYMENT_DELETED = "finances.registrar_payment_deleted"
     REMINDER_SETTINGS_UPDATED = "reminders.settings_updated"
+    # A spreadsheet import: counts only (app/api/imports.py).
+    IMPORT_COMPLETED = "imports.completed"
     VAULT_ENTRY_CREATED = "vault.entry_created"
     VAULT_ENTRY_UPDATED = "vault.entry_updated"
     VAULT_ENTRY_DELETED = "vault.entry_deleted"
