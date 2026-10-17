@@ -229,7 +229,7 @@ class DemoSettings:
 
 
 # The core CRM and the stage 2 modules built so far, so the stand shows them.
-DEMO_MODULES = (*DEFAULT_MODULES, "stay_calculator")
+DEMO_MODULES = (*DEFAULT_MODULES, "passport_mrz", "stay_calculator")
 
 
 def check_settings(env: str, password: str, totp_secret: str) -> None:

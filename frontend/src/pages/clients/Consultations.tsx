@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import {
   DECISIONS,
+  SEXES,
   VISA_KINDS,
   contactKey,
   formatDate,
@@ -17,6 +18,8 @@ import {
   type VisaRecord,
 } from "../../contacts";
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
+import { useHasModule } from "../../workspace";
+import { PassportReader } from "./Passport";
 
 // Consultations, the questionnaire and its checks on the client's card (backlog 1.3).
 
@@ -407,6 +410,8 @@ export function QuestionnaireCard({ card }: { card: ContactCard }) {
     [countries.data],
   );
   const [editing, setEditing] = useState(false);
+  const [reading, setReading] = useState(false);
+  const canRead = useHasModule("passport_mrz");
   const q = card.questionnaire;
   const names = (codes: string[]) => codes.map((c) => name.country(byCode.get(c)) || c).join(", ");
 
@@ -414,12 +419,20 @@ export function QuestionnaireCard({ card }: { card: ContactCard }) {
     <section className="card">
       <div className="card-head">
         <h2 className="h2">{t("contacts.questionnaire")}</h2>
-        {!editing && (
-          <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
-            {t("reference.edit")}
-          </button>
+        {!editing && !reading && (
+          <div className="actions">
+            {canRead && (
+              <button type="button" className="btn btn-sm" onClick={() => setReading(true)}>
+                {t("mrz.open")}
+              </button>
+            )}
+            <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
+              {t("reference.edit")}
+            </button>
+          </div>
         )}
       </div>
+      {reading && <PassportReader card={card} onDone={() => setReading(false)} />}
       {editing ? (
         <QuestionnaireForm card={card} onDone={() => setEditing(false)} />
       ) : (
@@ -427,14 +440,40 @@ export function QuestionnaireCard({ card }: { card: ContactCard }) {
           <div className="kv">
             <span className="muted">{t("contacts.passport")}</span>
             <span>
-              {q.passport_issued_on || q.passport_expires_on
-                ? t("contacts.passportDates", {
-                    from: formatDate(q.passport_issued_on, i18n.language) || "—",
-                    to: formatDate(q.passport_expires_on, i18n.language) || "—",
-                  })
-                : "—"}
+              {[
+                q.passport_number && t("contacts.passportNumberValue", { number: q.passport_number }),
+                q.passport_issued_on
+                  ? t("contacts.passportDates", {
+                      from: formatDate(q.passport_issued_on, i18n.language),
+                      to: formatDate(q.passport_expires_on, i18n.language) || "—",
+                    })
+                  : q.passport_expires_on &&
+                    t("contacts.passportValidTo", {
+                      to: formatDate(q.passport_expires_on, i18n.language),
+                    }),
+              ]
+                .filter(Boolean)
+                .join(" · ") || "—"}
             </span>
           </div>
+          {q.nationality && (
+            <div className="kv">
+              <span className="muted">{t("contacts.nationality")}</span>
+              <span>{name.country(byCode.get(q.nationality)) || q.nationality}</span>
+            </div>
+          )}
+          {q.sex && (
+            <div className="kv">
+              <span className="muted">{t("contacts.sex")}</span>
+              <span>{t(`contacts.sexValue.${q.sex}`)}</span>
+            </div>
+          )}
+          {q.personal_number && (
+            <div className="kv">
+              <span className="muted">{t("contacts.personalNumber")}</span>
+              <span>{q.personal_number}</span>
+            </div>
+          )}
           <div className="kv">
             <span className="muted">{t("contacts.visas")}</span>
             <span>
@@ -503,6 +542,8 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
         ...q,
         passport_issued_on: q.passport_issued_on || null,
         passport_expires_on: q.passport_expires_on || null,
+        passport_number: q.passport_number?.trim() || null,
+        personal_number: q.personal_number?.trim() || null,
         deportation_note: q.deportation ? q.deportation_note?.trim() || null : null,
         note: q.note?.trim() || null,
       }),
@@ -549,6 +590,50 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
             type="date"
             value={q.passport_expires_on ?? ""}
             onChange={(e) => set("passport_expires_on", e.target.value || null)}
+          />
+        </label>
+        <label className="field">
+          <span>{t("contacts.passportNumber")}</span>
+          <input
+            maxLength={20}
+            pattern="[A-Za-z0-9 ]*"
+            value={q.passport_number ?? ""}
+            onChange={(e) => set("passport_number", e.target.value || null)}
+          />
+        </label>
+        <label className="field">
+          <span>{t("contacts.nationality")}</span>
+          <select
+            value={q.nationality ?? ""}
+            onChange={(e) => set("nationality", e.target.value || null)}
+          >
+            {countryOptions}
+            {q.nationality && !countries.some((c) => c.code === q.nationality) && (
+              <option value={q.nationality}>{q.nationality}</option>
+            )}
+          </select>
+        </label>
+        <label className="field">
+          <span>{t("contacts.sex")}</span>
+          <select
+            value={q.sex ?? ""}
+            onChange={(e) => set("sex", (e.target.value || null) as Questionnaire["sex"])}
+          >
+            <option value="" />
+            {SEXES.map((value) => (
+              <option key={value} value={value}>
+                {t(`contacts.sexValue.${value}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>{t("contacts.personalNumber")}</span>
+          <input
+            maxLength={20}
+            pattern="[A-Za-z0-9 ]*"
+            value={q.personal_number ?? ""}
+            onChange={(e) => set("personal_number", e.target.value || null)}
           />
         </label>
       </div>

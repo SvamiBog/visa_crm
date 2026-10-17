@@ -75,9 +75,16 @@ export type VisaRecord = {
 export type Refusal = { country: string; year: number | null; reason: string | null };
 
 /** Questionnaire answers kept on the contact (backend/app/core/questionnaire.py). */
+export const SEXES = ["F", "M", "X"] as const;
+
 export type Questionnaire = {
   passport_issued_on: string | null;
   passport_expires_on: string | null;
+  passport_number: string | null;
+  // ISO code, as in the countries reference.
+  nationality: string | null;
+  sex: (typeof SEXES)[number] | null;
+  personal_number: string | null;
   visas: VisaRecord[];
   relatives_abroad: string[];
   refusals: Refusal[];

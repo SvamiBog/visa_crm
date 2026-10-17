@@ -79,6 +79,7 @@ npm run build                            # проверка типов + сбо�
 | НПД (налог на профдоход, 10%) | tax_regime / tax_rate |
 | поездка (для правила 90/180) | trip |
 | калькулятор 90/180 | stay_calculator (`app/core/stay.py`) |
+| распознавание паспорта (MRZ) | passport_mrz (`app/core/mrz.py`, `frontend/src/ocr.ts`) |
 
 ## Как работать
 
