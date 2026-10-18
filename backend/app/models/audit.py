@@ -44,6 +44,9 @@ class AuditAction(StrEnum):
     CONTACT_DOCUMENT_ADDED = "contacts.document_added"
     CONTACT_DOCUMENT_OPENED = "contacts.document_opened"
     CONTACT_DOCUMENT_DELETED = "contacts.document_deleted"
+    CONTACT_TEMPLATE_ADDED = "contacts.template_added"
+    CONTACT_TEMPLATE_OPENED = "contacts.template_opened"
+    CONTACT_TEMPLATE_REMOVED = "contacts.template_removed"
     QUESTIONNAIRE_UPDATED = "contacts.questionnaire_updated"
     # A trip for the 90/180 calculator: details carry ids, not countries or dates.
     TRIP_ADDED = "contacts.trip_added"
@@ -83,6 +86,9 @@ class AuditAction(StrEnum):
     # Reference data; target_type names the reference (country, vac_operator, …).
     REFERENCE_CREATED = "reference.created"
     REFERENCE_UPDATED = "reference.updated"
+    TEMPLATE_UPLOADED = "templates.uploaded"
+    TEMPLATE_UPDATED = "templates.updated"
+    TEMPLATE_DELETED = "templates.deleted"
 
 
 class AuditEvent(Base):

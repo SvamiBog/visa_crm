@@ -232,7 +232,13 @@ class DemoSettings:
 
 
 # The core CRM and the stage 2 modules built so far, so the stand shows them.
-DEMO_MODULES = (*DEFAULT_MODULES, "passport_mrz", "package_check", "stay_calculator")
+DEMO_MODULES = (
+    *DEFAULT_MODULES,
+    "document_templates",
+    "passport_mrz",
+    "package_check",
+    "stay_calculator",
+)
 
 # A demo checklist for Poland: the shared items (only while the admin has none there)
 # and a few of the specialist's own. Made up for the stand, not a consulate's list.

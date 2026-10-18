@@ -25,6 +25,7 @@ import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { StayCalculatorPage } from "./pages/stay/StayCalculatorPage";
+import { TemplatesPage } from "./pages/templates/TemplatesPage";
 import { TwoFactorSetupPage } from "./pages/TwoFactorSetupPage";
 import { applyTheme } from "./theme";
 
@@ -155,6 +156,16 @@ export default function App() {
             <RequireUser roles={["specialist", "employee"]}>
               <Shell area="cabinet">
                 <CountriesPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/app/templates"
+          element={
+            <RequireUser roles={["specialist", "employee"]}>
+              <Shell area="cabinet">
+                <TemplatesPage />
               </Shell>
             </RequireUser>
           }

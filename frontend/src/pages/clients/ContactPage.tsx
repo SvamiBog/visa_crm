@@ -31,6 +31,7 @@ import { AttentionList } from "../cabinet/Attention";
 import { ContactVault } from "../vault/Vault";
 import { Cases } from "./Cases";
 import { ContactForm } from "./ContactForm";
+import { ContactTemplates } from "./ContactTemplates";
 import { Consultations, Hints, QuestionnaireCard } from "./Consultations";
 import { ContactTrips } from "./Trips";
 
@@ -128,6 +129,9 @@ export function ContactPage() {
             <ContactTrips contactId={contact.id} />
           )}
           <Paperwork card={card.data} fileStorage={workspace.data?.file_storage === true} />
+          {workspace.data?.modules.includes("document_templates") && (
+            <ContactTemplates contactId={contact.id} cases={card.data.cases ?? []} />
+          )}
           <Relations contactId={contact.id} relations={relations} />
         </div>
         <div className="column">

@@ -141,6 +141,8 @@ WORKSPACE_TABLES = (
     "consultations",
     "trips",
     "own_checklist_items",
+    "contact_templates",
+    "document_templates",
     "contact_documents",
     "contact_relations",
     "contact_notes",

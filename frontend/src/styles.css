@@ -2254,3 +2254,59 @@ a.kpi:hover {
   font: inherit;
   color: inherit;
 }
+
+/* Document templates: codes found in a file, actions that wrap on a phone */
+.templates .chips {
+  margin: 6px 0;
+}
+
+.templates .note-actions {
+  flex-wrap: wrap;
+}
+
+.templates-unknown {
+  margin: 6px 0;
+}
+
+.template-codes tbody th {
+  padding-top: 16px;
+  color: var(--c-text);
+}
+
+.template-codes .link-button {
+  text-align: left;
+}
+
+/* On a phone each code is a block: what it inserts, then the two ways to write it */
+@media (max-width: 640px) {
+  .template-codes thead {
+    display: none;
+  }
+
+  .template-codes tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--c-row);
+  }
+
+  .template-codes td,
+  .template-codes th {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+
+  .template-codes td:first-child,
+  .template-codes th {
+    grid-column: 1 / -1;
+  }
+
+  .template-codes td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 12px;
+    color: var(--c-muted);
+  }
+}

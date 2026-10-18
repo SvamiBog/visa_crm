@@ -17,6 +17,7 @@ dependencies = [
     "openpyxl>=3.1",
     "defusedxml>=0.7",
     "boto3>=1.35",
+    "lxml>=5.3",
 ]
 
 [dependency-groups]
