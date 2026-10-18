@@ -43,6 +43,7 @@ type Finance = {
   registrar_fee_rate: string | null;
   registrar_fee_base: string | null;
   registrar_fee_on: string | null;
+  registrar_fee_settled: boolean;
   partner_terms: Terms | null;
   partner_percent: string | null;
   partner_fixed: string | null;
@@ -239,6 +240,9 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                         · {formatDate(f.registrar_fee_on, i18n.language)}
                       </span>
                     )}
+                    {f.registrar_fee_settled && (
+                      <span className="muted"> · {t("finance.talonSettled")}</span>
+                    )}
                   </>
                 }
                 value={money(f.registrar_fee_base)}
@@ -434,6 +438,8 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
   const [feeRate, setFeeRate] = useState(f.registrar_fee_rate ?? fee?.rate ?? "");
   // The day the talon is charged to the registrar: when the client was queued.
   const [feeOn, setFeeOn] = useState(f.registrar_fee_on ?? fee?.on ?? todayIso());
+  // Paid to the registrar before the CRM (a talon from the tables): not in the settlements.
+  const [settled, setSettled] = useState(f.registrar_fee_settled);
   const [terms, setTerms] = useState<Terms | "">(f.partner_terms ?? hints.partner_terms ?? "");
   const [percent, setPercent] = useState(f.partner_percent ?? hints.partner_percent ?? "");
   const [fixed, setFixed] = useState(f.partner_fixed ?? hints.partner_fixed ?? "");
@@ -461,6 +467,7 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
             registrar_fee_amount: toDecimal(feeAmount),
             registrar_fee_currency: feeCurrency,
             registrar_fee_on: feeOn,
+            registrar_fee_settled: settled,
             ...(feeCurrency !== base && feeRate ? { registrar_fee_rate: toDecimal(feeRate) } : {}),
           }
         : { registrar_fee_amount: null }),
@@ -523,6 +530,16 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
             <RateField value={feeRate} onChange={setFeeRate} missing={rate.isError} base={base} />
           )}
         </div>
+        {feeAmount && (
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={settled}
+              onChange={(e) => setSettled(e.target.checked)}
+            />
+            <span>{t("finance.talonSettledField")}</span>
+          </label>
+        )}
       </fieldset>
       <fieldset className="module-block">
         <legend>{t("finance.partner")}</legend>

@@ -8,7 +8,7 @@ import { readBase64 } from "../../files";
 import { useCountries, useLocalName, type Country } from "../../reference";
 import { ErrorAlert } from "../clients/ui";
 
-// «Импорт таблиц» (backlog 1.14): the specialist uploads a spreadsheet, maps its columns
+// «Импорт таблиц» (backlog 1.14, 1.16): the specialist uploads a spreadsheet, maps its columns
 // to fields, checks what would happen and imports it. The file stays in the browser and
 // is sent again for the check and the import; the mapping is remembered by the server.
 
@@ -245,7 +245,7 @@ export function ImportPage() {
             <input
               key={inputKey}
               type="file"
-              accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+              accept=".xlsx,.csv,.tsv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/tab-separated-values"
               onChange={(e) => void chooseFile(e.target.files?.[0])}
             />
             <small className="muted">{t("import.fileHint")}</small>
@@ -703,6 +703,14 @@ function UnknownValues({
               report.unknown[type].map((item) => {
                 const creatable = CREATABLE.includes(type);
                 const value = choices[type]?.[item.key] ?? (creatable ? "new" : "skip");
+                // Two spellings of one registrar: this one goes «as» another new value.
+                const others = creatable
+                  ? report.unknown[type].filter(
+                      (other) =>
+                        other.key !== item.key &&
+                        !(choices[type]?.[other.key] ?? "new").startsWith("as:"),
+                    )
+                  : [];
                 return (
                   <tr key={`${type}-${item.key}`}>
                     <td className="muted">{t(`import.listName.${type}`)}</td>
@@ -719,6 +727,14 @@ function UnknownValues({
                         >
                           {creatable && <option value="new">{t("import.createNew")}</option>}
                           <option value="skip">{t("import.leaveEmpty")}</option>
+                          {type === "channel" && (
+                            <option value="partner">{t("import.asPartner")}</option>
+                          )}
+                          {others.map((other) => (
+                            <option key={other.key} value={`as:${other.value}`}>
+                              {t("import.asValue", { value: other.value })}
+                            </option>
+                          ))}
                           {(lists[type] ?? [])
                             .filter((entry) => entry.is_active)
                             .map((entry) => (

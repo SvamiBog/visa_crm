@@ -62,6 +62,7 @@ FINANCE_FIELDS = (
     "registrar_fee_currency",
     "registrar_fee_rate",
     "registrar_fee_on",
+    "registrar_fee_settled",
     "partner_terms",
     "partner_percent",
     "partner_fixed",
@@ -84,7 +85,8 @@ class FinanceUpdate(BaseModel):
     """Only the fields sent are changed; null clears one. The talon is sent whole
     (amount, currency and rate) or cleared with a null amount. Its day (when it is
     charged in the settlements with the registrar) defaults to the day the client was
-    queued, else today; a rate not sent is the bank's of that day."""
+    queued, else today; a rate not sent is the bank's of that day. A settled talon was
+    paid to the registrar outside the settlements (before the CRM): it is not charged."""
 
     price: Price | None = None
     prepayment: Amount | None = None
@@ -93,6 +95,7 @@ class FinanceUpdate(BaseModel):
     registrar_fee_currency: Currency | None = None
     registrar_fee_rate: Rate | None = None
     registrar_fee_on: date | None = None
+    registrar_fee_settled: bool | None = None
     partner_terms: PartnerTermsType | None = None
     partner_percent: Percent | None = None
     partner_fixed: Amount | None = None
@@ -199,6 +202,7 @@ class FinanceOut(BaseModel):
     registrar_fee_rate: Decimal | None = None
     registrar_fee_base: Decimal | None = None
     registrar_fee_on: date | None = None
+    registrar_fee_settled: bool = False
     partner_terms: PartnerTermsType | None = None
     partner_percent: Decimal | None = None
     partner_fixed: Decimal | None = None
@@ -417,6 +421,8 @@ def _check_finance(finance: CaseFinance) -> None:
     )
     if any(v is None for v in fee) and any(v is not None for v in fee):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "registrar_fee_incomplete")
+    if finance.registrar_fee_settled and finance.registrar_fee_amount is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "registrar_fee_incomplete")
     if finance.partner_terms != PartnerTermsType.PERCENT:
         finance.partner_percent = None
     if finance.partner_terms != PartnerTermsType.FIXED:
@@ -467,8 +473,15 @@ async def update_finance(
     changes = body.model_dump(exclude_unset=True)
     if "consultation_credit" in changes and changes["consultation_credit"] is None:
         changes["consultation_credit"] = Decimal("0")
+    if "registrar_fee_settled" in changes and changes["registrar_fee_settled"] is None:
+        changes["registrar_fee_settled"] = False
     if "registrar_fee_amount" in changes and changes["registrar_fee_amount"] is None:
-        changes.update(registrar_fee_currency=None, registrar_fee_rate=None, registrar_fee_on=None)
+        changes.update(
+            registrar_fee_currency=None,
+            registrar_fee_rate=None,
+            registrar_fee_on=None,
+            registrar_fee_settled=False,
+        )
     else:
         if (
             changes.get("registrar_fee_amount") is not None

@@ -7,12 +7,13 @@ parsed with defusedxml (openpyxl picks it up when installed).
 import csv
 import io
 import itertools
+import re
 import warnings
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
 
-from app.core.import_values import Cell, cell_text
+from app.core.import_values import Cell, cell_text, is_blank
 
 MAX_BYTES = 5 * 1024 * 1024
 MAX_UNPACKED = 60 * 1024 * 1024
@@ -112,13 +113,23 @@ def _delimiter(text: str) -> str:
     return best
 
 
+_ZERO = re.compile(r"^0+(?:[.,]0+)?$")
+
+
 def _filled(row: tuple[Cell, ...]) -> int:
-    return sum(1 for cell in row if cell_text(cell) is not None)
+    """Cells with something in them: the zeros and dashes of a sheet's placeholder rows
+    after the last client do not count."""
+    return sum(
+        1
+        for cell in row
+        if (text := cell_text(cell)) is not None and not is_blank(text) and not _ZERO.match(text)
+    )
 
 
 def read_table(data: bytes, sheet: str | None = None, header_row: int | None = None) -> Table:
     """The sheet's header and data rows. The header is the given row or the first one with
-    at least two filled cells; empty rows are dropped, row numbers are kept."""
+    at least two filled cells; empty rows — and rows of only zeros and dashes — are
+    dropped, row numbers are kept."""
     if not data:
         raise FileError("file_empty")
     if len(data) > MAX_BYTES:
