@@ -46,6 +46,7 @@ from app.models.reference import (
 )
 from app.models.reminder import ReminderDismissal
 from app.models.session import UserSession
+from app.models.template import ContactTemplate, DocumentTemplate
 from app.models.tenant import Tenant
 from app.models.trip import Trip
 from app.models.user import UiTheme, User, UserRole
@@ -79,10 +80,12 @@ __all__ = [
     "ContactDocument",
     "ContactNote",
     "ContactRelation",
+    "ContactTemplate",
     "Country",
     "CountryRule",
     "Decision",
     "DocumentKind",
+    "DocumentTemplate",
     "EmailChange",
     "EmailOwner",
     "ExchangeRate",

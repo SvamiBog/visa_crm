@@ -27,6 +27,8 @@ from app.api.reference import router as reference_router
 from app.api.registrar_ledger import router as registrar_ledger_router
 from app.api.reminders import router as reminders_router
 from app.api.stay import router as stay_router
+from app.api.templates import contact_router as contact_templates_router
+from app.api.templates import router as templates_router
 from app.api.two_factor import router as two_factor_router
 from app.api.vault import router as vault_router
 from app.api.workspace import router as workspace_router
@@ -67,6 +69,8 @@ def create_app() -> FastAPI:
         dictionaries_router,
         contacts_router,
         documents_router,
+        templates_router,
+        contact_templates_router,
         consultations_router,
         cases_router,
         queues_router,
