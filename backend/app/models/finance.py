@@ -74,6 +74,10 @@ class CaseFinance(Base):
             name="registrar_fee_dated",
         ),
         CheckConstraint(
+            "NOT registrar_fee_settled OR registrar_fee_amount IS NOT NULL",
+            name="settled_with_talon",
+        ),
+        CheckConstraint(
             "(partner_percent IS NULL) OR partner_terms = 'percent'", name="percent_for_percent"
         ),
         CheckConstraint(
@@ -102,6 +106,9 @@ class CaseFinance(Base):
     registrar_fee_base: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     # When the registrar put the client in the queue: the talon is charged that day.
     registrar_fee_on: Mapped[date | None] = mapped_column(Date)
+    # Paid to the registrar outside the CRM's settlements (a talon from the specialist's
+    # tables): in the profit, not in the registrar's balance.
+    registrar_fee_settled: Mapped[bool] = mapped_column(server_default=text("false"))
     # The partner's terms copied into the case (changeable here); NULL — no partner.
     partner_terms: Mapped[PartnerTermsType | None] = mapped_column(
         Enum(

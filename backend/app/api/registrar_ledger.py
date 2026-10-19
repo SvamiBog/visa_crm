@@ -174,7 +174,12 @@ async def _talons(
         select(CaseFinance, VisaCase, Contact)
         .join(VisaCase, VisaCase.id == CaseFinance.case_id)
         .join(Contact, Contact.id == VisaCase.contact_id)
-        .where(VisaCase.registrar_id.is_not(None), CaseFinance.registrar_fee_amount.is_not(None))
+        .where(
+            VisaCase.registrar_id.is_not(None),
+            CaseFinance.registrar_fee_amount.is_not(None),
+            # Paid before the CRM (a talon from the specialist's tables): not owed.
+            CaseFinance.registrar_fee_settled.is_(False),
+        )
     )
     if registrar_id is not None:
         query = query.where(VisaCase.registrar_id == registrar_id)

@@ -1,10 +1,11 @@
-"""Импорт таблиц (backlog 1.14): the specialist uploads a spreadsheet, maps its columns,
-checks what would happen and imports it. The file is not kept: it is sent again for the
+"""Импорт таблиц (backlog 1.14, 1.16): the specialist uploads a spreadsheet, maps its
+columns, checks what would happen and imports it. The file is not kept: it is sent again for the
 check and for the import. Only the workspace owner imports.
 
 The engine is app/core/importer.py; the rules are in docs/decisions.md → «Импорт таблиц».
 """
 
+import re
 import uuid
 from datetime import datetime
 from typing import Annotated, Any
@@ -33,7 +34,13 @@ from app.core.import_fields import (
     kind_modules,
 )
 from app.core.import_files import FileError, Table, read_table
-from app.core.import_values import cell_text, normalize
+from app.core.import_values import (
+    cell_text,
+    looks_like_credentials,
+    normalize,
+    split_credentials,
+    table_year,
+)
 from app.core.importer import Importer, Options
 from app.core.money import Currency
 from app.models import (
@@ -55,8 +62,10 @@ Specialist = Annotated[CurrentUser, Depends(require_specialist)]
 # Where the first specialist's clients apply: the default for new cases.
 DEFAULT_SUBMISSION = "BY"
 SAMPLES = 3
-# A sample of a password column is not shown back.
-SECRET_HINTS = ("пароль", "password", "pass")
+# A sample of a column with passwords is not shown back: by its header, by its field, or
+# by the value — a login with a password after it.
+SECRET_HINTS = ("парол", "password", "pass", "кабинет", "логин", "login")
+MASK = "••••••"
 
 
 class FileIn(BaseModel):
@@ -190,14 +199,36 @@ async def _modules(session: AsyncSession, user: CurrentUser, kind: ImportKind) -
 
 
 def _column_keys(headers: list[str]) -> list[str]:
-    """How a column is remembered: its normalized header, «#2» for a repeated one."""
+    """How a column is remembered: its normalized header, «#2» for a repeated one, «#1»
+    — its place — for one without a header (the names in the queues of Poland, Latvia)."""
     seen: dict[str, int] = {}
     keys = []
-    for header in headers:
+    for index, header in enumerate(headers):
         key = normalize(header)
+        if not key:
+            keys.append(f"#{index + 1}")
+            continue
         seen[key] = seen.get(key, 0) + 1
         keys.append(key if seen[key] == 1 else f"{key}#{seen[key]}")
     return keys
+
+
+def _sheet_name(table: Table, file_name: str) -> str:
+    """Where the rows come from: the sheet, or the CSV file without its extension and
+    the « (1)» a browser adds to a file downloaded again."""
+    if table.sheet:
+        return table.sheet
+    stem = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+    return re.sub(r"\s*\(\d+\)$", "", stem)
+
+
+def _sample(value: str, secret: bool) -> str:
+    if secret:
+        return MASK
+    if looks_like_credentials(value):
+        login = split_credentials(value)[0]
+        return f"{login[:40]} {MASK}" if "@" in login else MASK
+    return value[:60]
 
 
 async def _mapping(session: AsyncSession, kind: ImportKind) -> ImportMapping | None:
@@ -242,6 +273,8 @@ def _check_columns(body: RunIn, table: Table, fields: list[ImportField]) -> None
     for kind, choices in body.values.items():
         if kind not in {t.value for t in LOOKUPS} or len(choices) > 1000:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_values")
+        if any(len(choice) > 300 for choice in choices.values()):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_values")
 
 
 async def _options(session: AsyncSession, body: RunIn, tenant: Tenant, used: set[str]) -> Options:
@@ -255,8 +288,12 @@ async def _options(session: AsyncSession, body: RunIn, tenant: Tenant, used: set
         if o.country_id == submission or await session.get(Country, o.country_id) is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_options")
     systems = {s.id for s in await _systems(session)}
-    for slot, system_id in (("email", o.email_system_id), ("site", o.site_system_id)):
-        if used & {f"{slot}_login", f"{slot}_password"} and system_id not in systems:
+    slots = {
+        "email": ({"email_login", "own_email_login", "email_password"}, o.email_system_id),
+        "site": ({"site_login", "site_password"}, o.site_system_id),
+    }
+    for fields, system_id in slots.values():
+        if used & fields and system_id not in systems:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "system_required")
     return Options(
         currency=o.currency or tenant.base_currency,
@@ -303,10 +340,15 @@ async def _import(
         options=options,
         values=body.values,
         today=await workspace_today(session, user.tenant_id),
+        sheet=_sheet_name(table, body.file_name),
+        year=table_year(table.sheet, body.file_name),
+        vault="vault" in modules,
     )
     importer.run_id = run.id
     report = (await importer.run(table.rows)).as_json()
     run.report = report
+    # Placeholder rows of zeros and dashes are not counted.
+    run.rows = report["rows"]
 
     if save:
         mapping = await _mapping(session, body.kind)
@@ -386,7 +428,7 @@ async def preview(body: FileIn, user: Specialist, session: TenantSession) -> Pre
                 break
             value = cell_text(row.cells[index])
             if value is not None:
-                samples.append("••••••" if secret else value[:60])
+                samples.append(_sample(value, bool(secret)))
         columns.append(ColumnOut(index=index, header=header, samples=samples, field=field))
 
     tenant = await session.get(Tenant, user.tenant_id)
