@@ -928,24 +928,22 @@ class Importer:
 
     def _new_case(self, row: _Row, contact: Contact, destination: uuid.UUID) -> VisaCase:
         """A case started from the contact's last consultation before it, if any — a case
-        of 2024 is not from a consultation of 2026; a consultation that was «thinking»
-        becomes «yes», as when a case is opened from it by hand."""
+        of 2024 is not from a consultation of 2026, and a row without dates is no later
+        than its sheet's year; a consultation that was «thinking» becomes «yes», as when
+        a case is opened from it by hand."""
         v = row.values
-        started = min(
-            (
-                d
-                for d in (
-                    v.get("queued_on"),
-                    v.get("sent_on"),
-                    v.get("submission_on"),
-                    v.get("decided_on"),
-                )
-                if d is not None
-            ),
-            default=self.today,
-        )
+        dates = [v.get(k) for k in ("queued_on", "sent_on", "submission_on", "decided_on")]
+        started = min((d for d in dates if d is not None), default=None)
+        # «2023»: a sheet of a past year, its rows without a single date.
+        past_year = self.year if self.year is not None and self.year < self.today.year else None
+        if started is None and past_year is not None:
+            started = date(past_year, 12, 31)
         consultation = max(
-            (c for c in self.consultations[contact.id] if c.held_on <= min(started, self.today)),
+            (
+                c
+                for c in self.consultations[contact.id]
+                if c.held_on <= min(started or self.today, self.today)
+            ),
             key=lambda c: c.held_on,
             default=None,
         )
@@ -976,6 +974,8 @@ class Importer:
         if known:
             # A case from the past counts in the month it started, not the import's.
             case.created_at = _midnight(min(known))
+        elif past_year is not None:
+            case.created_at = _midnight(date(past_year, 1, 1))
         if consultation is not None and consultation.decision in (None, Decision.THINKING):
             consultation.decision = Decision.YES
         if consultation is not None:
