@@ -87,8 +87,9 @@ async def test_the_whole_book_in_the_guide_order(
         "В работе": (2, 2),
     }
     # One card per person, whichever sheets they are in.
-    people = await rows(owner_engine, "SELECT full_name FROM contacts ORDER BY full_name")
-    assert [p["full_name"] for p in people] == [
+    # Sorted here: the database's collation orders «Сидоров О…» and «Сидорова И…» either way.
+    people = await rows(owner_engine, "SELECT full_name FROM contacts")
+    assert sorted(p["full_name"] for p in people) == [
         "Зайцева Алла",
         "Иванова Анна",
         "Козлова Мария",
@@ -158,8 +159,9 @@ async def test_the_whole_book_in_the_guide_order(
     booked = await rows(
         owner_engine,
         "SELECT p.full_name, c.number FROM bookings b JOIN visa_cases c ON c.id = b.case_id "
-        "JOIN contacts p ON p.id = c.contact_id ORDER BY p.full_name",
+        "JOIN contacts p ON p.id = c.contact_id",
     )
+    booked = sorted(booked, key=lambda b: b["full_name"])
     assert [b["full_name"] for b in booked] == ["Иванова Анна", "Морозов Денис"]
     assert booked[0]["number"] == anna[1]["number"]  # the open case, not the 2025 one
 
