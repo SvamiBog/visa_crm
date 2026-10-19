@@ -235,6 +235,18 @@ async def _mapping(session: AsyncSession, kind: ImportKind) -> ImportMapping | N
     return await session.scalar(select(ImportMapping).where(ImportMapping.kind == kind))
 
 
+async def _remembered_values(session: AsyncSession, kind: ImportKind) -> dict[str, dict[str, str]]:
+    """How unknown values were resolved before, in any kind of table — «Наталья» chosen as
+    a registrar in «Клиенты в работе» is the same registrar in a queue; this kind's
+    choices win."""
+    mappings = sorted(await session.scalars(select(ImportMapping)), key=lambda m: m.kind == kind)
+    values: dict[str, dict[str, str]] = {}
+    for mapping in mappings:
+        for type_, choices in (mapping.values or {}).items():
+            values.setdefault(type_, {}).update(choices)
+    return values
+
+
 async def _country_by_code(session: AsyncSession, code: str) -> uuid.UUID | None:
     return await session.scalar(select(Country.id).where(Country.code == code))
 
@@ -466,7 +478,7 @@ async def preview(body: FileIn, user: Specialist, session: TenantSession) -> Pre
             email_system_id=remembered_system("email_system_id", "email"),
             site_system_id=remembered_system("site_system_id", "visa_center"),
         ),
-        values=mapping.values if mapping else {},
+        values=await _remembered_values(session, body.kind),
         systems=[SystemOut(id=s.id, name=s.name, kind=s.kind.value) for s in systems],
     )
 
