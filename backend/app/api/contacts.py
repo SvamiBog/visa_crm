@@ -22,7 +22,7 @@ from app.api.consultations import ConsultationOut, HintOut, consultations_of, hi
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
-from app.core.names import LATIN_PARTS, NAME_PARTS, latin_fields, name_fields
+from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
 from app.core.phone import normalize_phone, phone_digits
 from app.core.questionnaire import Passport, Questionnaire
 from app.models import (
@@ -52,8 +52,6 @@ Member = Annotated[CurrentUser, Depends(require_module("clients"))]
 EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 SEARCH_LIMIT = 50
 
-NamePart = Annotated[str, Field(max_length=100)]
-
 
 # --- Schemas -------------------------------------------------------------------------
 
@@ -80,10 +78,7 @@ class ContactFields(BaseModel):
     # Kept with the questionnaire; on a change, only the fields sent are changed.
     passport: Passport | None = None
 
-    @field_validator(*NAME_PARTS, *LATIN_PARTS)
-    @classmethod
-    def name_part(cls, value: str | None) -> str | None:
-        return " ".join((value or "").split()) or None
+    _name_parts = field_validator(*NAME_PARTS, *LATIN_PARTS)(tidy)
 
     @field_validator("phone")
     @classmethod

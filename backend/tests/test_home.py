@@ -80,7 +80,7 @@ async def busy_workspace(client: AsyncClient, make_user: MakeUser) -> dict:
         "PL",
         consultation_id=talk["id"],
         registrar_id=registrar["id"],
-        applicants=[{"contact_id": anna["id"]}, {"full_name": "Мария", "label": "дочь"}],
+        applicants=[{"contact_id": anna["id"]}, {"first_name": "Мария", "label": "дочь"}],
     )
     for case, price in zip(family, ("500", "300"), strict=True):
         await ok(await client.patch(f"/api/cases/{case['id']}", json={"submission_on": day(2)}))

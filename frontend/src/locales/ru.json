@@ -661,7 +661,6 @@
   "cases.applicants": "Заявители",
   "cases.applicantsHintConsultation": "На консультации заявителей: {{planned}}, выбрано: {{count}}. Каждый получит свой кейс; несколько кейсов объединятся в группу подачи.",
   "cases.applicantsHint": "Каждый заявитель получит свой кейс; несколько кейсов объединятся в группу подачи.",
-  "cases.newApplicantName": "ФИО нового заявителя",
   "cases.newApplicantLabel": "Кто он клиенту",
   "cases.addApplicant": "+ Заявитель без карточки",
   "cases.create": "Создать кейсы: {{count}}",

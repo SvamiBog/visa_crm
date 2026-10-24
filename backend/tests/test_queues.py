@@ -114,7 +114,7 @@ async def test_group_goes_into_the_queue_together(client: AsyncClient, make_user
     family = await open_cases(
         client,
         anna,
-        applicants=[{"contact_id": anna}, {"full_name": "Сергей"}, {"full_name": "Мария"}],
+        applicants=[{"contact_id": anna}, {"first_name": "Сергей"}, {"first_name": "Мария"}],
     )
     await queue(client, family[2]["id"], "2026-06-01")
     response = await queue(client, family[0]["id"], "2026-06-12", with_group=True)

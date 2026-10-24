@@ -21,7 +21,7 @@ from app.api.client_status import Tab, latest_consultation, tab_of
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.cases import VISA_DETAILS, advance, appeal_until, cleared_by_outcome
-from app.core.names import split_full_name
+from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
 from app.models import (
     AuditAction,
     BookingType,
@@ -64,22 +64,31 @@ BOARD_LIMIT = 500
 
 
 class ApplicantIn(BaseModel):
-    """An existing contact, or a new one by name: a family member without a card yet.
-    `label` says who the new person is to the card's contact ("дочь")."""
+    """An existing contact, or a new one by name: a family member without a card yet,
+    their surname, given name and patronymic apart as on the card (the surname or the
+    given name is enough). `label` says who the new person is to the card's contact
+    ("дочь")."""
 
     contact_id: uuid.UUID | None = None
-    full_name: Annotated[str, Field(max_length=200)] | None = None
+    last_name: NamePart | None = None
+    first_name: NamePart | None = None
+    middle_name: NamePart | None = None
     label: Annotated[str, Field(max_length=100)] | None = None
 
-    @field_validator("full_name", "label")
+    _name_parts = field_validator(*NAME_PARTS)(tidy)
+
+    @field_validator("label")
     @classmethod
     def blank_is_none(cls, value: str | None) -> str | None:
         return (value or "").strip() or None
 
     @model_validator(mode="after")
     def one_of(self) -> "ApplicantIn":
-        if (self.contact_id is None) == (self.full_name is None):
+        named = self.last_name is not None or self.first_name is not None
+        if self.contact_id is not None and (named or self.middle_name is not None):
             raise ValueError("an applicant is either an existing contact or a new name")
+        if self.contact_id is None and not named:
+            raise ValueError("a new applicant needs the surname or the given name")
         return self
 
 
@@ -346,10 +355,9 @@ async def _new_contact(
 ) -> Contact:
     """A family member gets their own card, linked to the card the case was started from.
     They came the same way, so the channel and the partner are copied."""
-    assert applicant.full_name is not None
     contact = Contact(
         tenant_id=user.tenant_id,
-        **split_full_name(applicant.full_name),
+        **name_fields(applicant.last_name, applicant.first_name, applicant.middle_name),
         lead_channel_id=anchor.lead_channel_id,
         partner_id=anchor.partner_id,
         created_by=user.id,

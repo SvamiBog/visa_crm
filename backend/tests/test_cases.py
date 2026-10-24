@@ -120,7 +120,7 @@ async def test_create_cases_from_consultation(client: AsyncClient, make_user: Ma
             "submission_country_id": codes["BY"],
             "applicants": [
                 {"contact_id": anna["id"]},
-                {"full_name": "Ковалёв Сергей", "label": "муж"},
+                {"last_name": " Ковалёв ", "first_name": "Сергей", "label": "муж"},
                 {"contact_id": maria["id"]},
             ],
         },
@@ -140,7 +140,11 @@ async def test_create_cases_from_consultation(client: AsyncClient, make_user: Ma
     assert (link["full_name"], link["label"]) == ("Ковалёв Сергей", "муж")
     sergey = (await card(client, link["related_id"]))["contact"]
     assert sergey["lead_channel_id"] == channel["id"]
-    assert (sergey["last_name"], sergey["first_name"]) == ("Ковалёв", "Сергей")  # surname first
+    assert (sergey["last_name"], sergey["first_name"], sergey["middle_name"]) == (
+        "Ковалёв",
+        "Сергей",
+        None,
+    )
     assert [c["number"] for c in (await card(client, sergey["id"]))["cases"]] == [2]
 
 
@@ -155,9 +159,13 @@ async def test_applicants_are_checked(client: AsyncClient, make_user: MakeUser):
     )
     assert twice.status_code == 422 and twice.json()["detail"] == "duplicate_applicant"
     both = await client.post(
-        url, json={**base, "applicants": [{"contact_id": anna["id"], "full_name": "Сергей"}]}
+        url, json={**base, "applicants": [{"contact_id": anna["id"], "first_name": "Сергей"}]}
     )
     assert both.status_code == 422
+    # A new applicant is named by the surname or the given name, as a new card.
+    for nameless in ({}, {"middle_name": "Сергеевич"}, {"first_name": " ", "label": "сын"}):
+        response = await client.post(url, json={**base, "applicants": [nameless]})
+        assert response.status_code == 422, nameless
     assert (await client.post(url, json={**base, "applicants": []})).status_code == 422
     same = await client.post(
         url,
@@ -307,7 +315,7 @@ async def test_groups_are_not_merged(client: AsyncClient, make_user: MakeUser):
             json={
                 "destination_id": codes["PL"],
                 "submission_country_id": codes["BY"],
-                "applicants": [{"full_name": f"{name} 1"}, {"full_name": f"{name} 2"}],
+                "applicants": [{"first_name": f"{name} 1"}, {"first_name": f"{name} 2"}],
             },
         )
         return response.json()
@@ -392,7 +400,10 @@ async def test_log_has_ids_only(client: AsyncClient, make_user: MakeUser):
         json={
             "destination_id": codes["PL"],
             "submission_country_id": codes["BY"],
-            "applicants": [{"contact_id": anna["id"]}, {"full_name": "Секретов Сергей"}],
+            "applicants": [
+                {"contact_id": anna["id"]},
+                {"last_name": "Секретов", "first_name": "Сергей"},
+            ],
         },
     )
     events = (await client.get("/api/audit")).json()["events"]
