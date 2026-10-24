@@ -38,6 +38,7 @@ uv run python -m app.cli seed-demo        # демо-данные стенда (
 cd frontend && npm install               # создаст package-lock.json — коммитить
 npm run dev                              # UI на :5173, /api проксируется на :8000
 npm run build                            # проверка типов + сборка в frontend/dist
+DEMO_PASSWORD=… npx playwright test      # браузерные тесты форм (frontend/e2e): нужен API на :8000 со сборкой и seed-demo
 ```
 
 ## Архитектура и правила

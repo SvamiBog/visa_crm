@@ -715,6 +715,24 @@ a.nav-a:hover {
   gap: 14px;
 }
 
+/* Fields in a row line up: each takes three rows of the grid (label, control, hint)
+   shared with its neighbours, so a label that wraps onto two lines does not push its
+   control below theirs (frontend/e2e/forms.spec.ts). */
+.form-grid > * {
+  grid-row: span 3;
+}
+
+.form-grid > .field {
+  display: grid;
+  grid-template-rows: subgrid;
+  row-gap: 6px;
+  align-items: start;
+}
+
+.form-grid > .field > :first-child {
+  align-self: end;
+}
+
 .form-actions {
   display: flex;
   gap: 10px;
