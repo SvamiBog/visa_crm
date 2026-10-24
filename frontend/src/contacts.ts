@@ -10,7 +10,14 @@ export type Messenger = (typeof MESSENGERS)[number];
 
 export type Contact = {
   id: string;
+  last_name: string | null;
+  first_name: string | null;
+  middle_name: string | null;
+  // The parts joined: what lists show.
   full_name: string;
+  // As in the passport.
+  last_name_latin: string | null;
+  first_name_latin: string | null;
   full_name_latin: string | null;
   phone: string | null;
   telegram: string | null;
@@ -77,14 +84,36 @@ export type Refusal = { country: string; year: number | null; reason: string | n
 /** Questionnaire answers kept on the contact (backend/app/core/questionnaire.py). */
 export const SEXES = ["F", "M", "X"] as const;
 
-export type Questionnaire = {
+/** The passport's data page, kept with the questionnaire. */
+export type Passport = {
+  passport_number: string | null;
   passport_issued_on: string | null;
   passport_expires_on: string | null;
-  passport_number: string | null;
+  passport_issued_by: string | null;
   // ISO code, as in the countries reference.
   nationality: string | null;
   sex: (typeof SEXES)[number] | null;
   personal_number: string | null;
+  birth_place: string | null;
+};
+
+export const PASSPORT_FIELDS = [
+  "passport_number",
+  "passport_issued_on",
+  "passport_expires_on",
+  "passport_issued_by",
+  "nationality",
+  "sex",
+  "personal_number",
+  "birth_place",
+] as const satisfies readonly (keyof Passport)[];
+
+/** The passport's fields of a questionnaire. */
+export function passportOf(q: Passport): Passport {
+  return Object.fromEntries(PASSPORT_FIELDS.map((key) => [key, q[key] ?? null])) as Passport;
+}
+
+export type Questionnaire = Passport & {
   visas: VisaRecord[];
   relatives_abroad: string[];
   refusals: Refusal[];

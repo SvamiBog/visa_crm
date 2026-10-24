@@ -57,6 +57,7 @@ from app.core.import_values import (
     split_list,
     split_name,
 )
+from app.core.names import split_full_name, split_latin_name
 from app.core.queues import deadline
 from app.core.vault import decrypt_for_tenant, encrypt_for_tenant, get_tenant_key
 from app.models import (
@@ -755,7 +756,7 @@ class Importer:
             contact = Contact(
                 id=uuid.uuid4(),
                 tenant_id=self.tenant_id,
-                full_name=v["full_name"],
+                **split_full_name(v["full_name"]),
                 phone=phone,
                 telegram=telegram,
                 created_by=self.user_id,
@@ -777,8 +778,9 @@ class Importer:
             if is_nick(telegram):
                 self.by_telegram.setdefault(telegram.casefold(), contact.id)
         # Fill what the card does not have yet; the card's own data wins.
+        if contact.full_name_latin is None and v.get("full_name_latin"):
+            changes |= split_latin_name(v["full_name_latin"])
         for name, value in (
-            ("full_name_latin", v.get("full_name_latin")),
             ("email", v.get("email")),
             ("birth_date", v.get("birth_date")),
             ("lead_channel_id", v.get("channel")),

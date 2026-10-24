@@ -40,15 +40,35 @@ def _document_number(value: object) -> object:
     return value.replace(" ", "").upper() or None
 
 
-class Questionnaire(BaseModel):
+class Passport(BaseModel):
+    """The passport's data page, for visa forms: typed in with the client's card or
+    taken from the machine-readable zone (backlog 2.5). The name in Latin and the date of
+    birth are on the contact itself."""
+
+    passport_number: DocumentNumber | None = None
     passport_issued_on: date | None = None
     passport_expires_on: date | None = None
-    # From the passport (or its machine-readable zone, backlog 2.5): for visa forms.
-    passport_number: DocumentNumber | None = None
+    # The authority that issued it, as written in the passport.
+    passport_issued_by: Annotated[str, Field(max_length=200)] | None = None
     nationality: CountryCode | None = None
     sex: Literal["M", "F", "X"] | None = None
     # The national identity number: in Belarus, the identification number.
     personal_number: DocumentNumber | None = None
+    birth_place: Annotated[str, Field(max_length=200)] | None = None
+
+    _numbers = field_validator("passport_number", "personal_number", mode="before")(
+        _document_number
+    )
+
+    @field_validator("passport_issued_by", "birth_place")
+    @classmethod
+    def blank_is_none(cls, value: str | None) -> str | None:
+        return " ".join((value or "").split()) or None
+
+
+class Questionnaire(Passport):
+    """The passport is kept with the answers: its dates are what the checks look at."""
+
     visas: Annotated[list[VisaRecord], Field(max_length=50)] = []
     # Countries where relatives or friends could invite the client.
     relatives_abroad: Annotated[list[CountryCode], Field(max_length=50)] = []
@@ -58,7 +78,3 @@ class Questionnaire(BaseModel):
     # Childhood trips under humanitarian programmes (e.g. the Chernobyl programme).
     humanitarian_trips: Annotated[list[CountryCode], Field(max_length=10)] = []
     note: Annotated[str, Field(max_length=2000)] | None = None
-
-    _numbers = field_validator("passport_number", "personal_number", mode="before")(
-        _document_number
-    )

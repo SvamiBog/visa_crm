@@ -26,7 +26,7 @@ async def system(client: AsyncClient, name: str = "VFS Global", **rules) -> dict
 
 
 async def contact(client: AsyncClient, name: str = "Анна") -> str:
-    response = await client.post("/api/contacts", json={"full_name": name})
+    response = await client.post("/api/contacts", json={"first_name": name})
     assert response.status_code == 201, response.text
     return response.json()["id"]
 

@@ -80,7 +80,7 @@ async def test_passport_fields_are_kept_in_the_questionnaire(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
     await as_specialist(client, make_user, owner_engine)
-    contact = (await client.post("/api/contacts", json={"full_name": "Анна"})).json()
+    contact = (await client.post("/api/contacts", json={"first_name": "Анна"})).json()
     saved = await client.put(
         f"/api/contacts/{contact['id']}/questionnaire",
         json={

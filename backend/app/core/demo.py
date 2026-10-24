@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dictionaries import add_default_dictionaries
 from app.core.finance import to_base
 from app.core.modules import DEFAULT_MODULES
+from app.core.names import split_full_name, split_latin_name
 from app.core.passwords import PasswordRules, generate_password
 from app.core.security import hash_password
 from app.core.two_factor import seal_secret
@@ -532,8 +533,8 @@ async def _workspace(
         c = Contact(
             id=uuid.uuid4(),
             tenant_id=t,
-            full_name=full_name,
-            full_name_latin=latin(full_name) if rng.random() < 0.6 else None,
+            **split_full_name(full_name),
+            **(split_latin_name(latin(full_name)) if rng.random() < 0.6 else {}),
             phone=phone(),
             telegram=f"demo_{index}_{n}" if rng.random() < 0.7 else None,
             messenger=None,

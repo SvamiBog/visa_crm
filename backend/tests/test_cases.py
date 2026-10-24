@@ -21,7 +21,9 @@ async def countries(client: AsyncClient) -> dict[str, str]:
 
 
 async def new_contact(client: AsyncClient, **fields) -> dict:
-    response = await client.post(CONTACTS, json={"full_name": "Ковалёва Анна", **fields})
+    response = await client.post(
+        CONTACTS, json={"last_name": "Ковалёва", "first_name": "Анна", **fields}
+    )
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -102,7 +104,7 @@ async def test_create_cases_from_consultation(client: AsyncClient, make_user: Ma
     await as_specialist(client, make_user)
     channel = (await client.post("/api/dictionaries/channels", json={"name": "Таргет"})).json()
     anna = await new_contact(client, lead_channel_id=channel["id"])
-    maria = await new_contact(client, full_name="Ковалёва Мария")
+    maria = await new_contact(client, first_name="Мария")
     consultation = (
         await client.post(
             f"{CONTACTS}/{anna['id']}/consultations",
@@ -138,6 +140,7 @@ async def test_create_cases_from_consultation(client: AsyncClient, make_user: Ma
     assert (link["full_name"], link["label"]) == ("Ковалёв Сергей", "муж")
     sergey = (await card(client, link["related_id"]))["contact"]
     assert sergey["lead_channel_id"] == channel["id"]
+    assert (sergey["last_name"], sergey["first_name"]) == ("Ковалёв", "Сергей")  # surname first
     assert [c["number"] for c in (await card(client, sergey["id"]))["cases"]] == [2]
 
 
@@ -269,7 +272,7 @@ async def test_visa_center_belongs_to_the_pair(client: AsyncClient, make_user: M
 async def test_group_join_and_leave(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     anna = await new_contact(client)
-    sergey = await new_contact(client, full_name="Ковалёв Сергей")
+    sergey = await new_contact(client, last_name="Ковалёв", first_name="Сергей")
     await client.post(
         f"{CONTACTS}/{anna['id']}/relations",
         json={"related_id": sergey["id"], "label": "муж", "reverse_label": "жена"},

@@ -3,11 +3,25 @@ import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { ApiError, apiPatch, apiPost, errorCode } from "../../api";
-import { MESSENGERS, useContactLists, type Contact, type Messenger } from "../../contacts";
+import {
+  MESSENGERS,
+  PASSPORT_FIELDS,
+  SEXES,
+  passportOf,
+  useContactLists,
+  type Contact,
+  type Messenger,
+  type Passport,
+} from "../../contacts";
+import { useLocalName } from "../../reference";
+import { useSortedCountries } from "./ui";
 
 type Fields = {
-  full_name: string;
-  full_name_latin: string;
+  last_name: string;
+  first_name: string;
+  middle_name: string;
+  last_name_latin: string;
+  first_name_latin: string;
   phone: string;
   telegram: string;
   messenger: Messenger | "";
@@ -21,10 +35,15 @@ type Fields = {
   contract_signed_on: string;
 };
 
+type PassportFields = Record<keyof Passport, string>;
+
 function initial(contact?: Contact): Fields {
   return {
-    full_name: contact?.full_name ?? "",
-    full_name_latin: contact?.full_name_latin ?? "",
+    last_name: contact?.last_name ?? "",
+    first_name: contact?.first_name ?? "",
+    middle_name: contact?.middle_name ?? "",
+    last_name_latin: contact?.last_name_latin ?? "",
+    first_name_latin: contact?.first_name_latin ?? "",
     phone: contact?.phone ?? "",
     telegram: contact?.telegram ?? "",
     messenger: contact?.messenger ?? "",
@@ -39,8 +58,15 @@ function initial(contact?: Contact): Fields {
   };
 }
 
+function initialPassport(passport?: Passport): PassportFields {
+  const current = passport ? passportOf(passport) : undefined;
+  return Object.fromEntries(
+    PASSPORT_FIELDS.map((key) => [key, current?.[key] ?? ""]),
+  ) as PassportFields;
+}
+
 /** Empty inputs are sent as null: the API clears the field. */
-function toBody(fields: Fields) {
+function nullable(fields: Record<string, string>) {
   const body: Record<string, string | null> = {};
   for (const [key, value] of Object.entries(fields)) {
     body[key] = value.trim() === "" ? null : value.trim();
@@ -48,27 +74,38 @@ function toBody(fields: Fields) {
   return body;
 }
 
-/** New contact (no `contact`) or changes to an existing one. */
+/** New contact (no `contact`) or changes to an existing one, with the passport. */
 export function ContactForm({
   contact,
+  passport,
   onSaved,
   onCancel,
 }: {
   contact?: Contact;
+  // The card's questionnaire: the passport is kept there.
+  passport?: Passport;
   onSaved: (contact: Contact) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
   const lists = useContactLists();
+  const countries = useSortedCountries();
+  const name = useLocalName();
   const [fields, setFields] = useState<Fields>(() => initial(contact));
+  const [document, setDocument] = useState<PassportFields>(() => initialPassport(passport));
   const set = (key: keyof Fields) => (value: string) =>
     setFields((current) => ({ ...current, [key]: value }));
+  const setPassport = (key: keyof Passport) => (value: string) =>
+    setDocument((current) => ({ ...current, [key]: value }));
+  const named = Boolean(fields.last_name.trim() || fields.first_name.trim());
 
   const save = useMutation({
-    mutationFn: () =>
-      contact
-        ? apiPatch<Contact>(`/contacts/${contact.id}`, toBody(fields))
-        : apiPost<Contact>("/contacts", toBody(fields)),
+    mutationFn: () => {
+      const body = { ...nullable(fields), passport: nullable(document) };
+      return contact
+        ? apiPatch<Contact>(`/contacts/${contact.id}`, body)
+        : apiPost<Contact>("/contacts", body);
+    },
     onSuccess: onSaved,
   });
 
@@ -88,8 +125,9 @@ export function ContactForm({
     <form className="card form-card" onSubmit={submit}>
       <h2 className="h2">{contact ? t("contacts.editTitle") : t("contacts.newTitle")}</h2>
       <div className="form-grid">
-        <TextField label={t("contacts.fullName")} value={fields.full_name} onChange={set("full_name")} required autoFocus />
-        <TextField label={t("contacts.fullNameLatin")} value={fields.full_name_latin} onChange={set("full_name_latin")} hint={t("contacts.fullNameLatinHint")} />
+        <TextField label={t("contacts.lastName")} value={fields.last_name} onChange={set("last_name")} maxLength={100} autoFocus />
+        <TextField label={t("contacts.firstName")} value={fields.first_name} onChange={set("first_name")} maxLength={100} hint={t("contacts.nameHint")} />
+        <TextField label={t("contacts.middleName")} value={fields.middle_name} onChange={set("middle_name")} maxLength={100} />
         <TextField label={t("contacts.phone")} value={fields.phone} onChange={set("phone")} type="tel" hint={t("contacts.phoneHint")} />
         <TextField label={t("contacts.telegram")} value={fields.telegram} onChange={set("telegram")} hint={t("contacts.telegramHint")} />
         <label className="field">
@@ -132,6 +170,44 @@ export function ContactForm({
         </label>
       </div>
 
+      <h3 className="h3">{t("contacts.passport")}</h3>
+      <p className="muted small">{t("contacts.passportFormHint")}</p>
+      <div className="form-grid">
+        <TextField label={t("contacts.lastNameLatin")} value={fields.last_name_latin} onChange={set("last_name_latin")} maxLength={100} />
+        <TextField label={t("contacts.firstNameLatin")} value={fields.first_name_latin} onChange={set("first_name_latin")} maxLength={100} />
+        <TextField label={t("contacts.passportNumber")} value={document.passport_number} onChange={setPassport("passport_number")} maxLength={20} pattern="[A-Za-z0-9 ]*" />
+        <TextField label={t("contacts.personalNumber")} value={document.personal_number} onChange={setPassport("personal_number")} maxLength={20} pattern="[A-Za-z0-9 ]*" />
+        <label className="field">
+          <span>{t("contacts.nationality")}</span>
+          <select value={document.nationality} onChange={(e) => setPassport("nationality")(e.target.value)}>
+            <option value="" />
+            {countries.map((c) => (
+              <option key={c.id} value={c.code}>
+                {name.country(c)}
+              </option>
+            ))}
+            {document.nationality && !countries.some((c) => c.code === document.nationality) && (
+              <option value={document.nationality}>{document.nationality}</option>
+            )}
+          </select>
+        </label>
+        <label className="field">
+          <span>{t("contacts.sex")}</span>
+          <select value={document.sex} onChange={(e) => setPassport("sex")(e.target.value)}>
+            <option value="" />
+            {SEXES.map((value) => (
+              <option key={value} value={value}>
+                {t(`contacts.sexValue.${value}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <TextField label={t("contacts.passportIssuedOn")} value={document.passport_issued_on} onChange={setPassport("passport_issued_on")} type="date" />
+        <TextField label={t("contacts.passportExpiresOn")} value={document.passport_expires_on} onChange={setPassport("passport_expires_on")} type="date" />
+        <TextField label={t("contacts.passportIssuedBy")} value={document.passport_issued_by} onChange={setPassport("passport_issued_by")} maxLength={200} />
+        <TextField label={t("contacts.birthPlace")} value={document.birth_place} onChange={setPassport("birth_place")} maxLength={200} />
+      </div>
+
       <h3 className="h3">{t("contacts.paperwork")}</h3>
       <div className="form-grid">
         <TextField label={t("contacts.consentSignedOn")} value={fields.consent_signed_on} onChange={set("consent_signed_on")} type="date" />
@@ -152,7 +228,7 @@ export function ContactForm({
         </div>
       )}
       <div className="form-actions">
-        <button type="submit" className="btn btn-p" disabled={save.isPending || !fields.full_name.trim()}>
+        <button type="submit" className="btn btn-p" disabled={save.isPending || !named}>
           {contact ? t("common.save") : t("contacts.create")}
         </button>
         <button type="button" className="btn" onClick={onCancel}>
@@ -169,7 +245,8 @@ function TextField({
   onChange,
   type = "text",
   hint,
-  required,
+  maxLength,
+  pattern,
   autoFocus,
 }: {
   label: string;
@@ -177,7 +254,8 @@ function TextField({
   onChange: (value: string) => void;
   type?: string;
   hint?: string;
-  required?: boolean;
+  maxLength?: number;
+  pattern?: string;
   autoFocus?: boolean;
 }) {
   const id = useId();
@@ -189,7 +267,8 @@ function TextField({
         id={id}
         type={type}
         value={value}
-        required={required}
+        maxLength={maxLength}
+        pattern={pattern}
         autoFocus={autoFocus}
         aria-describedby={hint ? `${id}-hint` : undefined}
         onChange={(e) => onChange(e.target.value)}

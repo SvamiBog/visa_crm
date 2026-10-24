@@ -327,7 +327,12 @@ async def client_data(
         telegram = f"@{telegram}"
     data: dict[str, object] = {
         "full_name": contact.full_name,
+        "last_name": contact.last_name,
+        "first_name": contact.first_name,
+        "middle_name": contact.middle_name,
         "full_name_latin": contact.full_name_latin,
+        "last_name_latin": contact.last_name_latin,
+        "first_name_latin": contact.first_name_latin,
         "birth_date": contact.birth_date,
         "phone": contact.phone,
         "email": contact.email,
@@ -337,9 +342,11 @@ async def client_data(
         "passport_number": questionnaire.passport_number,
         "passport_issued_on": questionnaire.passport_issued_on,
         "passport_expires_on": questionnaire.passport_expires_on,
+        "passport_issued_by": questionnaire.passport_issued_by,
         "nationality": nationality,
         "sex": SEX.get(questionnaire.sex) if questionnaire.sex else None,
         "personal_number": questionnaire.personal_number,
+        "birth_place": questionnaire.birth_place,
         "today": await workspace_today(session, user.tenant_id),
     }
     modules = await effective_modules(session, user)

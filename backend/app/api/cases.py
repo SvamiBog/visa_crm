@@ -21,6 +21,7 @@ from app.api.client_status import Tab, latest_consultation, tab_of
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.cases import VISA_DETAILS, advance, appeal_until, cleared_by_outcome
+from app.core.names import split_full_name
 from app.models import (
     AuditAction,
     BookingType,
@@ -348,7 +349,7 @@ async def _new_contact(
     assert applicant.full_name is not None
     contact = Contact(
         tenant_id=user.tenant_id,
-        full_name=applicant.full_name,
+        **split_full_name(applicant.full_name),
         lead_channel_id=anchor.lead_channel_id,
         partner_id=anchor.partner_id,
         created_by=user.id,

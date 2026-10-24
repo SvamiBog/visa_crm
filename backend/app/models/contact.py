@@ -67,15 +67,33 @@ class Contact(Base):
         ),
         _same_tenant("contacts", "lead_channel_id", "lead_channels", "RESTRICT"),
         _same_tenant("contacts", "partner_id", "partners", "RESTRICT"),
+        # The whole names are joined from the parts (app/core/names.py).
+        CheckConstraint("last_name IS NOT NULL OR first_name IS NOT NULL", name="has_name"),
+        CheckConstraint(
+            "full_name = concat_ws(' ', last_name, first_name, middle_name)",
+            name="full_name_joined",
+        ),
+        CheckConstraint(
+            "full_name_latin IS NOT DISTINCT FROM "
+            "nullif(concat_ws(' ', last_name_latin, first_name_latin), '')",
+            name="full_name_latin_joined",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), index=True
     )
-    full_name: Mapped[str] = mapped_column(String(200))
-    # As in the passport, for forms.
-    full_name_latin: Mapped[str | None] = mapped_column(String(200))
+    # ФИО: the surname, the given name, the patronymic; the surname or the given name is
+    # enough. full_name is the three joined: what lists show and the search looks in.
+    last_name: Mapped[str | None] = mapped_column(String(200))
+    first_name: Mapped[str | None] = mapped_column(String(200))
+    middle_name: Mapped[str | None] = mapped_column(String(200))
+    full_name: Mapped[str] = mapped_column(Text)
+    # As in the passport, for forms: the surname and the given names, and the two joined.
+    last_name_latin: Mapped[str | None] = mapped_column(String(200))
+    first_name_latin: Mapped[str | None] = mapped_column(String(200))
+    full_name_latin: Mapped[str | None] = mapped_column(Text)
     # E.164: "+" and 8–15 digits (app/core/phone.py).
     phone: Mapped[str | None] = mapped_column(String(16))
     # Username without "@" or a display name.
@@ -92,7 +110,7 @@ class Contact(Base):
     consent_signed_on: Mapped[date | None] = mapped_column(Date)
     contract_number: Mapped[str | None] = mapped_column(String(50))
     contract_signed_on: Mapped[date | None] = mapped_column(Date)
-    # Consultation questionnaire answers (app/core/questionnaire.py), asked once.
+    # Consultation questionnaire answers and the passport (app/core/questionnaire.py).
     questionnaire: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")

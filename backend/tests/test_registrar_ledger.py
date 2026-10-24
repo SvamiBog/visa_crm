@@ -45,7 +45,7 @@ async def registrar(
 
 
 async def open_case(client: AsyncClient, codes: dict, name: str, reg: dict, country="PL") -> dict:
-    contact = (await client.post("/api/contacts", json={"full_name": name})).json()
+    contact = (await client.post("/api/contacts", json={"first_name": name})).json()
     response = await client.post(
         f"/api/contacts/{contact['id']}/cases",
         json={

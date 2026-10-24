@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { errorCode } from "../../api";
+import { useCountries, useLocalName, type Country } from "../../reference";
 
 // Small pieces shared by the client card's blocks.
 
@@ -27,4 +28,15 @@ export function todayIso(): string {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 10);
+}
+
+/** The countries reference by name in the interface's language, for selects. */
+export function useSortedCountries(): Country[] {
+  const name = useLocalName();
+  const countries = useCountries();
+  return useMemo(
+    () =>
+      [...(countries.data ?? [])].sort((a, b) => name.country(a).localeCompare(name.country(b))),
+    [countries.data, name],
+  );
 }
