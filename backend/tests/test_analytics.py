@@ -23,7 +23,7 @@ async def countries(client: AsyncClient) -> dict[str, str]:
 
 
 async def contact(client: AsyncClient, name: str, **fields) -> dict:
-    return await ok(await client.post("/api/contacts", json={"full_name": name, **fields}))
+    return await ok(await client.post("/api/contacts", json={"first_name": name, **fields}))
 
 
 async def consult(client: AsyncClient, person: dict, held_on: str, **fields) -> dict:

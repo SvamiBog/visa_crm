@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import delete, exists, func, or_, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,8 +22,9 @@ from app.api.consultations import ConsultationOut, HintOut, consultations_of, hi
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
+from app.core.names import LATIN_PARTS, NAME_PARTS, latin_fields, name_fields
 from app.core.phone import normalize_phone, phone_digits
-from app.core.questionnaire import Questionnaire
+from app.core.questionnaire import Passport, Questionnaire
 from app.models import (
     AuditAction,
     CaseStage,
@@ -51,12 +52,20 @@ Member = Annotated[CurrentUser, Depends(require_module("clients"))]
 EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 SEARCH_LIMIT = 50
 
+NamePart = Annotated[str, Field(max_length=100)]
+
 
 # --- Schemas -------------------------------------------------------------------------
 
 
 class ContactFields(BaseModel):
-    full_name_latin: Annotated[str, Field(max_length=200)] | None = None
+    # ФИО apart (app/core/names.py): the surname or the given name is required.
+    last_name: NamePart | None = None
+    first_name: NamePart | None = None
+    middle_name: NamePart | None = None
+    # As in the passport.
+    last_name_latin: NamePart | None = None
+    first_name_latin: NamePart | None = None
     phone: Annotated[str, Field(max_length=40)] | None = None
     telegram: Annotated[str, Field(max_length=65)] | None = None
     messenger: Messenger | None = None
@@ -68,6 +77,13 @@ class ContactFields(BaseModel):
     consent_signed_on: date | None = None
     contract_number: Annotated[str, Field(max_length=50)] | None = None
     contract_signed_on: date | None = None
+    # Kept with the questionnaire; on a change, only the fields sent are changed.
+    passport: Passport | None = None
+
+    @field_validator(*NAME_PARTS, *LATIN_PARTS)
+    @classmethod
+    def name_part(cls, value: str | None) -> str | None:
+        return " ".join((value or "").split()) or None
 
     @field_validator("phone")
     @classmethod
@@ -84,7 +100,7 @@ class ContactFields(BaseModel):
         value = value.strip().removeprefix("@").strip()
         return value or None
 
-    @field_validator("full_name_latin", "messenger_contact", "email", "contract_number")
+    @field_validator("messenger_contact", "email", "contract_number")
     @classmethod
     def blank_is_none(cls, value: str | None) -> str | None:
         if value is None:
@@ -93,28 +109,29 @@ class ContactFields(BaseModel):
 
 
 class ContactIn(ContactFields):
-    full_name: Annotated[str, Field(min_length=1, max_length=200)]
-
-    @field_validator("full_name")
-    @classmethod
-    def trimmed(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("name is required")
-        return value
+    @model_validator(mode="after")
+    def named(self) -> "ContactIn":
+        if self.last_name is None and self.first_name is None:
+            raise ValueError("the surname or the given name is required")
+        return self
 
 
 class ContactUpdate(ContactFields):
-    """Only the fields sent are changed; null clears an optional field."""
-
-    full_name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    """Only the fields sent are changed; null clears an optional field. The card keeps
+    the surname or the given name (name_required otherwise)."""
 
 
 class ContactOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    last_name: str | None
+    first_name: str | None
+    middle_name: str | None
+    # The parts joined: what lists show.
     full_name: str
+    last_name_latin: str | None
+    first_name_latin: str | None
     full_name_latin: str | None
     phone: str | None
     telegram: str | None
@@ -484,11 +501,21 @@ async def _rows(
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ContactOut)
 async def create_contact(body: ContactIn, user: Member, session: TenantSession) -> Any:
-    fields = body.model_dump()
+    fields = body.model_dump(exclude={"passport", *NAME_PARTS, *LATIN_PARTS})
     await _check_refs(session, fields)
     if (existing := await _phone_owner(session, body.phone)) is not None:
         return _phone_taken(existing)
-    contact = Contact(tenant_id=user.tenant_id, created_by=user.id, **fields)
+    contact = Contact(
+        tenant_id=user.tenant_id,
+        created_by=user.id,
+        **fields,
+        **name_fields(body.last_name, body.first_name, body.middle_name),
+        **latin_fields(body.last_name_latin, body.first_name_latin),
+    )
+    if body.passport is not None:
+        contact.questionnaire = Questionnaire.model_validate(body.passport.model_dump()).model_dump(
+            mode="json"
+        )
     session.add(contact)
     try:
         await session.flush()
@@ -514,19 +541,28 @@ async def update_contact(
     contact_id: uuid.UUID, body: ContactUpdate, user: Member, session: TenantSession
 ) -> Any:
     contact = await _contact(session, contact_id)
-    changes = body.model_dump(exclude_unset=True)
-    if changes.get("full_name") is None:
-        changes.pop("full_name", None)  # the name is required: null means «leave as is»
-    else:
-        changes["full_name"] = changes["full_name"].strip() or contact.full_name
+    changes = body.model_dump(exclude_unset=True, exclude={"passport"})
+    if changes.keys() & set(NAME_PARTS):
+        name = {f: changes.get(f, getattr(contact, f)) for f in NAME_PARTS}
+        if name["last_name"] is None and name["first_name"] is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "name_required")
+        changes |= name_fields(**name)
+    if changes.keys() & set(LATIN_PARTS):
+        changes |= latin_fields(**{f: changes.get(f, getattr(contact, f)) for f in LATIN_PARTS})
     await _check_refs(session, changes)
     if "phone" in changes and (
         existing := await _phone_owner(session, changes["phone"], exclude=contact.id)
     ):
         return _phone_taken(existing)
-    changed = sorted(f for f, v in changes.items() if getattr(contact, f) != v)
+    changed = [f for f, v in changes.items() if getattr(contact, f) != v]
     for field, value in changes.items():
         setattr(contact, field, value)
+    if body.passport is not None:
+        current = Questionnaire.model_validate(contact.questionnaire)
+        passport = body.passport.model_dump(exclude_unset=True)
+        changed += [f for f, v in passport.items() if getattr(current, f) != v]
+        contact.questionnaire = current.model_copy(update=passport).model_dump(mode="json")
+    changed.sort()
     if changed:
         _audit(
             session, AuditAction.CONTACT_UPDATED, user, contact.id, {"fields": ",".join(changed)}

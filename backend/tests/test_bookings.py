@@ -24,7 +24,7 @@ async def as_specialist(client: AsyncClient, make_user: MakeUser, email="anna@ex
 
 
 async def open_case(client: AsyncClient, name: str = "Анна", destination: str = "PL") -> dict:
-    contact = (await client.post("/api/contacts", json={"full_name": name})).json()
+    contact = (await client.post("/api/contacts", json={"first_name": name})).json()
     codes = {c["code"]: c["id"] for c in (await client.get("/api/reference/countries")).json()}
     response = await client.post(
         f"/api/contacts/{contact['id']}/cases",

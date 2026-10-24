@@ -43,7 +43,7 @@ async def countries(client: AsyncClient) -> dict[str, str]:
 
 
 async def contact(client: AsyncClient, name: str = "Анна") -> str:
-    return (await client.post("/api/contacts", json={"full_name": name})).json()["id"]
+    return (await client.post("/api/contacts", json={"first_name": name})).json()["id"]
 
 
 async def add_trip(client: AsyncClient, contact_id: str, country: str, **body) -> dict:

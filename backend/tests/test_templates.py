@@ -53,18 +53,20 @@ async def upload(client: AsyncClient, data: bytes = LETTER, **fields) -> Respons
     return await client.post("/api/templates", json=body)
 
 
-async def new_client(client: AsyncClient) -> dict:
+async def new_client(client: AsyncClient, **fields) -> dict:
     response = await client.post(
         "/api/contacts",
-        json={"full_name": "Ковалёва Анна", "birth_date": "1990-10-05", "phone": "+375291234567"},
+        json={
+            "last_name": "Ковалёва",
+            "first_name": "Анна",
+            "birth_date": "1990-10-05",
+            "phone": "+375291234567",
+            "passport": {"passport_number": "MP1234567"},
+            **fields,
+        },
     )
     assert response.status_code == 201, response.text
-    contact = response.json()
-    saved = await client.put(
-        f"/api/contacts/{contact['id']}/questionnaire", json={"passport_number": "MP1234567"}
-    )
-    assert saved.status_code == 200, saved.text
-    return contact
+    return response.json()
 
 
 async def open_case(client: AsyncClient, contact: dict) -> dict:
@@ -165,6 +167,32 @@ async def test_a_template_is_filled_for_the_client(
     assert {"templates.uploaded", "contacts.template_added"} <= {e["action"] for e in events}
 
 
+async def test_the_name_and_the_passport_fill_in_parts(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await as_specialist(client, make_user, owner_engine)
+    form = make_docx(
+        runs("{{Фамилия}}, {{Имя}} {{Отчество}}; {{Surname latin}} / {{Given names latin}}.")
+        + runs("Выдан: {{Кем выдан}}, родилась: {{Место рождения}}.")
+    )
+    template = (await upload(client, form)).json()
+    assert template["unknown_codes"] == []
+    anna = await new_client(
+        client,
+        middle_name="Сергеевна",
+        last_name_latin="KAVALEVA",
+        first_name_latin="ANNA",
+        passport={"passport_issued_by": "Министерство внутренних дел", "birth_place": "г. Минск"},
+    )
+    url = f"/api/contacts/{anna['id']}/templates"
+    given = (await client.post(url, json={"template_id": template["id"]})).json()
+    filled = await client.get(f"{url}/{given['id']}/file")
+    assert paragraphs(filled.content) == [
+        "Ковалёва, Анна Сергеевна; KAVALEVA / ANNA.",
+        "Выдан: Министерство внутренних дел, родилась: г. Минск.",
+    ]
+
+
 async def test_the_specialist_keeps_her_templates(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
@@ -199,7 +227,7 @@ async def test_the_specialist_keeps_her_templates(
 
     # Switched off: not given to new clients, still there for those who have it.
     await client.patch(f"/api/templates/{template['id']}", json={"is_active": False})
-    vera = (await client.post("/api/contacts", json={"full_name": "Вера"})).json()
+    vera = (await client.post("/api/contacts", json={"first_name": "Вера"})).json()
     refused = await client.post(
         f"/api/contacts/{vera['id']}/templates", json={"template_id": template["id"]}
     )
@@ -262,7 +290,7 @@ async def test_templates_stay_in_their_workspace(
         client.get(f"/api/contacts/{anna['id']}/templates/{given['id']}/file"),
     ):
         assert (await request).status_code == 404
-    mine = (await client.post("/api/contacts", json={"full_name": "Вера"})).json()
+    mine = (await client.post("/api/contacts", json={"first_name": "Вера"})).json()
     stolen = await client.post(
         f"/api/contacts/{mine['id']}/templates", json={"template_id": template["id"]}
     )

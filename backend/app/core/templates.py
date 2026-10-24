@@ -36,7 +36,14 @@ class Code:
 
 CODES: tuple[Code, ...] = (
     Code("full_name", "client", ("ФИО",), ("Full name",)),
+    Code("last_name", "client", ("Фамилия",), ("Surname", "Last name")),
+    Code("first_name", "client", ("Имя",), ("First name", "Given name")),
+    Code("middle_name", "client", ("Отчество",), ("Patronymic", "Middle name")),
     Code("full_name_latin", "client", ("ФИО латиницей",), ("Full name latin",)),
+    Code("last_name_latin", "client", ("Фамилия латиницей",), ("Surname latin", "Last name latin")),
+    Code(
+        "first_name_latin", "client", ("Имя латиницей",), ("Given names latin", "First name latin")
+    ),
     Code("birth_date", "client", ("Дата рождения",), ("Date of birth", "Birth date")),
     Code("phone", "client", ("Телефон",), ("Phone",)),
     Code("email", "client", ("Почта", "Email", "E-mail"), ("Email", "E-mail")),
@@ -48,9 +55,16 @@ CODES: tuple[Code, ...] = (
     Code(
         "passport_expires_on", "passport", ("Паспорт действителен до",), ("Passport expiry date",)
     ),
+    Code(
+        "passport_issued_by",
+        "passport",
+        ("Кем выдан паспорт", "Кем выдан"),
+        ("Passport issued by", "Issuing authority"),
+    ),
     Code("nationality", "passport", ("Гражданство",), ("Nationality",)),
     Code("sex", "passport", ("Пол",), ("Sex",)),
     Code("personal_number", "passport", ("Личный номер",), ("Personal number",)),
+    Code("birth_place", "passport", ("Место рождения",), ("Place of birth", "Birth place")),
     Code("case_number", "case", ("Номер кейса",), ("Case number",)),
     Code("destination", "case", ("Страна визы",), ("Visa country", "Destination")),
     Code("submission_country", "case", ("Страна подачи",), ("Submission country",)),

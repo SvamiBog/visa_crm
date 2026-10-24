@@ -24,7 +24,7 @@ async def as_specialist(client: AsyncClient, make_user: MakeUser, email="anna@ex
 
 
 async def contact(client: AsyncClient, name: str = "Ковалёва Анна") -> str:
-    response = await client.post("/api/contacts", json={"full_name": name})
+    response = await client.post("/api/contacts", json={"first_name": name})
     assert response.status_code == 201, response.text
     return response.json()["id"]
 

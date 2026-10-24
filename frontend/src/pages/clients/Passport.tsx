@@ -1,11 +1,68 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { apiPatch, apiPost, apiPut } from "../../api";
-import { contactKey, formatDate, type ContactCard, type Questionnaire } from "../../contacts";
+import { apiPatch, apiPost } from "../../api";
+import { PASSPORT_FIELDS, contactKey, formatDate, type ContactCard } from "../../contacts";
 import { PhotoUnreadable, readZone } from "../../ocr";
 import { useCountries, useLocalName } from "../../reference";
-import { ErrorAlert } from "./ui";
+import { useHasModule } from "../../workspace";
+import { ErrorAlert, Row } from "./ui";
+
+// The passport on the client's card: the Latin name and the data page, entered with the
+// card's form (ContactForm) or read from the passport.
+
+export function PassportCard({ card }: { card: ContactCard }) {
+  const { t, i18n } = useTranslation();
+  const name = useLocalName();
+  const countries = useCountries();
+  const [reading, setReading] = useState(false);
+  const canRead = useHasModule("passport_mrz");
+  const q = card.questionnaire;
+  const c = card.contact;
+  const date = (value: string | null) => formatDate(value, i18n.language);
+  const filled = Boolean(c.full_name_latin) || PASSPORT_FIELDS.some((key) => q[key]);
+  const rows: [string, ReactNode][] = [
+    [t("contacts.lastNameLatin"), c.last_name_latin],
+    [t("contacts.firstNameLatin"), c.first_name_latin],
+    [t("contacts.passportNumber"), q.passport_number],
+    [t("contacts.personalNumber"), q.personal_number],
+    [
+      t("contacts.nationality"),
+      q.nationality &&
+        (name.country(countries.data?.find((x) => x.code === q.nationality)) || q.nationality),
+    ],
+    [t("contacts.sex"), q.sex && t(`contacts.sexValue.${q.sex}`)],
+    [t("contacts.passportIssuedOn"), date(q.passport_issued_on)],
+    [t("contacts.passportExpiresOn"), date(q.passport_expires_on)],
+    [t("contacts.passportIssuedBy"), q.passport_issued_by],
+    [t("contacts.birthPlace"), q.birth_place],
+  ];
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2 className="h2">{t("contacts.passport")}</h2>
+        {canRead && !reading && (
+          <div className="actions">
+            <button type="button" className="btn btn-sm" onClick={() => setReading(true)}>
+              {t("mrz.open")}
+            </button>
+          </div>
+        )}
+      </div>
+      {reading && <PassportReader card={card} onDone={() => setReading(false)} />}
+      {filled ? (
+        rows.map(([label, value]) => (
+          <Row key={label} label={label}>
+            {value}
+          </Row>
+        ))
+      ) : (
+        <p className="muted small">{t("contacts.passportEmpty")}</p>
+      )}
+    </section>
+  );
+}
 
 // «Распознать паспорт» (backlog 2.5): the machine-readable zone from a photo, read in
 // the browser, or typed in; the API checks it; the specialist picks what goes into the
@@ -140,11 +197,18 @@ function Reading({
 
   const fields: Field[] = [
     {
-      key: "full_name_latin",
-      label: t("contacts.fullNameLatin"),
-      value: mrz.full_name_latin || null,
-      shown: mrz.full_name_latin,
-      current: c.full_name_latin,
+      key: "last_name_latin",
+      label: t("contacts.lastNameLatin"),
+      value: mrz.surname || null,
+      shown: mrz.surname,
+      current: c.last_name_latin,
+    },
+    {
+      key: "first_name_latin",
+      label: t("contacts.firstNameLatin"),
+      value: mrz.given_names || null,
+      shown: mrz.given_names,
+      current: c.first_name_latin,
     },
     {
       key: "birth_date",
@@ -208,20 +272,17 @@ function Reading({
     });
 
   const apply = useMutation({
-    mutationFn: async () => {
-      const picked = Object.fromEntries(
-        fields.filter((f) => chosen.has(f.key) && f.value !== null).map((f) => [f.key, f.value]),
-      );
-      const contact = ["full_name_latin", "birth_date"].filter((k) => k in picked);
-      if (contact.length > 0) {
-        await apiPatch(`/contacts/${c.id}`, Object.fromEntries(contact.map((k) => [k, picked[k]])));
-      }
-      const passport = Object.keys(picked).filter((k) => !contact.includes(k));
-      if (passport.length > 0) {
-        const next: Questionnaire = { ...q };
-        for (const key of passport) Object.assign(next, { [key]: picked[key] });
-        await apiPut(`/contacts/${c.id}/questionnaire`, next);
-      }
+    mutationFn: () => {
+      const picked = fields.filter((f) => chosen.has(f.key) && f.value !== null);
+      const isPassport = (key: string) => (PASSPORT_FIELDS as readonly string[]).includes(key);
+      // One change of the card: the passport goes with the questionnaire, the rest on the
+      // contact; only the fields sent change.
+      return apiPatch(`/contacts/${c.id}`, {
+        ...Object.fromEntries(picked.filter((f) => !isPassport(f.key)).map((f) => [f.key, f.value])),
+        passport: Object.fromEntries(
+          picked.filter((f) => isPassport(f.key)).map((f) => [f.key, f.value]),
+        ),
+      });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: contactKey(c.id) });

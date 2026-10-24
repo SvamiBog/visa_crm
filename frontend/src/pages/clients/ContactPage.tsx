@@ -31,6 +31,7 @@ import { AttentionList } from "../cabinet/Attention";
 import { ContactVault } from "../vault/Vault";
 import { Cases } from "./Cases";
 import { ContactForm } from "./ContactForm";
+import { PassportCard } from "./Passport";
 import { ContactTemplates } from "./ContactTemplates";
 import { Consultations, Hints, QuestionnaireCard } from "./Consultations";
 import { ContactTrips } from "./Trips";
@@ -110,6 +111,7 @@ export function ContactPage() {
       {editing && (
         <ContactForm
           contact={contact}
+          passport={card.data.questionnaire}
           onCancel={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
@@ -124,6 +126,7 @@ export function ContactPage() {
       <div className="card-grid">
         <div className="column">
           <ContactDetails card={card.data} />
+          <PassportCard card={card.data} />
           <QuestionnaireCard card={card.data} />
           {workspace.data?.modules.includes("stay_calculator") && (
             <ContactTrips contactId={contact.id} />

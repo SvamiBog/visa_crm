@@ -23,7 +23,7 @@ async def countries(client: AsyncClient) -> dict[str, str]:
 
 
 async def contact(client: AsyncClient, name: str) -> dict:
-    response = await client.post("/api/contacts", json={"full_name": name})
+    response = await client.post("/api/contacts", json={"first_name": name})
     assert response.status_code == 201, response.text
     return response.json()
 

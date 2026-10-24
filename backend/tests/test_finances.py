@@ -27,7 +27,7 @@ async def countries(client: AsyncClient) -> dict[str, str]:
 
 
 async def open_case(client: AsyncClient, contact: dict | None = None, **case) -> dict:
-    contact = contact or (await client.post("/api/contacts", json={"full_name": "Анна"})).json()
+    contact = contact or (await client.post("/api/contacts", json={"first_name": "Анна"})).json()
     codes = await countries(client)
     response = await client.post(
         f"/api/contacts/{contact['id']}/cases",
@@ -240,7 +240,7 @@ async def test_suggestions_from_the_lists_and_the_consultation(
         ],
     )
     anna = (
-        await client.post("/api/contacts", json={"full_name": "Анна", "partner_id": partner["id"]})
+        await client.post("/api/contacts", json={"first_name": "Анна", "partner_id": partner["id"]})
     ).json()
     consultation = (
         await client.post(
