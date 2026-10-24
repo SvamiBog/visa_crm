@@ -508,7 +508,20 @@ function PlaceFields({
   );
 }
 
-type NewApplicant = { key: number; full_name: string; label: string };
+// A family member without a card yet: ФИО apart, as on a new card.
+type NewApplicant = {
+  key: number;
+  last_name: string;
+  first_name: string;
+  middle_name: string;
+  label: string;
+};
+const NEW_APPLICANT_NAME = ["last_name", "first_name", "middle_name"] as const;
+const PART_LABELS = {
+  last_name: "contacts.lastName",
+  first_name: "contacts.firstName",
+  middle_name: "contacts.middleName",
+} as const;
 
 function CaseCreateForm({
   card,
@@ -545,7 +558,7 @@ function CaseCreateForm({
     { id: card.contact.id, full_name: card.contact.full_name, label: null as string | null },
     ...card.relations.map((r) => ({ id: r.related_id, full_name: r.full_name, label: r.label })),
   ];
-  const named = added.filter((a) => a.full_name.trim());
+  const named = added.filter((a) => a.last_name.trim() || a.first_name.trim());
   const count = chosen.size + named.length;
 
   const create = useMutation({
@@ -555,7 +568,12 @@ function CaseCreateForm({
         consultation_id: consultation?.id ?? null,
         applicants: [
           ...people.filter((p) => chosen.has(p.id)).map((p) => ({ contact_id: p.id })),
-          ...named.map((a) => ({ full_name: a.full_name.trim(), label: a.label.trim() || null })),
+          ...named.map((a) => ({
+            last_name: a.last_name.trim() || null,
+            first_name: a.first_name.trim() || null,
+            middle_name: a.middle_name.trim() || null,
+            label: a.label.trim() || null,
+          })),
         ],
       }),
     onSuccess: () => {
@@ -563,6 +581,9 @@ function CaseCreateForm({
       onDone();
     },
   });
+
+  const change = (key: number, patch: Partial<NewApplicant>) =>
+    setAdded((list) => list.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
   const toggle = (id: string) =>
     setChosen((current) => {
@@ -603,28 +624,22 @@ function CaseCreateForm({
         ))}
         {added.map((a) => (
           <div key={a.key} className="applicant-row">
-            <label className="field">
-              <span>{t("cases.newApplicantName")}</span>
-              <input
-                maxLength={200}
-                value={a.full_name}
-                onChange={(e) =>
-                  setAdded((list) =>
-                    list.map((x) => (x.key === a.key ? { ...x, full_name: e.target.value } : x)),
-                  )
-                }
-              />
-            </label>
-            <label className="field">
+            {NEW_APPLICANT_NAME.map((part) => (
+              <label key={part} className="field">
+                <span>{t(PART_LABELS[part])}</span>
+                <input
+                  maxLength={100}
+                  value={a[part]}
+                  onChange={(e) => change(a.key, { [part]: e.target.value })}
+                />
+              </label>
+            ))}
+            <label className="field applicant-label">
               <span>{t("cases.newApplicantLabel")}</span>
               <input
                 maxLength={100}
                 value={a.label}
-                onChange={(e) =>
-                  setAdded((list) =>
-                    list.map((x) => (x.key === a.key ? { ...x, label: e.target.value } : x)),
-                  )
-                }
+                onChange={(e) => change(a.key, { label: e.target.value })}
               />
             </label>
             <button
@@ -640,7 +655,10 @@ function CaseCreateForm({
           type="button"
           className="btn btn-sm"
           onClick={() =>
-            setAdded((list) => [...list, { key: nextKey.current++, full_name: "", label: "" }])
+            setAdded((list) => [
+              ...list,
+              { key: nextKey.current++, last_name: "", first_name: "", middle_name: "", label: "" },
+            ])
           }
         >
           {t("cases.addApplicant")}

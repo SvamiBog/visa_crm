@@ -1180,12 +1180,21 @@ a.nav-a:hover {
   outline-offset: 2px;
 }
 
+/* A new family member: surname, given name, patronymic; then who they are and «Remove». */
 .applicant-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: end;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+.applicant-row .applicant-label {
+  grid-column: span 2;
+}
+
+.applicant-row > .btn {
+  justify-self: start;
 }
 
 .case-group .note-actions {
@@ -1304,6 +1313,10 @@ a.nav-a:hover {
   .applicant-row {
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
+  }
+
+  .applicant-row .applicant-label {
+    grid-column: auto;
   }
 }
 

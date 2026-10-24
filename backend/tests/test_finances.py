@@ -260,7 +260,7 @@ async def test_suggestions_from_the_lists_and_the_consultation(
         purpose_id=purpose,
         registrar_id=registrar["id"],
         consultation_id=consultation["id"],
-        applicants=[{"contact_id": anna["id"]}, {"full_name": "Мария", "label": "дочь"}],
+        applicants=[{"contact_id": anna["id"]}, {"first_name": "Мария", "label": "дочь"}],
     )
     hints = (await client.get(finance_url(case))).json()["suggestions"]
     assert hints["prepayment"] == "150.00"  # the purpose's own wins over «any»

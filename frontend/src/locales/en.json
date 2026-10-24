@@ -661,7 +661,6 @@
   "cases.applicants": "Applicants",
   "cases.applicantsHintConsultation": "Applicants at the consultation: {{planned}}, selected: {{count}}. Each gets their own case; several cases form a submission group.",
   "cases.applicantsHint": "Each applicant gets their own case; several cases form a submission group.",
-  "cases.newApplicantName": "New applicant's full name",
   "cases.newApplicantLabel": "Relation to the client",
   "cases.addApplicant": "+ Applicant without a card",
   "cases.create": "Open cases: {{count}}",

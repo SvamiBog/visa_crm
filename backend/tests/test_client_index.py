@@ -128,7 +128,7 @@ async def test_row_shows_the_case_in_work(client: AsyncClient, make_user: MakeUs
             "consultation_id": consultation["id"],
             "destination_id": codes["PL"],
             "submission_country_id": codes["BY"],
-            "applicants": [{"contact_id": anna}, {"full_name": "Сергей"}, {"full_name": "Мария"}],
+            "applicants": [{"contact_id": anna}, {"first_name": "Сергей"}, {"first_name": "Мария"}],
         },
     )
     [row] = [r for r in (await search(client, query="Анна"))["items"]]
@@ -207,7 +207,7 @@ async def test_moving_a_group_on_the_board(client: AsyncClient, make_user: MakeU
             json={
                 "destination_id": codes["PL"],
                 "submission_country_id": codes["BY"],
-                "applicants": [{"contact_id": anna}, {"full_name": "Сергей"}],
+                "applicants": [{"contact_id": anna}, {"first_name": "Сергей"}],
             },
         )
     ).json()

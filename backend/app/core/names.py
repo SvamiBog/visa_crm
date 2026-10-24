@@ -3,8 +3,20 @@ in the passport, the surname and the given names in Latin. The whole name the li
 the search looks in and the import matches people by is joined from the parts and kept
 next to them on the card (a check constraint keeps the two in step)."""
 
+from typing import Annotated
+
+from pydantic import Field
+
 NAME_PARTS = ("last_name", "first_name", "middle_name")
 LATIN_PARTS = ("last_name_latin", "first_name_latin")
+
+# One part as typed in a form.
+NamePart = Annotated[str, Field(max_length=100)]
+
+
+def tidy(value: str | None) -> str | None:
+    """A part as typed: spaces trimmed and squeezed, nothing left is None."""
+    return " ".join((value or "").split()) or None
 
 
 def joined(*parts: str | None) -> str | None:
@@ -33,9 +45,9 @@ def latin_fields(
 
 
 def split_full_name(line: str) -> dict[str, str | None]:
-    """A name typed in one line (a table cell, a family member added to a case): one word
-    is the given name; otherwise the surname comes first, then the given name, and the
-    rest is the patronymic."""
+    """A name in one line (a table cell, a name saved before the parts): one word is the
+    given name; otherwise the surname comes first, then the given name, and the rest is
+    the patronymic."""
     words = line.split()
     if len(words) <= 1:
         return name_fields(None, words[0] if words else None, None)

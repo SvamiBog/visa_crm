@@ -115,7 +115,7 @@ async def workspace(client: AsyncClient, make_user: MakeUser, owner_engine: Asyn
         vera,
         "LV",
         consultation_id=talk["id"],
-        applicants=[{"contact_id": vera["id"]}, {"full_name": "Мама", "label": "мать"}],
+        applicants=[{"contact_id": vera["id"]}, {"first_name": "Мама", "label": "мать"}],
     )
     await patch(client, latvia, submission_on="2026-06-10")
     await patch(client, latvia, outcome="refusal", decided_on="2026-06-20")
