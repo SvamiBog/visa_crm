@@ -1,20 +1,17 @@
 """«Требует внимания» (backlog 1.11): reminders computed from clients, cases, bookings and
 money; «Готово» hides one occurrence; the windows are the specialist's settings."""
 
-from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import date, timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
-
-TODAY = datetime.now(ZoneInfo("Europe/Minsk")).date()
+from tests.helpers import MakeUser, login, workspace_today
 
 
 def day(n: int) -> str:
-    return (TODAY + timedelta(days=n)).isoformat()
+    return (workspace_today() + timedelta(days=n)).isoformat()
 
 
 async def countries(client: AsyncClient) -> dict[str, str]:
@@ -63,8 +60,9 @@ async def workspace_with_everything(
             {"lt": codes["LT"], "by": codes["BY"]},
         )
 
+    today = workspace_today()
     birthday = (
-        TODAY.replace(year=1990) if (TODAY.month, TODAY.day) != (2, 29) else date(1992, 2, 29)
+        today.replace(year=1990) if (today.month, today.day) != (2, 29) else date(1992, 2, 29)
     )
     anna = await contact(client, "Анна", birth_date=birthday.isoformat())
     poland = await open_case(client, codes, anna, "PL")

@@ -3,12 +3,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Annotated
-from zoneinfo import ZoneInfo
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import today_in
 from app.core.db import get_sessionmaker, scope_to_system, scope_to_tenant
 from app.core.security import hash_session_token
 from app.models import Tenant, User, UserRole, UserSession
@@ -151,4 +151,4 @@ def require_module(key: str) -> Callable[..., Awaitable[CurrentUser]]:
 async def workspace_today(session: AsyncSession, tenant_id: uuid.UUID) -> date:
     """Today in the specialist's time zone: deadlines and waits are counted in it."""
     timezone = await session.scalar(select(Tenant.timezone).where(Tenant.id == tenant_id))
-    return datetime.now(ZoneInfo(timezone or "Europe/Minsk")).date()
+    return today_in(timezone)

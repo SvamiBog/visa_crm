@@ -7,14 +7,13 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TenantSession, require_module
+from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.consultation_checks import Destination, check
 from app.core.money import Amount, Currency
@@ -215,13 +214,11 @@ async def hints_for(session: AsyncSession, contact: Contact) -> list[HintOut]:
         questionnaire = questionnaire.model_copy(
             update={"refusals": questionnaire.refusals + case_refusals}
         )
-    timezone = await session.scalar(select(Tenant.timezone).where(Tenant.id == contact.tenant_id))
-    today = datetime.now(ZoneInfo(timezone or "Europe/Minsk")).date()
     hints = check(
         questionnaire,
         destinations,
         trip_on=latest.trip_planned_on if latest else None,
-        today=today,
+        today=await workspace_today(session, contact.tenant_id),
     )
     return [HintOut(code=h.code, country=h.country) for h in hints]
 

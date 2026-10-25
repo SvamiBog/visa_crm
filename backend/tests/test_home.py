@@ -1,7 +1,7 @@
 """Главный экран (backlog 1.12): metrics, the nearest submissions, the month's funnel, the
 queues and the money, each block only with the modules its data belongs to."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -9,13 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tests.helpers import MakeUser, login, workspace_today
 
-TODAY = workspace_today()
-MONTH_START = TODAY.replace(day=1)
-LAST_MONTH = MONTH_START - timedelta(days=1)
-
 
 def day(n: int) -> str:
-    return (TODAY + timedelta(days=n)).isoformat()
+    return (workspace_today() + timedelta(days=n)).isoformat()
+
+
+def last_month() -> date:
+    """A day of the month before this one (its last day)."""
+    return workspace_today().replace(day=1) - timedelta(days=1)
 
 
 async def countries(client: AsyncClient) -> dict[str, str]:
@@ -72,7 +73,7 @@ async def busy_workspace(client: AsyncClient, make_user: MakeUser) -> dict:
     )
 
     anna = await contact(client, "Анна")
-    talk = await consult(client, anna, TODAY.isoformat(), "yes")
+    talk = await consult(client, anna, day(0), "yes")
     family = await open_cases(
         client,
         codes,
@@ -94,7 +95,7 @@ async def busy_workspace(client: AsyncClient, make_user: MakeUser) -> dict:
     await ok(
         await client.post(
             f"/api/cases/{family[0]['id']}/payments",
-            json={"paid_on": TODAY.isoformat(), "amount": "100", "currency": "BYN"},
+            json={"paid_on": day(0), "amount": "100", "currency": "BYN"},
         )
     )
     # The registrar: a 60 EUR talon against a 20 EUR payment — 40 EUR owed.
@@ -107,27 +108,27 @@ async def busy_workspace(client: AsyncClient, make_user: MakeUser) -> dict:
     await ok(
         await client.post(
             f"/api/registrars/{registrar['id']}/payments",
-            json={"paid_on": TODAY.isoformat(), "amount": "20", "method": "cash"},
+            json={"paid_on": day(0), "amount": "20", "method": "cash"},
         )
     )
 
-    await consult(client, await contact(client, "Борис"), TODAY.isoformat(), "thinking")
+    await consult(client, await contact(client, "Борис"), day(0), "thinking")
 
     vera = await contact(client, "Вера")
-    talk = await consult(client, vera, TODAY.isoformat())
+    talk = await consult(client, vera, day(0))
     [france] = await open_cases(client, codes, vera, "FR", consultation_id=talk["id"])
     await ok(await client.post(f"/api/cases/{france['id']}/attempts", json={"sent_on": day(-10)}))
 
     gleb = await contact(client, "Глеб")
-    talk = await consult(client, gleb, TODAY.isoformat())
+    talk = await consult(client, gleb, day(0))
     [latvia] = await open_cases(client, codes, gleb, "LV", consultation_id=talk["id"])
     await ok(
         await client.patch(
-            f"/api/cases/{latvia['id']}", json={"outcome": "visa", "decided_on": TODAY.isoformat()}
+            f"/api/cases/{latvia['id']}", json={"outcome": "visa", "decided_on": day(0)}
         )
     )
 
-    await consult(client, await contact(client, "Даша"), LAST_MONTH.isoformat(), "yes")
+    await consult(client, await contact(client, "Даша"), last_month().isoformat(), "yes")
 
     [irina] = await open_cases(client, codes, await contact(client, "Ирина"), "PL")
     await ok(await client.post(f"/api/cases/{irina['id']}/queue", json={"queued_on": day(-30)}))
@@ -148,7 +149,7 @@ async def test_the_home_screen(client: AsyncClient, make_user: MakeUser):
     made = await busy_workspace(client, make_user)
     codes = made["codes"]
     home = await ok(await client.get("/api/home"))
-    assert home["today"] == TODAY.isoformat()
+    assert home["today"] == day(0)
 
     # Eight people, five in work (Gleb has his visa); four consultations this month, three
     # of them went to work (a «yes» or a case opened from it); six cases opened.
@@ -178,16 +179,17 @@ async def test_the_home_screen(client: AsyncClient, make_user: MakeUser):
 
     # Consultations of the month and how far they went.
     assert home["funnel"] == {
-        "month": MONTH_START.isoformat(),
+        "month": workspace_today().replace(day=1).isoformat(),
         "consultations": 4,
         "decided": 3,
         "queued": 3,
         "submitted": 1,
         "visas": 1,
     }
-    last = await ok(await client.get(f"/api/home/funnel?month={LAST_MONTH.strftime('%Y-%m')}"))
+    month = last_month()
+    last = await ok(await client.get(f"/api/home/funnel?month={month.strftime('%Y-%m')}"))
     assert last == {
-        "month": LAST_MONTH.replace(day=1).isoformat(),
+        "month": month.replace(day=1).isoformat(),
         "consultations": 1,
         "decided": 1,
         "queued": 0,
@@ -235,7 +237,7 @@ async def test_blocks_follow_modules_and_workspaces(
     home = await give("clients")
     assert home["clients"]["in_work"] == 5
     assert home["submissions"] is home["queues"] is home["funnel"] is home["money"] is None
-    funnel = await client.get(f"/api/home/funnel?month={TODAY.strftime('%Y-%m')}")
+    funnel = await client.get(f"/api/home/funnel?month={workspace_today().strftime('%Y-%m')}")
     assert funnel.status_code == 403 and funnel.json()["detail"] == "module_disabled"
     # With cases but without money: no balances.
     home = await give("clients", "cases")
