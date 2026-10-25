@@ -10,11 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from tests.helpers import MakeUser, login, workspace_today
 
-TODAY = workspace_today()
-
 
 def day(offset: int) -> str:
-    return (TODAY + timedelta(days=offset)).isoformat()
+    return (workspace_today() + timedelta(days=offset)).isoformat()
 
 
 async def turn_on(owner_engine: AsyncEngine, tenant_id: uuid.UUID | None) -> None:
@@ -198,16 +196,18 @@ async def test_the_calculator_counts_trips_that_are_not_saved(
 @pytest.mark.parametrize(
     ("trip", "code"),
     [
-        ({"entered_on": day(-5), "left_on": day(-6)}, "dates_order"),
-        ({"entered_on": day(5)}, "trip_exit_required"),
-        ({"entered_on": day(-400), "left_on": day(-10)}, "trip_too_long"),
-        ({"entered_on": day(800), "left_on": day(810)}, "trip_too_far"),
+        ({"entered_on": -5, "left_on": -6}, "dates_order"),
+        ({"entered_on": 5}, "trip_exit_required"),
+        ({"entered_on": -400, "left_on": -10}, "trip_too_long"),
+        ({"entered_on": 800, "left_on": 810}, "trip_too_far"),
         ({"entered_on": "1980-01-01", "left_on": "1980-01-05"}, "validation"),
     ],
 )
 async def test_trip_dates_are_checked(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, trip: dict, code: str
 ):
+    # Days from today become dates here: there is no «today» at import.
+    trip = {k: day(v) if isinstance(v, int) else v for k, v in trip.items()}
     await as_specialist(client, make_user, owner_engine)
     poland = (await countries(client))["PL"]
     anna = await contact(client)

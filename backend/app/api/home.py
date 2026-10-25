@@ -27,6 +27,7 @@ from app.api.deps import (
     require_tenant_user,
 )
 from app.api.registrar_ledger import ledger_summaries
+from app.core.clock import today_in
 from app.core.consultation_checks import add_months
 from app.core.finance import ZERO, balance, money, partner_payout
 from app.core.queues import SUBMITTED_STAGES
@@ -387,7 +388,7 @@ async def money_block(session: AsyncSession, currency: str) -> MoneyBlock:
 async def home(user: Member, session: TenantSession) -> HomeOut:
     tenant = await session.get_one(Tenant, user.tenant_id)
     zone = ZoneInfo(tenant.timezone)
-    today = datetime.now(zone).date()
+    today = today_in(tenant.timezone)
     month_start = today.replace(day=1)
     month_from = datetime.combine(month_start, datetime.min.time(), zone).astimezone(UTC)
     modules = set(await effective_modules(session, user))

@@ -13,11 +13,9 @@ from app.core.db import scope_to_tenant
 from app.models import PackageItem
 from tests.helpers import MakeUser, login, workspace_today
 
-TODAY = workspace_today()
-
 
 def day(offset: int) -> str:
-    return (TODAY + timedelta(days=offset)).isoformat()
+    return (workspace_today() + timedelta(days=offset)).isoformat()
 
 
 async def turn_on(owner_engine: AsyncEngine, tenant_id: uuid.UUID | None) -> None:

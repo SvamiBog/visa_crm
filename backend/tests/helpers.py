@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 import pyotp
 from httpx import AsyncClient, Response
 
+from app.core.clock import DEFAULT_TIMEZONE
+
 PASSWORD = "correct-horse-battery"
 NEW_PASSWORD = "staple-and-a-pony-42"
 # Test-only TOTP secret of users created by the make_user fixture.
@@ -14,10 +16,27 @@ TOTP_SECRET = "JBSWY3DPEHPK3PXP"
 MakeUser = Callable[..., Awaitable[uuid.UUID | None]]
 
 
+class StoppedClock:
+    """The app's wall clock in tests (patched into app.core.clock): conftest stops it at the
+    start of each test, so the test and the app count from the same «today» even when the
+    run crosses midnight in Minsk (21:00 UTC). Outside a test it does not tell the time."""
+
+    def __init__(self) -> None:
+        self.at: datetime | None = None
+
+    def now(self) -> datetime:
+        if self.at is None:
+            raise RuntimeError("the clock is stopped only inside a test: no «today» at import")
+        return self.at
+
+
+WALL_CLOCK = StoppedClock()
+
+
 def workspace_today() -> date:
     """Today as the app counts it: in the specialist's time zone (Europe/Minsk by default),
-    not in UTC — the two differ for three hours every night."""
-    return datetime.now(ZoneInfo("Europe/Minsk")).date()
+    not in UTC — the two differ for three hours every night. Only inside a test."""
+    return WALL_CLOCK.now().astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date()
 
 
 class FakeClock:

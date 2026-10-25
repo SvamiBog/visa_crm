@@ -58,9 +58,9 @@ Remove duplication, improve names — tests stay green. Then `uv run ruff check 
 ## Fixtures and Fakes (`tests/conftest.py`, `tests/helpers.py`)
 
 - `client`, `make_user(email, role)`, `owner_engine` (bypasses RLS, for setup and checks), `sessionmaker`, `master_key`
-- Autouse fakes: `fake_clock` (TOTP), `fake_rates` (no calls to the National Bank), `empty_file_storage` (files in memory)
-- New external dependency → a fake through `monkeypatch.setattr` on the module's seam (`rates._fetch`, `two_factor._now`), not `unittest.mock`
-- `helpers.workspace_today()` — today in Europe/Minsk, not UTC
+- Autouse fakes: `fake_clock` (TOTP), `stopped_clock` (the app's «today» stands still during a test), `fake_rates` (no calls to the National Bank), `empty_file_storage` (files in memory)
+- New external dependency → a fake through `monkeypatch.setattr` on the module's seam (`rates._fetch`, `two_factor._now`, `clock._now`), not `unittest.mock`
+- `helpers.workspace_today()` — today in Europe/Minsk, not UTC; call it inside the test, never at import
 
 ## Edge Cases You MUST Test
 

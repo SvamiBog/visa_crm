@@ -1,20 +1,16 @@
 """Bookings of a case and the «Брони: дедлайны» view (backlog 1.8)."""
 
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
-
-# Days are counted in the workspace's time zone (Europe/Minsk by default).
-TODAY = datetime.now(ZoneInfo("Europe/Minsk")).date()
+from tests.helpers import MakeUser, login, workspace_today
 
 
 def day(offset: int) -> str:
-    return (TODAY + timedelta(days=offset)).isoformat()
+    return (workspace_today() + timedelta(days=offset)).isoformat()
 
 
 async def as_specialist(client: AsyncClient, make_user: MakeUser, email="anna@example.com"):
@@ -125,7 +121,7 @@ async def test_closing_a_case_shows_its_live_bookings(client: AsyncClient, make_
     case = await open_case(client)
     await hotel(client, case["id"], free_cancel_until=day(5))
     closed = await client.patch(
-        f"/api/cases/{case['id']}", json={"outcome": "visa", "decided_on": TODAY.isoformat()}
+        f"/api/cases/{case['id']}", json={"outcome": "visa", "decided_on": day(0)}
     )
     assert closed.status_code == 200, closed.text
     assert closed.json()["stage"] == "result"

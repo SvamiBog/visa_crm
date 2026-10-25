@@ -2,7 +2,7 @@ import asyncio
 import base64
 import os
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from decimal import Decimal
 from pathlib import Path
 
@@ -20,13 +20,13 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from app.core import db, rates, storage, two_factor
+from app.core import clock, db, rates, storage, two_factor
 from app.core.config import get_settings
 from app.core.modules import DEFAULT_MODULES
 from app.core.security import hash_password
 from app.core.two_factor import seal_secret
 from app.main import create_app
-from tests.helpers import CLOCK, PASSWORD, TOTP_SECRET, MakeUser
+from tests.helpers import CLOCK, PASSWORD, TOTP_SECRET, WALL_CLOCK, MakeUser
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get(
@@ -60,6 +60,16 @@ async def _recreate_database(url: str) -> None:
 def fake_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     """TOTP checks use the test clock: helpers.login moves it one step per login."""
     monkeypatch.setattr(two_factor, "_now", CLOCK.time)
+
+
+@pytest.fixture(autouse=True)
+def stopped_clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """«Today» stands still for the length of a test, the same for the app and the test
+    (helpers.workspace_today): a run that crosses midnight in Minsk changes nothing."""
+    WALL_CLOCK.at = clock._now()
+    monkeypatch.setattr(clock, "_now", WALL_CLOCK.now)
+    yield
+    WALL_CLOCK.at = None
 
 
 # BYN for one unit, every day: tests never call the National Bank.
