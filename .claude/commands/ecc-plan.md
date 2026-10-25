@@ -1,100 +1,62 @@
 ---
-description: Restate requirements, assess risks, and create a step-by-step implementation plan for a VisaCRM backlog item or request. WAIT for user CONFIRM before touching any code.
-argument-hint: "[backlog item like 2.3 | feature description]"
+description: Restate a backlog item, ground it in the code, assess risks and write a step-by-step plan. WAIT for the user's confirmation before touching any code.
+argument-hint: "[backlog item | feature description]"
 ---
+> Adapted from ECC `commands/plan.md` (github.com/affaan-m/ECC, v2.2.3, MIT). `CLAUDE.md` and the project docs take precedence over this file.
 
-> Adapted from ECC `commands/plan.md` v2.2.3 (github.com/affaan-m/ECC, MIT; see `.claude/ECC-NOTICE.md`). `CLAUDE.md` and `.claude/rules/` take precedence over this file.
->
-> VisaCRM: the plan is written in the conversation (no plan or PRD files); the source of tasks is `docs/backlog.md`. ECC's `/multi-plan`, `/plan-canvas`, `/prp-*` and `/plan-prd` are not part of this project.
+# Plan
 
-# Plan Command
+Create an implementation plan before writing any code. Run inline: no subagents.
 
-This command creates an implementation plan before writing any code.
+**Input**: $ARGUMENTS — a backlog item (`2.3`), a slice of one, or free text. Empty input: ask what to plan.
 
-Run inline by default. Delegate to the `ecc-planner` agent only for large multi-area work or when the user asks.
+## Steps
 
-## What This Command Does
+1. **Read the sources.** The item in `docs/backlog.md` and the docs it points to (`docs/clients-module.md`, `docs/PRD.md`, `docs/roadmap.md`, `docs/decisions.md`). Check `docs/open-questions.md`: an open question is asked, not answered by the plan.
+2. **Restate the requirements** in your own words: what the user (specialist, employee, admin) gets, what is in this slice and what is left for later.
+3. **Ground the plan in the code.** For each category give the closest existing example with `path:line`; if there is none, say so — do not invent a pattern.
 
-1. **Restate Requirements** — what needs to be built, with the backlog item's acceptance criteria
-2. **Identify Risks** — issues, blockers, open questions (`docs/open-questions.md`)
-3. **Create Step Plan** — phases with files and tests
-4. **Wait for Confirmation** — MUST receive user approval before proceeding
+   | Category | What to capture |
+   |---|---|
+   | Naming | modules, functions, tables, API paths, locale keys in the area |
+   | Errors | how core errors become API codes (`detail`) and locale texts |
+   | Data access | scoped sessions, models, migrations, RLS, composite tenant keys |
+   | Audit | which `AuditAction` events the change writes |
+   | Tests | rules tests, API tests, fixtures and fakes to reuse |
 
-## When to Use
+4. **Files to change**: path, CREATE / UPDATE, why.
+5. **Tasks in order**, each with: what to do, the pattern it mirrors, the test that proves it (written first), the command that validates it.
+6. **Risks**: money, tenancy, personal data, access, migrations, time zones — likelihood and mitigation.
+7. **Complexity**: Small / Medium / Large.
+8. **Validation**: the commands CI runs for the touched side (`uv run ruff check .`, `uv run pytest` from `backend/`; `npm run build` from `frontend/`; the Playwright tests when forms or layout change).
+9. Present the plan and **WAIT** for an explicit "yes" / "proceed" or a modification.
 
-- Starting a backlog item or a new feature
-- Significant architectural changes (a new table, a new module)
-- Complex refactoring
-- Multiple files/components will be affected
-- Requirements are unclear or ambiguous
-
-## Input Modes
-
-| Input | Behavior |
-|---|---|
-| A backlog item (`2.3`, `backlog 2.4`) | Read that item in `docs/backlog.md` and the docs it links; plan it (or its next part) |
-| Free-form text | Plan the request inline |
-| Empty input | Propose the next unchecked item of the current stage in `docs/backlog.md` and ask |
-
-## Pattern Grounding
-
-Before writing the plan, search the codebase for conventions to mirror, with file references:
-
-| Category | What to capture |
-|---|---|
-| Naming | Files, functions, routes, locale keys in the affected area |
-| Error handling | `HTTPException(status, "<code>")` codes and their `errors.*` texts — e.g. `backend/app/api/package.py` |
-| Data access | `TenantSession`, models, composite keys, the migration pattern |
-| Audit | `record(session, AuditAction.…, actor=…)` and its locale label |
-| Tests | The sibling `test_<area>.py` / `test_<area>_rules.py` and their fixtures |
-
-If no similar code exists, state that explicitly. Do not invent a pattern.
-
-## Plan Shape
+## Output
 
 ```markdown
-# Plan: {Feature} (backlog X.Y)
+# Plan: <item and slice>
 
-## Summary
-{2-3 sentences}
-
-## Decisions and open questions
-- {What docs/decisions.md already decides; what must be asked}
-
-## Patterns to Mirror
+## Requirements
+## Out of scope (next slices)
+## Patterns to mirror
 | Category | Source | Pattern |
-|---|---|---|
-
-## Files to Change
+## Files to change
 | File | Action | Why |
-|---|---|---|
-
 ## Tasks
-### Task 1: {name}
-- **Test first**: {test file and behavior}
-- **Action**: {what to do}
-- **Validate**: {command}
-
-## Validation
-cd backend && uv run ruff check . && uv run pytest
-cd frontend && npm run build
-
+### Task 1: <name>
+- Test first: <test name and file>
+- Action: <what to do>
+- Mirror: <pattern>
+- Validate: <command>
 ## Risks
 | Risk | Likelihood | Mitigation |
-|---|---|---|
+## Complexity
+## Validation
+## Open questions
+**WAITING FOR CONFIRMATION**: proceed with this plan? (yes / no / modify)
 ```
 
-End with: **WAITING FOR CONFIRMATION**: proceed with this plan? (yes / no / modify)
+## Notes
 
-## Important Notes
-
-**CRITICAL**: This command will **NOT** write any code until the user explicitly confirms the plan.
-
-A product decision made while planning goes into `docs/decisions.md`; an unresolved one into `docs/open-questions.md` — and is asked, not guessed.
-
-## Integration with Other Commands
-
-After planning:
-- Implement with the `ecc-tdd-workflow` skill
-- Review with `/ecc-code-review` (backend: `/ecc-fastapi-review`, frontend: `/ecc-react-review`)
-- Commit, push and open a PR only when the user asks (`.claude/rules/git-workflow.md`)
+- No code, migrations or commits before the confirmation.
+- After confirmation: implement with the `ecc-tdd-workflow` skill, then review with `/ecc-code-review`. A schema change follows the `ecc-database-migrations` skill; new interface strings, `ecc-i18n-sync`; forms or layout, `ecc-e2e-testing`.

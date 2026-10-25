@@ -1,31 +1,51 @@
-# ECC components in this repository
+# Third-party notice: ECC
 
-Some Claude Code files under `.claude/` are adapted from ECC (github.com/affaan-m/ECC), version 2.2.3, commit `c05b2d6614f62f6db0047669aa4eefb223d478f9`, under the MIT License below. Each file names its source in the first lines. `CLAUDE.md` and `.claude/rules/` take precedence over them.
+Some files in `.claude/` are adapted from **ECC** (github.com/affaan-m/ECC), tag `v2.2.3`, commit `c05b2d6614f62f6db0047669aa4eefb223d478f9`, under the MIT License below. Each adapted file names its source in its first line after the front matter. They were rewritten for VisaCRM: project commands, paths and rules instead of generic examples; references to ECC components not copied here removed; no checkpoint commits, no package downloads, nothing published to GitHub without the user's request. `CLAUDE.md` and the project docs take precedence over them.
 
-They are copied into the repository rather than installed as the ECC plugin because cloud sessions of Claude Code load only the repository's files, never plugins.
+The ECC plugin itself is not installed: cloud sessions load no plugins, so local and cloud sessions use these same files.
 
-| File | Source in ECC | Changes |
-|------|---------------|---------|
-| `.claude/agents/ecc-planner.md` | `agents/planner.md` | `ecc-` prefix, project note, worked example and red flags for VisaCRM |
-| `.claude/agents/ecc-tdd-guide.md` | `agents/tdd-guide.md` | rewritten for pytest on PostgreSQL, fakes instead of mocks, no coverage threshold |
-| `.claude/agents/ecc-code-reviewer.md` | `agents/code-reviewer.md` | prefix, Python and project examples, tenant isolation, money, audit, i18n checks; Next.js and cost sections removed |
-| `.claude/agents/ecc-fastapi-reviewer.md` | `agents/fastapi-reviewer.md` | prefix, project layout, dependencies, error codes and audit |
-| `.claude/agents/ecc-database-reviewer.md` | `agents/database-reviewer.md` | rewritten for Alembic and the project's RLS model; Supabase patterns removed |
-| `.claude/agents/ecc-react-reviewer.md` | `agents/react-reviewer.md` | prefix, React 18 SPA (server components and Next.js removed), TanStack Query, i18n and theme, type safety; eslint commands removed |
-| `.claude/agents/ecc-security-reviewer.md` | `agents/security-reviewer.md` | prefix, project risk areas and CI's audit commands; Node/Express tooling removed |
-| `.claude/skills/ecc-tdd-workflow/SKILL.md` | `skills/tdd-workflow/SKILL.md` | rewritten for pytest; no package-manager detector, checkpoint commits or evidence files |
-| `.claude/skills/ecc-i18n-sync/SKILL.md` | `skills/i18n-sync/SKILL.md` | rewritten for `ru.json` / `en.json`, i18next plurals, error and audit keys; Locakit removed |
-| `.claude/skills/ecc-context-budget/SKILL.md` | `skills/context-budget/SKILL.md` | prefix, project paths, path-scoped rules; session-file byte counter removed |
-| `.claude/commands/ecc-plan.md` | `commands/plan.md` | prefix, backlog items as input, plans in the conversation; PRD artifacts and links to absent commands removed |
-| `.claude/commands/ecc-code-review.md` | `commands/code-review.md` | prefix, project checklist and checks, report in the conversation, publishing only when asked, REST fallback for cloud sessions |
-| `.claude/commands/ecc-fastapi-review.md` | `commands/fastapi-review.md` | prefix, project review areas and checks |
-| `.claude/commands/ecc-react-review.md` | `commands/react-review.md` | prefix, `npm run build` instead of eslint, project categories |
-| `.claude/rules/*.md`, `.claude/rules/python/*.md`, `.claude/rules/typescript/*.md` | `rules/common/`, `rules/python/`, `rules/typescript/`, `rules/react/` | rewritten for VisaCRM |
+## Adapted files
 
-ECC's hooks and scripts are not included; the project's own hooks are in `.claude/hooks/`. When updating to a newer ECC version, review its changes first (`git diff c05b2d6..<tag> -- agents skills commands rules`) and re-apply these adaptations.
+| File in this repository | ECC source |
+|---|---|
+| `.claude/rules/ecc/common/coding-style.md` | `rules/common/coding-style.md` |
+| `.claude/rules/ecc/common/testing.md` | `rules/common/testing.md` |
+| `.claude/rules/ecc/common/security.md` | `rules/common/security.md` |
+| `.claude/rules/ecc/common/git-workflow.md` | `rules/common/git-workflow.md` |
+| `.claude/rules/ecc/common/development-workflow.md` | `rules/common/development-workflow.md` |
+| `.claude/rules/ecc/common/code-review.md` | `rules/common/code-review.md` |
+| `.claude/rules/ecc/python/coding-style.md` | `rules/python/coding-style.md`, `patterns.md`, `security.md` |
+| `.claude/rules/ecc/python/fastapi.md` | `rules/python/fastapi.md` |
+| `.claude/rules/ecc/python/testing.md` | `rules/python/testing.md` |
+| `.claude/rules/ecc/typescript/coding-style.md` | `rules/typescript/coding-style.md`, `patterns.md`, `security.md` |
+| `.claude/rules/ecc/typescript/testing.md` | `rules/typescript/testing.md` |
+| `.claude/commands/ecc-plan.md` | `commands/plan.md` |
+| `.claude/commands/ecc-code-review.md` | `commands/code-review.md` (its PR mode credits PRPs-agentic-eng by Wirasm) |
+| `.claude/commands/ecc-save-session.md` | `commands/save-session.md` |
+| `.claude/commands/ecc-resume-session.md` | `commands/resume-session.md` |
+| `.claude/commands/ecc-python-review.md` | `commands/python-review.md` |
+| `.claude/commands/ecc-fastapi-review.md` | `commands/fastapi-review.md` |
+| `.claude/commands/ecc-react-review.md` | `commands/react-review.md` |
+| `.claude/agents/ecc-python-reviewer.md` | `agents/python-reviewer.md` |
+| `.claude/agents/ecc-fastapi-reviewer.md` | `agents/fastapi-reviewer.md` |
+| `.claude/agents/ecc-database-reviewer.md` | `agents/database-reviewer.md` (credits Supabase Agent Skills, MIT) |
+| `.claude/agents/ecc-security-reviewer.md` | `agents/security-reviewer.md` |
+| `.claude/agents/ecc-typescript-reviewer.md` | `agents/typescript-reviewer.md` |
+| `.claude/agents/ecc-react-reviewer.md` | `agents/react-reviewer.md` |
+| `.claude/skills/ecc-tdd-workflow/SKILL.md` | `skills/tdd-workflow/SKILL.md` |
+| `.claude/skills/ecc-database-migrations/SKILL.md` | `skills/database-migrations/SKILL.md` |
+| `.claude/skills/ecc-e2e-testing/SKILL.md` | `skills/e2e-testing/SKILL.md` |
+| `.claude/skills/ecc-i18n-sync/SKILL.md` | `skills/i18n-sync/SKILL.md` |
+
+The hooks in `.claude/hooks/` and `.claude/settings.json` are this project's own and do not come from ECC.
+
+## Updating
+
+To take a newer ECC release: read its changes to the files above as data, carry over what fits the project by hand, update the tag and commit here, and check the rules again (each path and symbol they name must exist).
 
 ## License
 
+```text
 MIT License
 
 Copyright (c) 2026 Affaan Mustafa
@@ -47,3 +67,4 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```

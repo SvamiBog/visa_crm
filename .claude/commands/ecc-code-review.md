@@ -1,133 +1,81 @@
 ---
-description: Code review of VisaCRM changes — the current branch and uncommitted work, or a GitHub PR (pass its number or URL). Reports findings by severity; posts to GitHub only when the user asks.
-argument-hint: [pr-number | pr-url | blank for the current branch]
+description: Review the uncommitted changes (or a PR, read-only) against the project's rules, run the CI checks for the touched side, and report findings by severity. Publishes nothing.
+argument-hint: "[blank for local changes | PR number for a read-only PR review]"
 ---
-
-> Adapted from ECC `commands/code-review.md` v2.2.3 (github.com/affaan-m/ECC, MIT; see `.claude/ECC-NOTICE.md`; its PR mode is adapted by ECC from PRPs-agentic-eng by Wirasm). `CLAUDE.md` and `.claude/rules/` take precedence over this file.
->
-> VisaCRM: the report stays in the conversation (no review files); validation uses the project's own commands; nothing is published to GitHub unless the user asks in this conversation. ECC's `/review-pr` and `/orch-review` are not part of this project.
+> Adapted from ECC `commands/code-review.md` (github.com/affaan-m/ECC, v2.2.3, MIT; its PR mode adapted from PRPs-agentic-eng by Wirasm). `CLAUDE.md` and the project docs take precedence over this file.
 
 # Code Review
 
 **Input**: $ARGUMENTS
 
-## Mode Selection
+Blank → local review. A PR number or URL → read-only PR review: read its diff and files; **never** post a review, comment, approval or label to GitHub unless the user explicitly asks in this conversation.
 
-If `$ARGUMENTS` contains a PR number or PR URL → **PR Review Mode**. Otherwise → **Local Review Mode**.
-
-Severities and the project checklist: `.claude/rules/code-review.md`. For depth, delegate by area: `ecc-fastapi-reviewer` (backend), `ecc-database-reviewer` (migrations, RLS), `ecc-react-reviewer` (frontend), `ecc-security-reviewer` (auth, vault, documents, imports).
-
----
-
-## Local Review Mode
-
-### Phase 1 — GATHER
+## 1. Gather
 
 ```bash
-git diff --name-only main...HEAD
-git diff --name-only HEAD
+git status --porcelain            # modified, staged and new untracked files
+git diff HEAD                     # changes to tracked files
 ```
 
-If no changed files, stop: "Nothing to review."
+Read every changed and every new file in full (new files do not appear in `git diff HEAD`). Nothing changed → "Nothing to review."
 
-### Phase 2 — REVIEW
+## 2. Review
 
-Read each changed file in full. Check for:
+Check against `.claude/rules/ecc/common/code-review.md` and `CLAUDE.md`:
 
-**Security and isolation (CRITICAL):**
-- Hardcoded secrets; SQL built from strings
-- A business table without `tenant_id` and RLS; a business endpoint on `SystemSession`
-- An endpoint without `current_user` / `require_admin` / `require_module`
-- Client data in logs, URLs, error messages or audit `details`
-- Vault reveals or document downloads without an audit event
+**CRITICAL**
+- Data visible across tenants: an unscoped session, a new table without `tenant_id` + `enable_tenant_rls`, a child row without the composite tenant key.
+- Personal data in logs, URLs, error codes or audit `details`; secrets in code.
+- SQL built by string formatting; vault secrets or files decrypted without an explicit action or without an audit record.
+- Money as float or rounded outside `finance.money()`.
 
-**Correctness (HIGH):**
-- Money not in `Decimal`, formulas outside `app/core/finance.py`, rounding not through `finance.money()`
-- Dates and "today" in UTC instead of the specialist's zone (`workspace_today`)
-- An edited merged migration, a `downgrade()` that does not undo `upgrade()`
-- A new error code or audit action without its texts in `ru.json` and `en.json`
-- Missing tests for a new rule or endpoint
+**HIGH**
+- A business rule (money, dates, access, isolation) without a test, or a test that was never seen failing.
+- An endpoint of a module without `require_module`; an employee reaching data outside granted modules or cases.
+- A change without the audit record the action needs; a new `AuditAction` without `audit.action.*` in both locales.
+- An edited migration that is already merged; models and migrations out of step.
+- UI strings in code, `en.json` incomplete, colours or fonts outside the theme variables.
+- Errors swallowed silently.
 
-**Project conventions (MEDIUM):**
-- UI strings not through `t()`, colors and fonts not from theme variables
-- Constants that belong in a dictionary table
-- Missing docstrings where the codebase has them (module purpose, backlog item)
+**MEDIUM / LOW**
+- A first insert of a row with a unique key that two requests can race (a double click): `insert(...).on_conflict_do_…` as in `backend/app/api/reminders.py:460`.
+- Dates taken at face value: a document or event date after today, or out of order with the case's dates, accepted silently.
+- Patterns not mirrored (naming, error codes, docstrings), duplication, unclear names, dead code, comments that say what instead of why.
 
-### Phase 3 — REPORT
+## 3. Validate
 
-Findings with severity (CRITICAL, HIGH, MEDIUM, LOW), file and line, the failure scenario, and a fix. A clean review with zero findings is a valid result.
+Run the CI checks for the touched side and record the result:
 
----
+| Check | Command | Where |
+|---|---|---|
+| Lint | `uv run ruff check .` | `backend/` |
+| Format | `uv run ruff format --check .` | `backend/` |
+| Tests | `uv run pytest -q` | `backend/` |
+| Types and build | `npm run build` | `frontend/` (only if it changed) |
+| Browser tests | as in `.claude/rules/ecc/typescript/testing.md` | when forms or layout changed |
 
-## PR Review Mode
+A check that cannot run here (missing dependency, no browser) is reported as **Skipped** with the reason, never as Pass.
 
-### Phase 1 — FETCH
-
-```bash
-gh pr view <NUMBER> --json number,title,body,author,baseRefName,headRefName,changedFiles,additions,deletions
-gh pr diff <NUMBER>
-```
-
-In cloud sessions the GitHub proxy rejects `gh pr` (GraphQL); use the REST API instead: `gh api repos/{owner}/{repo}/pulls/<NUMBER>` and `gh api repos/{owner}/{repo}/pulls/<NUMBER>/files`. If the PR is not found, stop.
-
-### Phase 2 — CONTEXT
-
-1. **Project rules** — `CLAUDE.md`, `.claude/rules/`
-2. **PR intent** — the description, the backlog item it links (`docs/backlog.md`), the decisions it relies on (`docs/decisions.md`)
-3. **Changed files** — categorize: backend, migrations, frontend, locales, tests, docs, CI
-
-### Phase 3 — REVIEW
-
-Read each changed file **in full** at the PR head (check out the branch, or `gh api "repos/{owner}/{repo}/contents/<file>?ref=<head-branch>"`).
-
-| Category | What to Check |
-|---|---|
-| **Correctness** | Logic errors, off-by-ones, null handling, dates and money |
-| **Isolation** | `tenant_id`, RLS, composite keys, session scope |
-| **Pattern Compliance** | Naming, file layout, error codes, audit, locales |
-| **Security** | Injection, auth gaps, secret or personal data exposure, XXE in imports |
-| **Performance** | N+1 queries, missing indexes, unbounded lists |
-| **Completeness** | Tests, migrations with downgrade, both locales, docs (`docs/decisions.md`, backlog mark) |
-| **Maintainability** | Dead code, magic numbers, deep nesting, unclear naming |
-
-### Phase 4 — VALIDATE
-
-```bash
-cd backend && uv run ruff check . && uv run pytest
-cd frontend && npm run build
-```
-
-Tests need Postgres. Record pass, fail or skipped (with the reason) for each; CI's results on the PR count too.
-
-### Phase 5 — DECIDE
+## 4. Decide and report
 
 | Condition | Decision |
 |---|---|
-| Zero CRITICAL/HIGH issues, validation passes | **APPROVE** |
-| Only MEDIUM/LOW issues, validation passes | **APPROVE** with comments |
-| Any HIGH issues or validation failures | **REQUEST CHANGES** |
-| Any CRITICAL issues | **BLOCK** — must fix before merge |
+| No CRITICAL / HIGH, checks pass | APPROVE |
+| Only MEDIUM / LOW, checks pass | APPROVE with comments |
+| Any HIGH or a failing check | REQUEST CHANGES |
+| Any CRITICAL | BLOCK |
 
-### Phase 6 — REPORT
-
-In the conversation:
-
+```markdown
+# Review: <local changes | PR #N>
+**Decision**: APPROVE | APPROVE with comments | REQUEST CHANGES | BLOCK
+## Findings
+### CRITICAL / HIGH / MEDIUM / LOW
+- `path:line` — issue — suggested fix
+## Validation
+| Check | Result |
+## Files reviewed
 ```
-PR #<NUMBER>: <TITLE>
-Decision: <APPROVE|REQUEST_CHANGES|BLOCK>
-Issues: <critical> critical, <high> high, <medium> medium, <low> low
-Validation: <checks and results>
-Findings: <by severity, with file:line>
-```
 
-### Phase 7 — PUBLISH (only when asked)
+Report in the conversation; write a file only if the user asks.
 
-Post nothing unless the user asks for it in this conversation. Comments appear under the user's GitHub account. When asked, post one review comment (`gh pr review <NUMBER> --comment --body "…"`, or in the cloud `gh api repos/{owner}/{repo}/pulls/<NUMBER>/reviews -f event=COMMENT -f body="…"`); approving or requesting changes only on an explicit request.
-
----
-
-## Edge Cases
-
-- **No `gh` CLI or no access**: local review of the checked-out branch.
-- **Diverged branches**: say so; suggest bringing the branch up to date with `main` before review.
-- **Large PRs (>50 files)**: focus on source changes first, then tests, then config and docs.
+For a deeper look at one side: `/ecc-python-review`, `/ecc-fastapi-review`, `/ecc-react-review`; the agent `ecc-database-reviewer` for models and migrations; `/security-review` or the agent `ecc-security-reviewer` for a security pass.

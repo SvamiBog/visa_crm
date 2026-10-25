@@ -1,75 +1,31 @@
 ---
-description: Review VisaCRM's frontend changes (frontend/src) for hook and query correctness, type safety, i18n and theme rules, accessibility and React-specific security. Invokes the ecc-react-reviewer agent.
+description: Review changed frontend code with the ecc-react-reviewer agent (components, hooks, forms, accessibility) and ecc-typescript-reviewer (types, async, API and query patterns), and report findings by severity. Publishes nothing.
+argument-hint: "[file or directory under frontend/ | blank for the uncommitted changes]"
 ---
+> Adapted from ECC `commands/react-review.md` (github.com/affaan-m/ECC, v2.2.3, MIT). `CLAUDE.md` and the project docs take precedence over this file.
 
-> Adapted from ECC `commands/react-review.md` v2.2.3 (github.com/affaan-m/ECC, MIT; see `.claude/ECC-NOTICE.md`). `CLAUDE.md` and `.claude/rules/` take precedence over this file.
->
-> VisaCRM: React 18 SPA (no Next.js); no eslint in the project, so the automated check is `npm run build`. ECC's `typescript-reviewer`, `/react-build` and `/react-test` are not part of this project.
+# React Review
 
-# React Code Review
+**Input**: $ARGUMENTS — a path under `frontend/`, or blank for the uncommitted changes.
 
-This command invokes the **ecc-react-reviewer** agent.
+## Steps
 
-## What This Command Does
+1. Find the changed frontend files: `git status --porcelain` and `git diff HEAD -- frontend`, plus new untracked files.
+2. `.tsx` files changed → run `ecc-react-reviewer` and `ecc-typescript-reviewer` on them (their lanes do not overlap). Only `.ts` or `frontend/e2e/` → `ecc-typescript-reviewer` alone.
+3. Checks, from `frontend/`, only if `node_modules` exists: `npm run typecheck`, or `npm run build` for a full build. Forms or layout changed → the Playwright tests as in `.claude/rules/ecc/typescript/testing.md`. A check that cannot run is reported as **Skipped** with the reason, never as Pass.
+4. Merge both reports: findings grouped by CRITICAL / HIGH / MEDIUM, each with `path:line` and a fix; then checks and the decision.
 
-1. **Identify Frontend Changes**: modified files under `frontend/` via `git diff main...HEAD` and `git diff`
-2. **Typecheck and Build**: `cd frontend && npm run build` (`tsc --noEmit` + Vite) when `node_modules` is present
-3. **Locale Parity**: new keys present in both `ru.json` and `en.json` (skill `ecc-i18n-sync`)
-4. **Review**: hooks, TanStack Query, types, i18n and theme, accessibility, security
-5. **Generate Report**: issues by severity (CRITICAL / HIGH / MEDIUM)
+## Decision
 
-## When to Use
-
-- A change touches `frontend/src` (pages, components, `api.ts`, locales, `styles.css`)
-- Before merging frontend work
-- Auditing accessibility of a form or page
-
-For backend changes use `/ecc-fastapi-review`; for a whole-branch review `/ecc-code-review`.
-
-## Review Categories
-
-### CRITICAL (Must Fix)
-
-- `dangerouslySetInnerHTML`; `href`/`src` with unvalidated user URLs
-- A secret in the client bundle; the session or a secret in `localStorage`
-- Client data in URLs; a revealed vault password cached or left on screen
-- Conditional hook calls; direct state mutation
-
-### HIGH (Should Fix)
-
-- Missing effect dependencies, effects for derived state, missing cleanup, stale closures
-- Server data copied into `useState`; mutations without invalidating their queries; incomplete query keys
-- Errors not shown through ``t(`errors.${code}`)``
-- `any`, unchecked casts, API types that disagree with the backend
-- A string not through `t()` or missing in one locale; colors and fonts outside the theme variables
-- Accessibility violations; `key={index}` in dynamic lists
-
-### MEDIUM (Consider)
-
-- Over-memoization; inline objects to memoized children
-- Long lists rendered whole
-- Prop drilling beyond 3 levels; components over 200 lines
-- Form fields of a row that do not line up when a label wraps
-
-## Automated Checks Run
-
-```bash
-cd frontend && npm run build
-```
-
-The browser tests (`frontend/e2e/`, CI job `ui`) need the API with demo data; run them only when that stand is up (`CLAUDE.md` → «Команды»).
-
-## Approval Criteria
-
-| Status | Condition |
+| Condition | Decision |
 |---|---|
-| PASS: Approve | No CRITICAL or HIGH issues |
-| WARNING: Warning | Only MEDIUM issues (merge with caution) |
-| FAIL: Block | CRITICAL or HIGH issues found |
+| No CRITICAL / HIGH, checks pass | APPROVE |
+| Only MEDIUM | APPROVE with comments |
+| Any HIGH or a failing check | REQUEST CHANGES |
+| Any CRITICAL | BLOCK |
 
-## Related
+## Notes
 
-- Agent: `ecc-react-reviewer`
-- Skill: `ecc-i18n-sync`
-- Rules: `.claude/rules/typescript/`
-- Commands: `/ecc-code-review`, `/ecc-fastapi-review`
+- The project has no ESLint, Prettier, Vitest or React Testing Library; do not run `npx` or install them. Adding one is a decision for `docs/decisions.md`, not a review finding.
+- Locale changes: `ru.json` and `en.json` together; the `ecc-i18n-sync` skill helps when many keys change.
+- Report in the conversation; fix nothing unless the user asks; never post to GitHub.

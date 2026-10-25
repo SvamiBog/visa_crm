@@ -1,59 +1,60 @@
 ---
 name: ecc-i18n-sync
-description: "Add and synchronize VisaCRM's interface strings in frontend/src/locales/ru.json and en.json: every key in both languages, API error codes in errors.*, audit actions in audit.action.*, i18next plurals and placeholders intact. Use when adding UI text, an error code, an audit action, or reviewing missing translations."
-metadata:
-  origin: community
+description: "Add or update interface strings in frontend/src/locales/ru.json and en.json together: Russian first, English complete, keys, plurals and placeholders in step, wording taken from where the string appears. Use when adding keys, changing interface copy or checking the locales for missing or stale strings."
 ---
-
-> Adapted from ECC `skills/i18n-sync/SKILL.md` v2.2.3 (github.com/affaan-m/ECC, MIT; see `.claude/ECC-NOTICE.md`). `CLAUDE.md` and `.claude/rules/` take precedence over this file.
->
-> VisaCRM: two flat JSON files with dotted keys, Russian is the source and English must be complete (`CLAUDE.md` → «i18n»). The optional Locakit tooling of the original is removed: nothing is installed for this skill.
+> Adapted from ECC `skills/i18n-sync/SKILL.md` (github.com/affaan-m/ECC, v2.2.3, MIT). `CLAUDE.md` and the project docs take precedence over this file.
 
 # i18n Sync
 
-Add or update interface strings by reading where each key appears in the product. Preserve the files' structure, interpolation syntax and unrelated translations.
+Every interface string is a key `t("…")` in `frontend/src/locales/ru.json` and `en.json` (react-i18next, `frontend/src/i18n.ts`). Russian is the main language; English must be complete. This skill keeps both files in step without a second localization tool.
 
-## When to Activate
+## The files
 
-- A component gets new user-facing text
-- The backend gets a new error code (`HTTPException(..., "<code>")`) — the UI shows it as ``t(`errors.${code}`)``
-- `AuditAction` gets a new value — its label is `audit.action.<value>` (for example `cases.package_item_marked`)
-- A module or a dictionary gets a user-facing name
-- Reviewing missing or stale translations
-
-## The Files
-
-- `frontend/src/locales/ru.json` — source; `frontend/src/locales/en.json` — complete English
-- Flat keys with dots: `"auth.signIn": "Войти"`; grouped by area prefix (`auth.`, `clients.`, `errors.`, `audit.action.`)
-- Interpolation: `{{count}}`, `{{name}}` — never translated, same names in both files
-- Plurals (i18next): Russian `_one`, `_few`, `_many` (and `_other` where present); English `_one`, `_other`. The two files have different suffixes for the same base key — that is correct
-- Terms: follow `CLAUDE.md` → «Глоссарий» for the Russian product words (визовик, кейс, талон, регистратор…) and keep the English wording already used for the same term in `en.json`
+- Flat JSON objects of strings: the dotted key is one key (`"errors.document_date_in_future"`), grouped by prefix: `errors.<code>` for API error codes, `audit.action.<action>` for audit events, then one prefix per area (`contacts.`, `templates.`, …).
+- Interpolation `{{name}}`; plurals by suffix with `count`: Russian `_one`, `_few`, `_many`, English `_one`, `_other`. So the key sets differ only by plural suffixes.
+- `templates.*` strings that show document-template codes (`{{ФИО}}` / `{{Full name}}`) are translated on purpose: those codes come from `backend/app/core/templates.py`, not from i18next.
 
 ## Workflow
 
-### 1. Establish the worklist
-For each item: key, Russian text, English text, where it is used. Search the code for the key (`t("…")`) and for neighbouring keys of the same screen.
+### 1. Worklist
 
-### 2. Gather usage context
-Read the component: button label, heading, error, `aria-label`, fragment of a sentence. Note length limits — form labels must fit the grid at every width (`frontend/e2e/forms.spec.ts` checks both languages).
+For each key: the key, the Russian text, the English text or "missing", why it changes. A new API error code needs `errors.<code>`; a new `AuditAction` needs `audit.action.<action>`.
 
-### 3. Write both languages
-Russian first (the product's language), then English in the register already used in `en.json`. Keep placeholders and plural forms.
+### 2. Context
 
-### 4. Apply and validate
-Edit the JSON files with precise edits (the Edit tool), next to the keys of the same area; never rewrite a whole file or pipe JSON through the shell. Then check parity — the same base keys in both files once plural suffixes are stripped, and the same placeholders:
+Find where each key is used (`grep -rn '"<key>"' frontend/src`, or the error code in `backend/app/api/`). Read the component: is it a button, a heading, a field label, an error, an `aria-label`? Keep labels short: a form row must line up in both languages at narrow widths (`frontend/e2e/forms.spec.ts`).
+
+### 3. Wording
+
+- Russian: plain words of the visa specialist's trade, the terms of the glossary in `CLAUDE.md` (кейс, визовик, талон, регистратор), addressing the user as «вы».
+- English: the same meaning in plain English; the code names of the glossary are not interface words (a case is "case", a specialist is "specialist").
+- No personal data in strings or examples; placeholders stay exactly as in the other language.
+
+### 4. Apply
+
+Edit the JSON with precise edits next to the keys of the same group, keeping the files' formatting (2 spaces, UTF-8, Cyrillic as is, no escaping). Never rewrite a whole file through a script or embed JSON in a shell command.
+
+### 5. Validate
 
 ```bash
-python -c "import json,re,sys; f=lambda p:json.load(open(p,encoding='utf-8')); b=lambda d:{re.sub(r'_(zero|one|two|few|many|other)$','',k) for k in d}; ru,en=f(sys.argv[1]),f(sys.argv[2]); print('only ru:',sorted(b(ru)-b(en))); print('only en:',sorted(b(en)-b(ru)))" frontend/src/locales/ru.json frontend/src/locales/en.json
+python3 -I - <<'EOF'
+import json, re
+p = "frontend/src/locales/"
+ru, en = (json.load(open(p + f, encoding="utf-8")) for f in ("ru.json", "en.json"))
+base = lambda k: re.sub(r"_(one|few|many|other)$", "", k)
+print("only in ru:", sorted({base(k) for k in ru} - {base(k) for k in en}))
+print("only in en:", sorted({base(k) for k in en} - {base(k) for k in ru}))
+ph = lambda s: set(re.findall(r"{{\s*(\w+)\s*}}", s))
+print("placeholders differ:", [k for k in ru if k in en and not k.startswith("templates.") and ph(ru[k]) != ph(en[k])])
+EOF
 ```
 
-Both lists must be empty. `npm run build` checks that the files still parse.
+All three lists empty, then `npm run build` from `frontend/` if `node_modules` exists (otherwise say it was skipped). A form or layout string changed → the Playwright tests (`.claude/rules/ecc/typescript/testing.md`).
 
-### 5. Report
-Changed keys, terminology choices, the parity result, and strings that need a native speaker's look (legal or client-facing wording).
+### 6. Report
 
-## Out of Scope
+Keys added or changed per file, wording choices, the validation output, and strings that need a native speaker's look.
 
-- Moving hard-coded strings of other screens into the locales (separate task)
-- New languages (a product decision)
-- Visual QA beyond what the browser tests check
+## Out of scope
+
+Pulling literal strings out of components (that is a code change reviewed with `/ecc-react-review`); visual checks beyond the Playwright tests.

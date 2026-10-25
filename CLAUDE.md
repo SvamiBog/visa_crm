@@ -20,6 +20,7 @@ CRM для визовика (специалиста, который ведёт �
 | docs/prototype/ | Макеты экранов (справочно, не код) |
 | backend/ | FastAPI, SQLAlchemy 2 (async), Alembic, pytest |
 | frontend/ | React + TypeScript + Vite, TanStack Query, react-i18next |
+| .claude/ | Правила, хуки, команды, агенты и скиллы Claude Code — см. «Claude Code» в конце |
 
 ## Команды
 
@@ -98,11 +99,7 @@ DEMO_PASSWORD=… npx playwright test      # браузерные тесты ф�
 
 ## Claude Code
 
-- **Правила** — `.claude/rules/`: общие загружаются всегда, `python/` — только для файлов `backend/`, `typescript/` — только для `frontend/`. Этот файл и документация главнее правил.
-- **Хуки** — `.claude/settings.json`:
-  - `migration-guard.cjs` блокирует правку влитой миграции и новую таблицу без RLS;
-  - `ruff-format.cjs` сортирует импорты и форматирует изменённые `.py` в `backend/`; ruff берётся из `RUFF_EXE`, `backend/.venv` или PATH;
-  - `cloud-session.cjs` в облачной сессии запускает Postgres для тестов.
-- **Агенты, скиллы и команды** с префиксом `ecc-` взяты из ECC (`.claude/ECC-NOTICE.md`, MIT): `/ecc-plan`, `/ecc-code-review`, скилл `ecc-tdd-workflow` и другие — таблица в `.claude/rules/agents.md`. Лежат в репозитории, поэтому работают и в облаке.
-- **Облако:** скрипт установки окружения — `.claude/cloud-setup.sh`, его вставляют в настройки окружения на claude.ai. Браузерных тестов в облаке нет, они идут в CI.
-- **Личные настройки** (например, `RUFF_EXE`) — в `.claude/settings.local.json`, он не в git.
+- **Правила** — `.claude/rules/ecc/`, на английском: `common/` загружаются всегда, `python/` и `typescript/` — при работе с файлами бэкенда и фронтенда. Где правило расходится с этим файлом или документацией, прав этот файл.
+- **Хуки** (`.claude/settings.json`, `.claude/hooks/`, нужен Node): правка `.py` в `backend/` форматируется `ruff format`; правка миграции, которая уже есть в `origin/main`, блокируется. Записи через Bash хуки не видят.
+- **Команды, агенты, скиллы** — адаптированные копии ECC с префиксом `ecc-` (список и лицензия — `.claude/ECC-NOTICE.md`). Задача: `/ecc-plan` → подтверждение → скилл `ecc-tdd-workflow` → `/ecc-code-review`. Ревью одной стороны: `/ecc-python-review`, `/ecc-fastapi-review`, `/ecc-react-review`, агенты `ecc-database-reviewer` и `ecc-security-reviewer`. Скиллы `ecc-database-migrations`, `ecc-i18n-sync`, `ecc-e2e-testing`. Заметки о сессии — `/ecc-save-session` и `/ecc-resume-session` в `.claude/session-data/` (не в git).
+- **Облачная сессия** плагинов не загружает и видит только файлы репозитория. Окружение готовит `.claude/cloud-setup.sh` (вставляется в настройки окружения на claude.ai): зависимости бэкенда и фронтенда и локальный Postgres вместо `docker compose`; если тесты не достают до базы — `service postgresql start`.

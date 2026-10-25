@@ -1,48 +1,36 @@
 ---
-description: Review VisaCRM's FastAPI backend (backend/app) for architecture, async correctness, dependencies and session scope, Pydantic schemas, error codes, audit, security and tests. Invokes the ecc-fastapi-reviewer agent.
+description: Review changed VisaCRM API code (routers, dependencies, app/main.py) with the ecc-fastapi-reviewer agent and report findings by severity. Publishes nothing.
+argument-hint: "[file or directory under backend/app/api | blank for the uncommitted changes]"
 ---
-
-> Adapted from ECC `commands/fastapi-review.md` v2.2.3 (github.com/affaan-m/ECC, MIT; see `.claude/ECC-NOTICE.md`). `CLAUDE.md` and `.claude/rules/` take precedence over this file.
+> Adapted from ECC `commands/fastapi-review.md` (github.com/affaan-m/ECC, v2.2.3, MIT). `CLAUDE.md` and the project docs take precedence over this file.
 
 # FastAPI Review
 
-Invoke the `ecc-fastapi-reviewer` agent for a focused backend review. For migrations and RLS add `ecc-database-reviewer`; for auth, vault, documents and imports add `ecc-security-reviewer`.
+**Input**: $ARGUMENTS — a router file or directory, or blank for the uncommitted changes.
 
-## Usage
+Run the `ecc-fastapi-reviewer` agent with that scope and relay its report.
 
-```text
-/ecc-fastapi-review [file-or-directory]
-```
+## Review areas
 
-Without an argument: the backend files changed on the branch (`git diff main...HEAD -- backend/`) and uncommitted ones.
+- Access: `current_user`, `require_admin`, `Depends(require_module("<key>"))`.
+- Sessions: `TenantSession` / `SystemSession` from `backend/app/api/deps.py`, nothing created in handlers.
+- Schemas: `Field` constraints on requests; no secrets in responses.
+- Errors: codes in `detail`, `errors.<code>` in both locales.
+- Audit: `record(...)` in the same transaction, ids only in `details`.
+- Async: blocking work through `asyncio.to_thread`; bounded lists; races on unique inserts.
+- Tests: status, error code, audit event, another workspace, the missing module.
 
-## Review Areas
-
-- Routers in `app/api/` thin; rules in `app/core/` with rule tests.
-- Pydantic request and response models; no secrets or internal fields in responses.
-- Dependencies: `current_user`, `require_admin`, `require_module`, `TenantSession` / `SystemSession`.
-- Async SQLAlchemy and external HTTP (`app/core/rates.py`) without blocking.
-- Error codes in `detail` with texts in `errors.*`; audit events in the same transaction.
-- Money in `Decimal`, dates in the specialist's zone.
-- Tests: rule and API tests, isolation, module access.
-
-## Checks
-
-```bash
-cd backend && uv run ruff check . && uv run pytest
-```
-
-## Expected Output
+## Output
 
 ```text
-[SEVERITY] Short issue title
-File: path/to/file.py:42
-Issue: What is wrong and why it matters.
-Fix: Concrete change to make.
+[SEVERITY] Short title
+File: backend/app/api/x.py:42
+Issue: what is wrong and why it matters here
+Fix: the concrete change
 ```
+
+Then `Tests checked:` and `Residual risk:`.
 
 ## Related
 
-- Agents: `ecc-fastapi-reviewer`, `ecc-database-reviewer`, `ecc-security-reviewer`
-- Rules: `.claude/rules/python/`
-- Commands: `/ecc-code-review`, `/ecc-react-review`
+- `/ecc-python-review` for the rest of the backend, `ecc-database-reviewer` for models and migrations, `/security-review` or `ecc-security-reviewer` for a security pass.
