@@ -16,6 +16,11 @@ frontend/public/assets/ocr/
 .env
 .env.*
 !.env.example
+# Claude Code: personal settings and working notes (.claude/commands/ecc-save-session.md,
+# .claude/skills/ecc-tdd-workflow/SKILL.md)
+.claude/settings.local.json
+.claude/session-data/
+.claude/tdd/
 # OS / editors
 .DS_Store
 Thumbs.db
