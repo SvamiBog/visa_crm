@@ -16,6 +16,9 @@ frontend/public/assets/ocr/
 .env
 .env.*
 !.env.example
+# Claude Code: personal settings and the desktop app's worktrees
+.claude/settings.local.json
+.claude/worktrees/
 # OS / editors
 .DS_Store
 Thumbs.db
