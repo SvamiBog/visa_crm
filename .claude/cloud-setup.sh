@@ -37,6 +37,8 @@ else
 fi
 
 # PostgreSQL 16 (the default cloud image has it; an image without it gets it from apt).
+# Production and CI run 18; the tests need only a server on TEST_DATABASE_URL, so they
+# pass on 16 too, but a feature added in 17 or 18 fails here and passes in CI.
 if ! command -v pg_ctlcluster >/dev/null; then
   { apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q postgresql; } ||
     warn "PostgreSQL could not be installed"

@@ -84,7 +84,7 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 
 Только в окружении **production**. В `staging` сервис не создавайте: его копировал бы каждый стенд PR.
 
-1. **Версия Postgres.** Postgres → **Data** → Query: `SHOW server_version;`. Если первая цифра не 16, позже понадобится переменная `PG_MAJOR` (шаг 4): `pg_dump` должен быть той же версии, что сервер, или новее.
+1. **Версия Postgres.** Postgres → **Data** → Query: `SHOW server_version;`. Если первая цифра не 18, позже понадобится переменная `PG_MAJOR` (шаг 4): `pg_dump` должен быть той же версии, что сервер, или новее.
 2. **Создание сервиса.** **+ Create → GitHub Repo** → этот репозиторий. Назовите сервис `backup`.
 3. **Settings:**
    - Source → **Root Directory**: `ops/backup` (Railway соберёт `ops/backup/Dockerfile`);
@@ -112,7 +112,7 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 
    - `Postgres` и `Files` — имена сервиса базы и бакета, как в deploy.md.
    - Если бакета файлов ещё нет, вместо `S3_*` поставьте `BACKUP_FILES=off`. Когда бакет появится, верните `S3_*` и уберите `BACKUP_FILES`.
-   - `PG_MAJOR=<версия>` — только если на шаге 1 вышла не 16.
+   - `PG_MAJOR=<версия>` — только если на шаге 1 вышла не 18.
    - `BACKUP_HEARTBEAT_URL` — по желанию: адрес сервиса-наблюдателя (например, healthchecks.io). Скрипт обращается к нему после каждой успешной копии, и наблюдатель пишет вам, если копии перестали приходить.
 5. **Первый запуск.** **Deploy**. В логах должно быть `backup: db/daily/visacrm-….dump.age, N bytes` и `backup: files mirrored, …`. В B2 в бакете появятся `db/daily/` и `files/`. Если запуск красный, причина — в последних строках лога: `… is not set`, ошибка `pg_dump` или `rclone`.
 
@@ -168,7 +168,7 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 
 Копия, которую ни разу не восстанавливали, — не копия.
 
-1. **Пустая база.** `docker compose up -d db`, затем:
+1. **Пустая база.** `docker compose up -d db` — это Postgres 18, как в production: копию от `pg_dump` 18 в базу младшей версии не восстановить. Если `db` не запускается, а в `docker compose logs db` — `Error: in 18+…`, остался том от Postgres 16: README → «Запуск локально». Затем:
 
    ```bash
    docker compose exec db createdb -U visacrm restore_drill

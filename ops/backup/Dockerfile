@@ -1,7 +1,7 @@
 # Backup job (backlog 0.11, docs/backup.md): a Railway cron service next to the web
 # service, built from this directory. pg_dump must be of the production server's major
 # version or newer, so PG_MAJOR follows it (SHOW server_version on the Railway database).
-ARG PG_MAJOR=16
+ARG PG_MAJOR=18
 FROM postgres:${PG_MAJOR}-bookworm
 
 RUN apt-get update \

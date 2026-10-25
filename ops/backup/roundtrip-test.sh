@@ -24,7 +24,7 @@ cleanup() {
 trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-docker build --quiet --build-arg PG_MAJOR=16 -t "$IMAGE" ops/backup >/dev/null
+docker build --quiet --build-arg PG_MAJOR=18 -t "$IMAGE" ops/backup >/dev/null
 
 # A local S3 server for both buckets: the app's files and the external backup.
 docker run -d --name backup-s3 --network host "$S3_SERVER_IMAGE" \

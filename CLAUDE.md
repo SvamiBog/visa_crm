@@ -27,7 +27,7 @@ CRM для визовика (специалиста, который ведёт �
 ## Команды
 
 ```bash
-docker compose up -d                     # локальный Postgres 16 и Mailpit (письма — http://localhost:8025)
+docker compose up -d                     # локальный Postgres 18 и Mailpit (письма — http://localhost:8025)
 cd backend && cp .env.example .env
 uv sync                                  # зависимости (создаст uv.lock — коммитить)
 uv run alembic upgrade head              # миграции
