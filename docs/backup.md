@@ -55,23 +55,26 @@ docker run --rm --entrypoint age-keygen visacrm-backup > visacrm-backup-key.txt
 2. **Бакет.** B2 Cloud Storage → **Buckets** → **Create a Bucket**:
    - Files in Bucket — **Private**;
    - Default Encryption — Enable;
-   - **Object Lock — Enable.** Включить можно только при создании бакета;
+   - **Object Lock — Enable.** Включите сразу: выключить его потом нельзя;
    - имя, например `visacrm-backup-<что-то своё>`: имена бакетов общие для всех клиентов B2.
-3. **Блокировка удаления.** В настройках бакета → Object Lock → Default Retention Policy: режим **Compliance**, **30 дней**.
-4. **Сроки хранения.** Lifecycle Settings → **Use custom lifecycle rules**, три правила:
+3. **Блокировка удаления.** В списке бакетов нажмите у бакета **Object Lock: Enabled**, укажите срок **30** дней и нажмите **Save changes**. Срок действует для файлов, загруженных после сохранения, поэтому задайте его до первого запуска бэкапа.
+4. **Сроки хранения.** **Lifecycle Settings** → **Use custom lifecycle rules**, три правила. Каждое — со своим **File Path**, поле дней, которого нет в таблице, оставьте пустым. Сохраните кнопкой **Update Bucket**. Правило с пустым File Path действует на весь бакет — такого не делайте.
 
-   | File name prefix | Days from uploading to hiding | Days from hiding to deleting |
+   | File Path | Days from uploading to hiding | Days from hiding to deleting |
    | --- | --- | --- |
    | `db/daily/` | 30 | 1 |
    | `db/monthly/` | 365 | 1 |
    | `files/` | — | 30 |
 
-5. **Ключ для бэкапа.** Application Keys → **Add a New Application Key**:
-   - доступ только к этому бакету;
-   - тип доступа **Read and Write** (удаление нужно зеркалу файлов; заблокированные копии этот ключ всё равно удалить не может).
+5. **Ключ для бэкапа.** **Application Keys** → **Add a New Application Key**:
+   - Name of Key — `railway-backup`;
+   - Allow access to Bucket(s) — только этот бакет;
+   - Type of Access — **Read and Write** (удаление нужно зеркалу файлов; заблокированные копии этот ключ всё равно удалить не может);
+   - **Allow List All Bucket Names** — отметьте: без неё ключ одного бакета получает ошибку авторизации на части запросов S3;
+   - File name prefix и Duration — пусто.
 
    Сохраните `keyID` и `applicationKey`: второй показывается один раз.
-6. **Ключ для восстановления.** Второй ключ, тот же бакет, тип **Read Only**. Его храните рядом с закрытым ключом age, в Railway он не нужен.
+6. **Ключ для восстановления.** Второй ключ, `restore`: тот же бакет, тип **Read Only**, та же галочка. Его храните рядом с закрытым ключом age, в Railway он не нужен.
 7. **Адрес бакета.** На странице бакета указан **Endpoint**, например `s3.eu-central-003.backblazeb2.com`; его средняя часть — регион (`eu-central-003`).
 
 ## 3. Сервис `backup` в Railway
