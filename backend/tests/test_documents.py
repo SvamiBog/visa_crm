@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import storage
 from app.core.config import get_settings
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, give_cases, login
+from tests.test_cases import open_case
 
 PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
 JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + b"\x11" * 64
@@ -147,8 +148,10 @@ async def test_employee_needs_the_clients_module_and_deletes_only_own_files(
     tenant_id = await as_specialist(client, make_user)
     anna = await contact(client)
     specialists = (await upload(client, anna)).json()
+    assert (await open_case(client, anna)).status_code == 201
     client.cookies.clear()
     await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    await give_cases(owner_engine, "olga@example.com")
     await login(client, "olga@example.com")
     denied = await client.get(f"/api/contacts/{anna}/documents/{specialists['id']}")
     assert denied.status_code == 403 and denied.json()["detail"] == "module_disabled"

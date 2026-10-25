@@ -266,7 +266,8 @@ async def _next_numbers(session: AsyncSession, tenant_id: uuid.UUID, count: int)
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"visa_cases:{tenant_id}"},
     )
-    last = await session.scalar(select(func.coalesce(func.max(VisaCase.number), 0))) or 0
+    # Counted past the employee's view: they do not see every case (migration 0031).
+    last = await session.scalar(select(func.last_case_number())) or 0
     return [last + i for i in range(1, count + 1)]
 
 

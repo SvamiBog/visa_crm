@@ -47,6 +47,7 @@ from app.models import (
     CountryRule,
     Decision,
     EmailOwner,
+    EmployeeCase,
     LeadChannel,
     Messenger,
     OwnChecklistItem,
@@ -673,6 +674,13 @@ async def _workspace(
             session.add(case)
             made["cases"] += 1
             await session.flush()
+            # The demo employee works on every third case in work and sees only those.
+            if number % 3 == 0 and stage != CaseStage.RESULT:
+                session.add(
+                    EmployeeCase(
+                        user_id=staff.id, case_id=case.id, tenant_id=t, granted_by=owner.id
+                    )
+                )
             queued = _appointment(session, case, rule, today, first_seen, rng)
             if stage != CaseStage.WAITING and rng.random() < 0.6:
                 owner_kind = rng.choice(list(EmailOwner))

@@ -7,6 +7,7 @@ from app.api.analytics import router as analytics_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.bookings import router as bookings_router
+from app.api.case_access import router as case_access_router
 from app.api.cases import router as cases_router
 from app.api.checklists import admin_router as admin_checklists_router
 from app.api.checklists import router as checklists_router
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
         contact_templates_router,
         consultations_router,
         cases_router,
+        case_access_router,
         queues_router,
         bookings_router,
         package_router,

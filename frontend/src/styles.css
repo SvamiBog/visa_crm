@@ -1219,6 +1219,22 @@ a.nav-a:hover {
   margin-top: 4px;
 }
 
+/* Who of the employees sees the case: only the specialist sees this block */
+.case-access {
+  margin: 8px 0 0;
+  padding: 4px 0 0;
+  border: 0;
+  border-top: 1px solid var(--c-border);
+}
+
+.case-access legend {
+  padding: 8px 0 0;
+}
+
+.case-access .checkbox {
+  min-height: 36px;
+}
+
 /* Client index: filters, tabs with counts, list and board */
 .filter-bar {
   display: grid;

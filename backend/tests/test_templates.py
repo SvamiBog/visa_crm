@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import storage
 from app.core.config import get_settings
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, give_cases, login
 from tests.test_docx_fill import make_docx, paragraphs, runs
 
 LETTER = make_docx(
@@ -328,6 +328,7 @@ async def test_templates_need_their_module(
                 "WHERE email = 'olga@example.com'"
             )
         )
+    await give_cases(owner_engine, "olga@example.com")
     await login(client, "olga@example.com")
     assert len((await client.get("/api/templates")).json()) == 1
     assert (await upload(client)).status_code == 403

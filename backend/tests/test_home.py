@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login, workspace_today
+from tests.helpers import MakeUser, give_cases, login, workspace_today
 
 
 def day(n: int) -> str:
@@ -232,6 +232,7 @@ async def test_blocks_follow_modules_and_workspaces(
             )
         return await ok(await client.get("/api/home"))
 
+    await give_cases(owner_engine, "olga@example.com")
     await login(client, "olga@example.com")
     # Clients only: no case dates, queues or money.
     home = await give("clients")
@@ -244,6 +245,9 @@ async def test_blocks_follow_modules_and_workspaces(
     assert home["money"] is None
     assert [row["balance"] for row in home["submissions"]["upcoming"]] == [None, None]
     assert home["funnel"]["visas"] == 1
+    # With money too, but a balance with a registrar covers every case: the specialist's.
+    home = await give("clients", "cases", "finances")
+    assert home["money"]["debt"] != "0.00" and home["money"]["registrars_due"] == []
     home = await give()
     assert home["clients"] is home["submissions"] is home["money"] is None
 

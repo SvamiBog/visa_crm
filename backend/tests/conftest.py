@@ -128,6 +128,7 @@ def migrated_database() -> str:
 # Everything a test may write in workspaces; emptied after each test.
 WORKSPACE_TABLES = (
     "audit_events",
+    "employee_cases",
     "import_rows",
     "import_runs",
     "import_mappings",

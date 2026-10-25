@@ -1,4 +1,6 @@
 """A specialist's employees: invite, choose modules, block, new password (backlog 0.7).
+The cases an employee sees are given in the case itself (app/api/case_access.py); the
+list shows how many each has.
 
 Everything runs in the specialist's own workspace scope (Row-Level Security)."""
 
@@ -8,7 +10,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_specialist
@@ -16,7 +18,7 @@ from app.core.audit import record
 from app.core.modules import ModuleList
 from app.core.security import generate_temporary_password, hash_password
 from app.core.two_factor import reset_two_factor
-from app.models import AuditAction, RecoveryCode, User, UserRole, UserSession
+from app.models import AuditAction, EmployeeCase, RecoveryCode, User, UserRole, UserSession
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
@@ -44,6 +46,8 @@ class EmployeeOut(BaseModel):
     two_factor_enabled: bool
     last_login_at: datetime | None
     created_at: datetime
+    # Cases the specialist gave them; their groups and what they created come on top.
+    case_count: int
 
 
 class EmployeeCreated(BaseModel):
@@ -55,7 +59,20 @@ class TemporaryPassword(BaseModel):
     temporary_password: str
 
 
-def _out(user: User) -> EmployeeOut:
+async def _case_counts(session: TenantSession, ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+    rows = await session.execute(
+        select(EmployeeCase.user_id, func.count())
+        .where(EmployeeCase.user_id.in_(ids))
+        .group_by(EmployeeCase.user_id)
+    )
+    return dict(rows.tuples().all())
+
+
+async def _out_one(session: TenantSession, user: User) -> EmployeeOut:
+    return _out(user, (await _case_counts(session, [user.id])).get(user.id, 0))
+
+
+def _out(user: User, case_count: int) -> EmployeeOut:
     return EmployeeOut(
         id=user.id,
         full_name=user.full_name,
@@ -66,6 +83,7 @@ def _out(user: User) -> EmployeeOut:
         two_factor_enabled=user.totp_enabled_at is not None,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
+        case_count=case_count,
     )
 
 
@@ -107,12 +125,15 @@ def _record(
 
 @router.get("")
 async def list_employees(specialist: Specialist, session: TenantSession) -> list[EmployeeOut]:
-    employees = await session.scalars(
-        select(User)
-        .where(User.tenant_id == specialist.tenant_id, User.role == UserRole.EMPLOYEE)
-        .order_by(User.created_at)
-    )
-    return [_out(e) for e in employees]
+    employees = (
+        await session.scalars(
+            select(User)
+            .where(User.tenant_id == specialist.tenant_id, User.role == UserRole.EMPLOYEE)
+            .order_by(User.created_at)
+        )
+    ).all()
+    counts = await _case_counts(session, [e.id for e in employees])
+    return [_out(e, counts.get(e.id, 0)) for e in employees]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -141,7 +162,7 @@ async def create_employee(
     _record(session, AuditAction.EMPLOYEE_CREATED, specialist, employee)
     await session.commit()
     await session.refresh(employee)
-    return EmployeeCreated(employee=_out(employee), temporary_password=password)
+    return EmployeeCreated(employee=_out(employee, 0), temporary_password=password)
 
 
 @router.patch("/{employee_id}")
@@ -161,7 +182,7 @@ async def update_employee(
     if changes:
         _record(session, AuditAction.EMPLOYEE_UPDATED, specialist, employee, details)
     await session.commit()
-    return _out(employee)
+    return await _out_one(session, employee)
 
 
 async def _sign_out(session: TenantSession, employee: User) -> None:
@@ -177,7 +198,7 @@ async def block_employee(
     await _sign_out(session, employee)
     _record(session, AuditAction.EMPLOYEE_BLOCKED, specialist, employee)
     await session.commit()
-    return _out(employee)
+    return await _out_one(session, employee)
 
 
 @router.post("/{employee_id}/unblock")
@@ -188,7 +209,7 @@ async def unblock_employee(
     employee.is_active = True
     _record(session, AuditAction.EMPLOYEE_UNBLOCKED, specialist, employee)
     await session.commit()
-    return _out(employee)
+    return await _out_one(session, employee)
 
 
 @router.post("/{employee_id}/reset-password")

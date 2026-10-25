@@ -51,6 +51,7 @@ from app.models import (
     CountryRule,
     ReminderDismissal,
     Tenant,
+    UserRole,
     VisaCase,
     VisaOutcome,
 )
@@ -409,7 +410,8 @@ async def collect(
         await _booking_deadlines(session, out, s, contact_id)
         await _visas(session, out, s, contact_id)
         await _appeals(session, out, s, contact_id)
-        if money and contact_id is None:
+        # A registrar's balance covers every case: the specialist's, not an employee's.
+        if money and contact_id is None and user.role != UserRole.EMPLOYEE:
             await _registrars(session, out)
 
     keys = [item.key for item in out.items if item.key]

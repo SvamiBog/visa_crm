@@ -98,6 +98,12 @@ async def test_demo_workspaces_work_like_real_ones(
     checklist = (await client.get(f"/api/checklists/{poland}")).json()
     assert len(checklist["shared"]) == 8 and len(checklist["own"]) == 2
 
+    # The demo employee sees some of the clients: those of the cases given to them.
+    client.cookies.clear()
+    await login(client, "visa1.staff@demo.visacrm.test", PASSWORD)
+    staff = (await client.post("/api/contacts/search", json={})).json()
+    assert 0 < staff["counts"]["all"] < index["counts"]["all"]
+
     # The other demo specialist sees only their own clients.
     client.cookies.clear()
     await login(client, specialist_email(2), PASSWORD)

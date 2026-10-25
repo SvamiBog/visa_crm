@@ -280,23 +280,25 @@ async def _check_refs(session: AsyncSession, fields: dict[str, Any]) -> None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
 
 
-async def _phone_owner(
+async def _phone_conflict(
     session: AsyncSession, phone: str | None, exclude: uuid.UUID | None = None
-) -> uuid.UUID | None:
+) -> JSONResponse | None:
+    """409 when another card already has this number. It points to that card if the user
+    sees it; an employee is only told the number is taken when the card is not theirs
+    (migration 0031: the check looks past their view)."""
     if phone is None:
         return None
     query = select(Contact.id).where(Contact.phone == phone)
     if exclude is not None:
         query = query.where(Contact.id != exclude)
-    return await session.scalar(query)
-
-
-def _phone_taken(contact_id: uuid.UUID) -> JSONResponse:
-    """409 that points to the card that already has this number."""
-    return JSONResponse(
-        status_code=status.HTTP_409_CONFLICT,
-        content={"detail": "phone_taken", "contact_id": str(contact_id)},
-    )
+    if (owner := await session.scalar(query)) is not None:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": "phone_taken", "contact_id": str(owner)},
+        )
+    if await session.scalar(select(func.contact_phone_taken(phone, exclude))):
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detail": "phone_taken"})
+    return None
 
 
 async def _notes(session: AsyncSession, contact_id: uuid.UUID) -> list[NoteOut]:
@@ -498,8 +500,8 @@ async def _rows(
 async def create_contact(body: ContactIn, user: Member, session: TenantSession) -> Any:
     fields = body.model_dump(exclude={"passport", *NAME_PARTS, *LATIN_PARTS})
     await _check_refs(session, fields)
-    if (existing := await _phone_owner(session, body.phone)) is not None:
-        return _phone_taken(existing)
+    if (conflict := await _phone_conflict(session, body.phone)) is not None:
+        return conflict
     contact = Contact(
         tenant_id=user.tenant_id,
         created_by=user.id,
@@ -516,10 +518,9 @@ async def create_contact(body: ContactIn, user: Member, session: TenantSession) 
         await session.flush()
     except IntegrityError:  # the same number saved a moment earlier by someone else
         await session.rollback()
-        existing = await _phone_owner(session, body.phone)
-        if existing is None:
+        if (conflict := await _phone_conflict(session, body.phone)) is None:
             raise
-        return _phone_taken(existing)
+        return conflict
     _audit(session, AuditAction.CONTACT_CREATED, user, contact.id)
     await session.commit()
     await session.refresh(contact)
@@ -546,9 +547,9 @@ async def update_contact(
         changes |= latin_fields(**{f: changes.get(f, getattr(contact, f)) for f in LATIN_PARTS})
     await _check_refs(session, changes)
     if "phone" in changes and (
-        existing := await _phone_owner(session, changes["phone"], exclude=contact.id)
+        conflict := await _phone_conflict(session, changes["phone"], exclude=contact.id)
     ):
-        return _phone_taken(existing)
+        return conflict
     changed = [f for f, v in changes.items() if getattr(contact, f) != v]
     for field, value in changes.items():
         setattr(contact, field, value)

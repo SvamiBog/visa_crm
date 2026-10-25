@@ -15,6 +15,7 @@ type Employee = {
   two_factor_enabled: boolean;
   last_login_at: string | null;
   created_at: string;
+  case_count: number;
 };
 
 type Action = "block" | "unblock" | "reset-password";
@@ -65,6 +66,7 @@ export function EmployeesPage() {
         <div>
           <h1>{t("employees.title")}</h1>
           <div className="muted">{t("employees.subtitle")}</div>
+          <div className="muted small">{t("employees.casesHint")}</div>
         </div>
         {!formOpen && (
           <button type="button" className="btn btn-p" onClick={() => setFormOpen(true)}>
@@ -118,6 +120,7 @@ export function EmployeesPage() {
                   <th>{t("employees.colName")}</th>
                   <th>{t("auth.email")}</th>
                   <th>{t("admin.colModules")}</th>
+                  <th>{t("employees.colCases")}</th>
                   <th>{t("admin.colStatus")}</th>
                   <th>{t("employees.colTwoFactor")}</th>
                   <th aria-label={t("admin.colActions")} />
@@ -133,6 +136,7 @@ export function EmployeesPage() {
                         ? e.modules.map((m) => t(`modules.name.${m}`)).join(", ")
                         : t("employees.noModules")}
                     </td>
+                    <td className="muted">{e.case_count}</td>
                     <td>
                       <StatusChip e={e} />
                     </td>

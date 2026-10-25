@@ -4,8 +4,9 @@ balance: an advance not spent yet or a debt (rules: app/core/registrar_ledger.py
 
 A talon is the case's own (case finances, 1.9), so the profit of a case and the ledger
 count the same amount. Cases of a registrar with no talon yet are listed to charge one
-from the price list. Closed by the «clients», «cases» and «finances» modules; events
-carry ids, never amounts.
+from the price list. Closed by the «clients», «cases» and «finances» modules and kept to
+the specialist: a balance covers every case, and an employee sees only theirs (вопрос 17).
+Events carry ids, never amounts.
 """
 
 import uuid
@@ -19,7 +20,13 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
+from app.api.deps import (
+    CurrentUser,
+    TenantSession,
+    require_module,
+    require_specialist,
+    workspace_today,
+)
 from app.api.finances import (
     _get,
     _rate,
@@ -49,6 +56,7 @@ router = APIRouter(
         Depends(require_module("clients")),
         Depends(require_module("cases")),
         Depends(require_module("finances")),
+        Depends(require_specialist),
     ],
 )
 

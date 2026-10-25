@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login, workspace_today
+from tests.helpers import MakeUser, give_cases, login, workspace_today
 
 
 def day(n: int) -> str:
@@ -215,11 +215,23 @@ async def test_reminders_follow_modules_and_workspaces(
                 "WHERE email = 'olga@example.com'"
             )
         )
+    await give_cases(owner_engine, "olga@example.com")
     await login(client, "olga@example.com")
     kinds = {i["kind"] for i in (await client.get("/api/reminders")).json()}
     assert "birthday" in kinds and not kinds & {"balance_due", "registrar_advance"}
     settings = (await client.get("/api/reminders/settings")).json()
     assert (await client.put("/api/reminders/settings", json=settings)).status_code == 403
+    # With money: balances of their cases, but not the registrar's advance, which covers
+    # every case of the workspace.
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE users SET modules = '{clients,cases,tasks,finances}' "
+                "WHERE email = 'olga@example.com'"
+            )
+        )
+    kinds = {i["kind"] for i in (await client.get("/api/reminders")).json()}
+    assert "balance_due" in kinds and "registrar_advance" not in kinds
 
     async with owner_engine.begin() as conn:
         await conn.execute(

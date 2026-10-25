@@ -19,6 +19,7 @@ from app.core.config import get_settings
 APP_ROLE = "visacrm_app"
 
 _SCOPE_KEY = "rls_scope"
+_EMPLOYEE_KEY = "rls_employee"
 _SYSTEM = "system"
 
 
@@ -52,9 +53,13 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-def scope_to_tenant(session: AsyncSession, tenant_id: uuid.UUID) -> None:
-    """Limit the session to one tenant's rows. Call before the first query."""
+def scope_to_tenant(
+    session: AsyncSession, tenant_id: uuid.UUID, employee_id: uuid.UUID | None = None
+) -> None:
+    """Limit the session to one tenant's rows. Call before the first query. An employee's
+    session also sees only their cases and clients (policy employee_scope, migration 0031)."""
     _set_scope(session, tenant_id)
+    session.info[_EMPLOYEE_KEY] = employee_id
 
 
 def scope_to_system(session: AsyncSession) -> None:
@@ -75,14 +80,17 @@ def _apply_rls_scope(
     # SET LOCAL lasts until the transaction ends, so this runs at the start of every
     # transaction, including the ones after commit(). No scope means no tenant rows.
     scope = session.info.get(_SCOPE_KEY)
+    employee = session.info.get(_EMPLOYEE_KEY)
     connection.execute(text(f"SET LOCAL ROLE {APP_ROLE}"))
     connection.execute(
         text(
             "SELECT set_config('app.tenant_id', :tenant_id, true), "
-            "set_config('app.system', :system, true)"
+            "set_config('app.system', :system, true), "
+            "set_config('app.employee_id', :employee, true)"
         ),
         {
             "tenant_id": str(scope) if isinstance(scope, uuid.UUID) else "",
             "system": "on" if scope == _SYSTEM else "off",
+            "employee": str(employee) if employee is not None else "",
         },
     )

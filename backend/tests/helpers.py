@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 
 import pyotp
 from httpx import AsyncClient, Response
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.clock import DEFAULT_TIMEZONE
 
@@ -82,3 +84,19 @@ async def enable_two_factor(client: AsyncClient) -> tuple[str, list[str]]:
     )
     assert enabled.status_code == 200, enabled.text
     return secret, enabled.json()["recovery_codes"]
+
+
+async def give_cases(owner_engine: AsyncEngine, email: str, *case_ids: str) -> None:
+    """Give an employee cases straight in the database, or every case of their workspace
+    when none is named: an employee sees only the cases given to them
+    (app/api/case_access.py)."""
+    which = "c.id = ANY(CAST(:ids AS uuid[]))" if case_ids else "c.tenant_id = u.tenant_id"
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO employee_cases (user_id, case_id, tenant_id) "
+                "SELECT u.id, c.id, c.tenant_id FROM users u JOIN visa_cases c "
+                f"ON c.tenant_id = u.tenant_id WHERE u.email = :email AND {which}"
+            ),
+            {"email": email, "ids": list(case_ids)},
+        )

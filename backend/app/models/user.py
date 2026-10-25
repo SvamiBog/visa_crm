@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     LargeBinary,
     String,
+    UniqueConstraint,
     func,
     text,
 )
@@ -39,6 +40,8 @@ class User(Base):
     __table_args__ = (
         CheckConstraint("(role = 'admin') = (tenant_id IS NULL)", name="admin_has_no_tenant"),
         CheckConstraint("email = lower(email)", name="email_lowercase"),
+        # Target of (user_id, tenant_id) keys: a grant cannot name another workspace's user.
+        UniqueConstraint("id", "tenant_id", name="uq_users_id_tenant"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
