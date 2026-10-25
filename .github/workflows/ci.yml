@@ -26,6 +26,21 @@ jobs:
       TEST_DATABASE_URL: postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm_test
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A pull request is checked out as its merge commit; its first parent is the base.
+          fetch-depth: 2
+      # Migrations are not edited after merge (CLAUDE.md → «Как работать»): a pull request
+      # only adds files to migrations/versions. .claude/hooks/guard-migrations.cjs stops such
+      # edits inside Claude Code; this catches the rest.
+      - name: Merged migrations are unchanged
+        if: github.event_name == 'pull_request'
+        run: |
+          changed="$(git diff --name-only --diff-filter=DMR HEAD^1 HEAD -- migrations/versions)"
+          if [ -n "$changed" ]; then
+            echo "Merged migrations edited, renamed or removed (add a new revision instead):"
+            echo "$changed"
+            exit 1
+          fi
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
       - run: uv run ruff check .
