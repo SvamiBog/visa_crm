@@ -1,7 +1,8 @@
 # Local Postgres and a mail catcher for development: docker compose up -d
 services:
   db:
-    image: postgres:16
+    # The major version of production (Railway) and CI.
+    image: postgres:18
     environment:
       POSTGRES_USER: visacrm
       POSTGRES_PASSWORD: visacrm
@@ -9,7 +10,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18+ keeps its data in /var/lib/postgresql/18/docker: the volume is the
+      # parent directory, so a later major version can sit next to it for pg_upgrade.
+      - pgdata:/var/lib/postgresql
   # Catches every letter the app sends: SMTP on 1025, letters at http://localhost:8025.
   mail:
     image: axllent/mailpit:v1.21

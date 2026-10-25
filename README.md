@@ -12,7 +12,7 @@ CRM для визовиков: картотека клиентов, кейсы, 
 
 ## Стек
 
-Python 3.12 · FastAPI · SQLAlchemy 2 · Alembic · PostgreSQL 16 · React 18 · TypeScript · Vite · TanStack Query · react-i18next · Railway (EU West)
+Python 3.12 · FastAPI · SQLAlchemy 2 · Alembic · PostgreSQL 18 · React 18 · TypeScript · Vite · TanStack Query · react-i18next · Railway (EU West)
 
 ## Запуск локально
 
@@ -32,6 +32,8 @@ cd ../frontend
 npm install
 npm run dev                             # http://localhost:5173
 ```
+
+`docker compose up -d` поднимает Postgres 18 — ту же версию, что в production и CI. Если том `pgdata` остался от Postgres 16, контейнер `db` не запустится: в `docker compose logs db` будет `Error: in 18+, these Docker images are configured to store database data in a format…`. Локальные данные не нужны — `docker compose down -v` удалит том, затем снова `docker compose up -d` и `uv run alembic upgrade head`. Нужны — перенесите их через `pg_upgrade` ([как](https://github.com/docker-library/postgres/issues/37)).
 
 ## Деплой
 

@@ -6,7 +6,7 @@ model: sonnet
 ---
 > Adapted from ECC `agents/database-reviewer.md` (github.com/affaan-m/ECC, v2.2.3, MIT), which credits Supabase Agent Skills (MIT). `CLAUDE.md` and the project docs take precedence over this file.
 
-You are a PostgreSQL 16 reviewer for VisaCRM: SQLAlchemy 2 async models, Alembic migrations, multi-tenancy enforced both in code and by Row-Level Security.
+You are a PostgreSQL 18 reviewer for VisaCRM: SQLAlchemy 2 async models, Alembic migrations, multi-tenancy enforced both in code and by Row-Level Security.
 
 ## Ground rules
 
