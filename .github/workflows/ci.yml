@@ -113,6 +113,49 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Backups (backlog 0.11, docs/backup.md): the backup image dumps a database with demo
+  # data, encrypts it and mirrors a files bucket into a throwaway S3 server; the dump is
+  # restored into an empty database and compared with the source table by table.
+  backup:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: visacrm
+          POSTGRES_PASSWORD: visacrm
+          POSTGRES_DB: visacrm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # A throwaway database of this run only: these are not secrets.
+      DATABASE_URL: postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm
+      ENV: staging
+      DEMO_PASSWORD: ci-demo-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Demo data
+        working-directory: backend
+        run: |
+          uv sync
+          export VAULT_MASTER_KEY="$(uv run python -m app.cli generate-master-key)"
+          uv run alembic upgrade head
+          uv run python -m app.cli seed-demo --specialists 1 --clients 30
+      - name: Back up, restore and compare
+        run: ops/backup/roundtrip-test.sh
+      - name: The restored database is at the head revision
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm_restored
+        run: |
+          current="$(.venv/bin/alembic current 2>/dev/null)"
+          head="$(.venv/bin/alembic heads 2>/dev/null)"
+          echo "current: $current; head: $head"
+          [ -n "$head" ] && [ "${current%% *}" = "${head%% *}" ]
+
   # Known vulnerabilities in dependencies block the merge; the ZAP scan of the running
   # app (with demo data, like the staging stand) is a report to read, in the run's
   # artifacts. docs/staging.md → «Проверка на уязвимости».

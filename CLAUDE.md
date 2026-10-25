@@ -12,6 +12,7 @@ CRM для визовика (специалиста, который ведёт �
 | docs/roadmap.md | Дорожная карта: все этапы 0–7, сроки, гейты, эпики, зависимости и статусы |
 | docs/deploy.md | Деплой на Railway по шагам: проект, база, переменные, первый админ, резервные копии, staging |
 | docs/operations.md | Эксплуатация: первый админ, мастер-ключ сейфа и его ротация, демо-данные |
+| docs/backup.md | Резервные копии production: два слоя (Railway и внешний бэкап в B2), ключ шифрования, сервис `backup`, восстановление, проверка раз в месяц |
 | docs/staging.md | Тестовый стенд: окружение staging и стенды PR на Railway, демо-аккаунты, проверка на уязвимости |
 | docs/staging-setup.md | Настройка стенда на Railway по шагам: окружение, переменные, Mailpit, код входа, стенды на каждый PR |
 | docs/backlog.md | Задачи этапов 0–2 по порядку, с критериями готовности |
@@ -20,6 +21,7 @@ CRM для визовика (специалиста, который ведёт �
 | docs/prototype/ | Макеты экранов (справочно, не код) |
 | backend/ | FastAPI, SQLAlchemy 2 (async), Alembic, pytest |
 | frontend/ | React + TypeScript + Vite, TanStack Query, react-i18next |
+| ops/backup/ | Сервис внешнего бэкапа (cron в Railway): `backup.sh`, `restore.sh`, образ; проверка в CI — `roundtrip-test.sh` |
 | .claude/ | Правила, хуки, команды, агенты и скиллы Claude Code — см. «Claude Code» в конце |
 
 ## Команды
