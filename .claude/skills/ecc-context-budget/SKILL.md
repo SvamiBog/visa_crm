@@ -29,8 +29,8 @@ Estimate token consumption (prose: words × 1.3; code-heavy files: chars / 4; Ru
 - Flag sections that repeat what `.claude/rules/` or `docs/` already say
 
 **Rules** (`.claude/rules/**/*.md`)
-- Files without `paths:` frontmatter load in every session: their total should stay within ~3–4K tokens
-- Files with `paths:` (`python/`, `typescript/`) load only when matching files are read
+- Files without `paths:` frontmatter (`ecc/common/`) load in every session: their total should stay within ~3–4K tokens
+- Files with `paths:` (`ecc/python/`, `ecc/typescript/`) load only when matching files are read
 - Detect overlap between rules and with `CLAUDE.md`
 
 **Agents** (`.claude/agents/*.md`)

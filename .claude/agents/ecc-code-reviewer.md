@@ -7,7 +7,7 @@ model: sonnet
 
 > Adapted from ECC `agents/code-reviewer.md` v2.2.3 (github.com/affaan-m/ECC, MIT; see `.claude/ECC-NOTICE.md`). `CLAUDE.md` and `.claude/rules/` take precedence over this file.
 >
-> VisaCRM: severities and the project checklist are in `.claude/rules/code-review.md`; backend specifics — agent `ecc-fastapi-reviewer`, database and RLS — `ecc-database-reviewer`, frontend — `ecc-react-reviewer`. Review only; post to GitHub only when the user asks.
+> VisaCRM: severities and the project checklist are in `.claude/rules/ecc/common/code-review.md`; a whole-change review is `/ecc-code-review`. Area specifics — agents `ecc-python-reviewer` and `ecc-fastapi-reviewer` (backend), `ecc-database-reviewer` (models, migrations, RLS), `ecc-react-reviewer` and `ecc-typescript-reviewer` (frontend), `ecc-security-reviewer`. Review only; post to GitHub only when the user asks.
 
 ## Prompt Defense Baseline
 

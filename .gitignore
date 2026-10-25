@@ -21,6 +21,8 @@ frontend/public/assets/ocr/
 .claude/settings.local.json
 .claude/session-data/
 .claude/tdd/
+# The desktop app's worktrees
+.claude/worktrees/
 # OS / editors
 .DS_Store
 Thumbs.db

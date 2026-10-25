@@ -26,6 +26,9 @@ The ECC plugin itself is not installed: cloud sessions load no plugins, so local
 | `.claude/commands/ecc-python-review.md` | `commands/python-review.md` |
 | `.claude/commands/ecc-fastapi-review.md` | `commands/fastapi-review.md` |
 | `.claude/commands/ecc-react-review.md` | `commands/react-review.md` |
+| `.claude/agents/ecc-planner.md` | `agents/planner.md` |
+| `.claude/agents/ecc-tdd-guide.md` | `agents/tdd-guide.md` |
+| `.claude/agents/ecc-code-reviewer.md` | `agents/code-reviewer.md` |
 | `.claude/agents/ecc-python-reviewer.md` | `agents/python-reviewer.md` |
 | `.claude/agents/ecc-fastapi-reviewer.md` | `agents/fastapi-reviewer.md` |
 | `.claude/agents/ecc-database-reviewer.md` | `agents/database-reviewer.md` (credits Supabase Agent Skills, MIT) |
@@ -36,6 +39,7 @@ The ECC plugin itself is not installed: cloud sessions load no plugins, so local
 | `.claude/skills/ecc-database-migrations/SKILL.md` | `skills/database-migrations/SKILL.md` |
 | `.claude/skills/ecc-e2e-testing/SKILL.md` | `skills/e2e-testing/SKILL.md` |
 | `.claude/skills/ecc-i18n-sync/SKILL.md` | `skills/i18n-sync/SKILL.md` |
+| `.claude/skills/ecc-context-budget/SKILL.md` | `skills/context-budget/SKILL.md` |
 
 The hooks in `.claude/hooks/` and `.claude/settings.json` are this project's own and do not come from ECC.
 
