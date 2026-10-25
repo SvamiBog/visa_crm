@@ -32,14 +32,17 @@
 
 ## 1. Ключ шифрования
 
-Делается один раз, на своём компьютере (нужен Docker Desktop):
+Делается один раз, на своём компьютере. Нужен запущенный Docker Desktop: значок кита в трее, статус «Engine running». Команды — из папки репозитория, ключ записывается в папку `visacrm-keys` в домашнем каталоге, вне репозитория:
 
 ```bash
 docker build -t visacrm-backup ops/backup
-docker run --rm --entrypoint age-keygen visacrm-backup > visacrm-backup-key.txt
+mkdir ~/visacrm-keys
+docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o /out/visacrm-backup-key.txt
 ```
 
-Файл `visacrm-backup-key.txt` — **закрытый ключ**. Без него ни одну копию не расшифровать.
+В Windows PowerShell третья команда та же, только с `"$HOME\visacrm-keys:/out"` вместо `~/visacrm-keys:/out`. Файл пишет сама `age-keygen`: перенаправление `>` в PowerShell сохранило бы его в UTF-16, и `age` его не прочитает.
+
+Файл `visacrm-backup-key.txt` — **закрытый ключ**. Без него ни одну копию не расшифровать. Команда печатает `Public key: age1…` — это открытый ключ, та же строка есть и в файле.
 
 1. Сохраните файл в менеджере паролей и сделайте вторую копию офлайн (флешка в надёжном месте).
 2. Удалите файл с диска.
@@ -125,7 +128,7 @@ docker run --rm --entrypoint age-keygen visacrm-backup > visacrm-backup-key.txt
 Делается на своём компьютере с Docker.
 
 1. **Новая база.** Новый Postgres той же версии, например новый сервис в Railway. Временно включите ему публичное подключение (Settings → Networking → TCP Proxy) и возьмите адрес `postgresql://…`.
-2. **Файл `restore.env`** рядом, не в репозитории:
+2. **Файл `restore.env`** в `~/visacrm-keys`, не в репозитории:
 
    ```
    BACKUP_S3_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
@@ -135,13 +138,15 @@ docker run --rm --entrypoint age-keygen visacrm-backup > visacrm-backup-key.txt
    BACKUP_S3_SECRET_KEY=<applicationKey этого ключа>
    BACKUP_AGE_IDENTITY=/keys/visacrm-backup-key.txt
    ```
-3. **Восстановление.** Закрытый ключ age временно положите в папку `keys`:
+3. **Восстановление.** Закрытый ключ age временно положите в `~/visacrm-keys` (вне репозитория), туда же `restore.env`. Команды — из папки репозитория:
 
    ```bash
    docker build -t visacrm-backup ops/backup
-   docker run --rm --env-file restore.env -v "$PWD/keys:/keys:ro" --entrypoint restore.sh \
+   docker run --rm --env-file ~/visacrm-keys/restore.env -v ~/visacrm-keys:/keys:ro --entrypoint restore.sh \
      visacrm-backup latest "postgresql://USER:PASSWORD@HOST:PORT/railway"
    ```
+
+   В PowerShell — `"$HOME\visacrm-keys\restore.env"` и `"$HOME\visacrm-keys:/keys:ro"`, а перенос строки — обратная кавычка `` ` `` вместо `\`.
 
    Вместо `latest` можно указать конкретную копию: `daily/visacrm-20261101T010000Z.dump.age` или `monthly/…`. Список копий — в B2, в бакете.
 
@@ -155,7 +160,7 @@ docker run --rm --entrypoint age-keygen visacrm-backup > visacrm-backup-key.txt
 3. Запустите:
 
    ```bash
-   docker run --rm --env-file restore.env --entrypoint sh visacrm-backup \
+   docker run --rm --env-file ~/visacrm-keys/restore.env --entrypoint sh visacrm-backup \
      -c '. /usr/local/bin/remotes.sh && rclone copy "dest:$BACKUP_S3_BUCKET/files" "files:$S3_BUCKET"'
    ```
 
