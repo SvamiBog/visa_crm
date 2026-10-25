@@ -65,6 +65,7 @@ class AuditAction(StrEnum):
     BOOKING_ADDED = "cases.booking_added"
     BOOKING_UPDATED = "cases.booking_updated"
     BOOKING_DELETED = "cases.booking_deleted"
+    PACKAGE_ITEM_MARKED = "cases.package_item_marked"
     FINANCE_UPDATED = "finances.updated"
     PAYMENT_ADDED = "finances.payment_added"
     PAYMENT_UPDATED = "finances.payment_updated"

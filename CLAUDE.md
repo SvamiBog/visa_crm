@@ -83,6 +83,7 @@ DEMO_PASSWORD=… npx playwright test      # браузерные тесты ф�
 | калькулятор 90/180 | stay_calculator (`app/core/stay.py`) |
 | распознавание паспорта (MRZ) | passport_mrz (`app/core/mrz.py`, `frontend/src/ocr.ts`) |
 | чек-лист документов: общий пункт / свой пункт визовика | checklist_item / own_checklist_item (`app/core/checklists.py`) |
+| пакет кейса: отметка пункта чек-листа («есть / нет / не нужно», дата документа) | package_item (`app/core/package.py`) |
 | тип цели (общий для платформы) | purpose_kind (`PurposeKind`) |
 | шаблон документа / шаблон у клиента | document_template / contact_template (коды — `app/core/templates.py`, подстановка — `app/core/docx_fill.py`) |
 

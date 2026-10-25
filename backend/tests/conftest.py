@@ -128,6 +128,7 @@ WORKSPACE_TABLES = (
     "application_attempts",
     "vault_entries",
     "vault_systems",
+    "package_items",
     "bookings",
     "reminder_dismissals",
     "visa_center_notes",

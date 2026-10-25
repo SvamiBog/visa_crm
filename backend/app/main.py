@@ -21,6 +21,7 @@ from app.api.health import router as health_router
 from app.api.home import router as home_router
 from app.api.imports import router as imports_router
 from app.api.mrz import router as mrz_router
+from app.api.package import router as package_router
 from app.api.queues import router as queues_router
 from app.api.reference import admin_router as admin_reference_router
 from app.api.reference import router as reference_router
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
         cases_router,
         queues_router,
         bookings_router,
+        package_router,
         finances_router,
         registrar_ledger_router,
         reminders_router,

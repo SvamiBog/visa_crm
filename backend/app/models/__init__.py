@@ -34,6 +34,7 @@ from app.models.finance import (
     RegistrarPayment,
     RegistrarPaymentMethod,
 )
+from app.models.package import PackageItem, PackageItemState
 from app.models.queue import ApplicationAttempt, AttemptOutcome, WaitingListEntry
 from app.models.recovery_code import RecoveryCode
 from app.models.reference import (
@@ -97,6 +98,8 @@ __all__ = [
     "LeadChannel",
     "Messenger",
     "OwnChecklistItem",
+    "PackageItem",
+    "PackageItemState",
     "Partner",
     "PartnerTerms",
     "PartnerTermsType",
