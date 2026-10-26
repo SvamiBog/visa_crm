@@ -188,4 +188,4 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 
 | Дата | Копия | Результат |
 | --- | --- | --- |
-| | | |
+| 2026-10-26 | `daily/visacrm-20261026T010124Z.dump.age` | Восстановлена в пустую базу Postgres 18 (`docker compose`); число визовиков, клиентов и кейсов совпало с production |
