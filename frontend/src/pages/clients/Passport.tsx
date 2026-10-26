@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, type ChangeEvent, type ReactNode } from "react";
+import { useId, useState, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiPatch, apiPost } from "../../api";
 import { PASSPORT_FIELDS, contactKey, formatDate, type ContactCard } from "../../contacts";
@@ -16,6 +16,9 @@ export function PassportCard({ card }: { card: ContactCard }) {
   const name = useLocalName();
   const countries = useCountries();
   const [reading, setReading] = useState(false);
+  // Only the filled rows show; the empty ones come with «Показать все поля».
+  const [allFields, setAllFields] = useState(false);
+  const rowsId = useId();
   const canRead = useHasModule("passport_mrz");
   const q = card.questionnaire;
   const c = card.contact;
@@ -52,11 +55,28 @@ export function PassportCard({ card }: { card: ContactCard }) {
       </div>
       {reading && <PassportReader card={card} onDone={() => setReading(false)} />}
       {filled ? (
-        rows.map(([label, value]) => (
-          <Row key={label} label={label}>
-            {value}
-          </Row>
-        ))
+        <>
+          <div id={rowsId}>
+            {rows
+              .filter(([, value]) => allFields || value)
+              .map(([label, value]) => (
+                <Row key={label} label={label}>
+                  {value}
+                </Row>
+              ))}
+          </div>
+          {rows.some(([, value]) => !value) && (
+            <button
+              type="button"
+              className="link-button"
+              aria-expanded={allFields}
+              aria-controls={rowsId}
+              onClick={() => setAllFields(!allFields)}
+            >
+              {t(allFields ? "contacts.hideEmptyFields" : "contacts.showAllFields")}
+            </button>
+          )}
+        </>
       ) : (
         <p className="muted small">{t("contacts.passportEmpty")}</p>
       )}

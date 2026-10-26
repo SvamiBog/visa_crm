@@ -239,6 +239,9 @@ function RegistrarLedger({ id }: { id: string }) {
         />
       )}
 
+      {/* What to do first, then the history of payments and talons. */}
+      {l.missing_talons.length > 0 && <MissingTalons ledger={l} where={where} />}
+
       <section className="card">
         <h2 className="h2">{t("registrars.linesTitle")}</h2>
         {l.lines.length === 0 ? (
@@ -300,8 +303,6 @@ function RegistrarLedger({ id }: { id: string }) {
           </div>
         )}
       </section>
-
-      {l.missing_talons.length > 0 && <MissingTalons ledger={l} where={where} />}
 
       {l.other_currency.length > 0 && (
         <section className="card">

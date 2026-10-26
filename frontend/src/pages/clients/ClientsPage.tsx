@@ -1,10 +1,12 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../../api";
+import { useDisclosure } from "../../components/Disclosure";
 import {
   CASE_STAGES,
+  FROM_INDEX,
   TABS,
   formatDate,
   formatPhone,
@@ -22,10 +24,40 @@ import { ContactForm } from "./ContactForm";
 
 const PAGE_SIZE = 50;
 const VIEW_KEY = "visacrm.clientsView";
+// The search text outlives a visit to a card in the query cache (emptied at logout):
+// it is personal data, so never in the URL or the browser's storage.
+const QUERY_KEY = ["clients-index", "query"] as const;
 
 type View = "list" | "board";
 export type Filters = { country: string; stage: CaseStage | ""; channel: string; registrar: string };
 const NO_FILTERS: Filters = { country: "", stage: "", channel: "", registrar: "" };
+const FILTER_KEYS = ["country", "stage", "channel", "registrar"] as const;
+
+/** Tab, view and filters live in the URL (ids only), so going back to the list keeps them. */
+function readFilters(params: URLSearchParams): Filters {
+  const stage = params.get("stage");
+  return {
+    country: params.get("country") ?? "",
+    stage: CASE_STAGES.find((s) => s === stage) ?? "",
+    channel: params.get("channel") ?? "",
+    registrar: params.get("registrar") ?? "",
+  };
+}
+
+function activeFilters(filters: Filters): number {
+  return FILTER_KEYS.filter((key) => filters[key]).length;
+}
+
+function useRememberedQuery(): [string, (value: string) => void] {
+  const queryClient = useQueryClient();
+  const [value, setValue] = useState(() => queryClient.getQueryData<string>(QUERY_KEY) ?? "");
+  const remember = (next: string) => {
+    setValue(next);
+    queryClient.setQueryDefaults(QUERY_KEY, { gcTime: Infinity });
+    queryClient.setQueryData(QUERY_KEY, next);
+  };
+  return [value, remember];
+}
 
 /** Waits until typing pauses, so every keystroke is not a request. */
 function useDebounced(value: string, delay = 300): string {
@@ -69,24 +101,43 @@ export function ClientsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // Links from the home screen open a tab (?tab=work) or the new client form (?new=1).
-  const [params] = useSearchParams();
-  const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>(() => {
-    const asked = params.get("tab");
-    return TABS.find((key) => key === asked) ?? "all";
-  });
-  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  const [view, setView] = useState<View>(savedView);
+  const [params, setParams] = useSearchParams();
+  const [query, setQuery] = useRememberedQuery();
+  const asked = { tab: params.get("tab"), view: params.get("view") };
+  const tab: Tab = TABS.find((key) => key === asked.tab) ?? "all";
+  const view: View = asked.view === "board" || asked.view === "list" ? asked.view : savedView();
+  const filters = readFilters(params);
   const [formOpen, setFormOpen] = useState(params.get("new") === "1");
+  // The filters are open when one of them is set.
+  const filtersPanel = useDisclosure(activeFilters(filters) > 0);
   const workspace = useQuery({
     queryKey: ["workspace"],
     queryFn: () => apiGet<{ modules: string[] }>("/workspace"),
   });
   const withCases = workspace.data?.modules.includes("cases") ?? false;
   const shownView: View = withCases ? view : "list";
+  // The board has no stage filter (its columns are the stages): a stage is not counted there.
+  const counted = activeFilters(shownView === "list" ? filters : { ...filters, stage: "" });
+
+  const change = (changes: Record<string, string>) =>
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        for (const [key, value] of Object.entries(changes)) {
+          if (value) next.set(key, value);
+          else next.delete(key);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  // «?new=1» opens the form once: back from the new card, the list comes without it.
+  useEffect(() => {
+    if (params.get("new")) change({ new: "" });
+  });
 
   const pick = (next: View) => {
-    setView(next);
+    change({ view: next });
     saveView(next);
   };
 
@@ -112,17 +163,22 @@ export function ClientsPage() {
       )}
 
       <div className="toolbar">
-        {shownView === "list" && (
+        <div className="toolbar-start">
           <label className="field field-inline search-field">
             <span className="visually-hidden">{t("contacts.search")}</span>
             <input
               type="search"
-              placeholder={t("contacts.searchPlaceholder")}
+              placeholder={t(
+                shownView === "list" ? "contacts.searchPlaceholder" : "index.boardSearchPlaceholder",
+              )}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </label>
-        )}
+          <button className="btn" {...filtersPanel.button}>
+            {counted > 0 ? t("index.filtersCount", { count: counted }) : t("index.filters")}
+          </button>
+        </div>
         {withCases && (
           <div className="view-switch" role="group" aria-label={t("index.view")}>
             {(["list", "board"] as const).map((v) => (
@@ -140,17 +196,24 @@ export function ClientsPage() {
         )}
       </div>
 
-      <FilterBar
-        filters={filters}
-        onChange={setFilters}
-        withCases={withCases}
-        withStage={shownView === "list"}
-      />
+      <div {...filtersPanel.panel}>
+        <FilterBar
+          filters={filters}
+          onChange={(next) => change(next)}
+          withCases={withCases}
+          withStage={shownView === "list"}
+        />
+      </div>
 
       {shownView === "list" ? (
-        <ListView query={query} tab={tab} onTab={setTab} filters={filters} />
+        <ListView
+          query={query}
+          tab={tab}
+          onTab={(next) => change({ tab: next === "all" ? "" : next })}
+          filters={filters}
+        />
       ) : (
-        <BoardView filters={filters} />
+        <BoardView filters={filters} query={query} />
       )}
     </div>
   );
@@ -339,18 +402,22 @@ function ListView({
               <tbody>
                 {items.map((row) => (
                   <tr key={row.id}>
-                    <td>
-                      <Link to={`/app/clients/${row.id}`}>{row.full_name}</Link>
+                    <td className="cell-client">
+                      <Link to={`/app/clients/${row.id}`} state={FROM_INDEX}>
+                        {row.full_name}
+                      </Link>
                       <div className="muted small">
                         {row.telegram ? `@${row.telegram}` : formatPhone(row.phone)}
                       </div>
                     </td>
-                    <td>{where(row)}</td>
-                    <td>
+                    <td className="cell-where">{where(row)}</td>
+                    <td className="cell-stage">
                       <RowStage row={row} />
                     </td>
-                    <td className="nowrap">{next(row)}</td>
-                    <td className="muted">{channelById.get(row.lead_channel_id ?? "")?.name}</td>
+                    <td className="nowrap cell-next">{next(row)}</td>
+                    <td className="muted cell-channel">
+                      {channelById.get(row.lead_channel_id ?? "")?.name}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -177,7 +177,14 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
         <h3 className="h3">
           {t("cases.number", { number: c.number })} · {name.country(countryById.get(c.destination_id))}
         </h3>
-        <CaseChip stage={c.stage} outcome={c.outcome} />
+        <div className="head-actions">
+          <CaseChip stage={c.stage} outcome={c.outcome} />
+          {!editing && (
+            <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
+              {t("reference.edit")}
+            </button>
+          )}
+        </div>
       </div>
 
       <ol className="stepper" aria-label={t("cases.stageLabel")}>
@@ -214,11 +221,6 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
           {c.outcome && <Result visaCase={c} />}
           <Group visaCase={c} />
           <CaseAccess visaCase={c} />
-          <div className="form-actions">
-            <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
-              {t("reference.edit")}
-            </button>
-          </div>
         </>
       )}
       <CaseBookings visaCase={c} />

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api";
 import { ME_KEY, useMe, type Role } from "../auth";
 import { Logo } from "./Logo";
@@ -43,11 +43,19 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   const me = useMe();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const menuId = useId();
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  // On a phone the menu hides behind «Меню» so a page starts on the first screen.
+  const [menuOpen, setMenuOpen] = useState(false);
   const workspace = useQuery({
     queryKey: ["workspace"],
     queryFn: () => apiGet<{ modules: string[] }>("/workspace"),
     enabled: area === "cabinet",
   });
+  // The items show once the modules are known, so the menu does not grow under the cursor.
+  const ready = area === "admin" || !workspace.isPending;
   const visible = (item: MenuItem) =>
     (!item.roles || (me.data && item.roles.includes(me.data.role))) &&
     (!item.module || workspace.data?.modules.includes(item.module));
@@ -60,51 +68,95 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
     },
   });
 
+  useEffect(() => setMenuOpen(false), [pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      toggleRef.current?.focus();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen]);
+
+  // A link of the open menu closes it, also when it leads to the page already shown.
+  const closeOnLink = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.target instanceof Element && event.target.closest("a")) setMenuOpen(false);
+  };
+
   return (
     <div className="shell">
-      <nav className="sidebar" aria-label={t("nav.label")}>
-        <Logo inverted />
-        <div className="sidebar-area">
-          {t(area === "admin" ? "nav.adminArea" : "nav.cabinetArea")}
-        </div>
-        {MENU[area].filter(visible).map((item) =>
-          item.to ? (
-            <NavLink key={item.key} to={item.to} end className="nav-a">
-              {t(item.key)}
-            </NavLink>
-          ) : (
-            <span key={item.key} className="nav-a nav-soon" aria-disabled="true">
-              {t(item.key)}
-              <span className="soon">{t("nav.soon")}</span>
-            </span>
-          ),
-        )}
-        <div className="sidebar-footer">
-          <div className="sidebar-email" title={me.data?.email}>
-            {me.data?.email}
-          </div>
-          <Link to="/settings" className="sidebar-link">
-            {t("nav.settings")}
-          </Link>
-          <Link to="/change-password" className="sidebar-link">
-            {t("auth.changePassword")}
-          </Link>
-          {me.data && !me.data.two_factor_enabled && (
-            <Link to="/setup-two-factor" className="sidebar-link">
-              {t("twoFactor.turnOn")}
-            </Link>
-          )}
+      <a
+        href="#content"
+        className="skip-link"
+        onClick={(event) => {
+          event.preventDefault();
+          mainRef.current?.focus();
+        }}
+      >
+        {t("nav.skipToContent")}
+      </a>
+      <nav className={menuOpen ? "sidebar open" : "sidebar"} aria-label={t("nav.label")}>
+        <div className="sidebar-bar">
+          <Logo inverted />
           <button
+            ref={toggleRef}
             type="button"
-            className="sidebar-link"
-            onClick={() => logout.mutate()}
-            disabled={logout.isPending}
+            className="menu-toggle"
+            aria-expanded={menuOpen}
+            aria-controls={menuId}
+            onClick={() => setMenuOpen((open) => !open)}
           >
-            {t("auth.logout")}
+            {t("nav.menu")}
           </button>
         </div>
+        <div id={menuId} className="sidebar-menu" onClick={closeOnLink}>
+          <div className="sidebar-area">
+            {t(area === "admin" ? "nav.adminArea" : "nav.cabinetArea")}
+          </div>
+          {ready &&
+            MENU[area].filter(visible).map((item) =>
+              item.to ? (
+                <NavLink key={item.key} to={item.to} end className="nav-a">
+                  {t(item.key)}
+                </NavLink>
+              ) : (
+                <span key={item.key} className="nav-a nav-soon" aria-disabled="true">
+                  {t(item.key)}
+                  <span className="soon">{t("nav.soon")}</span>
+                </span>
+              ),
+            )}
+          <div className="sidebar-footer">
+            <div className="sidebar-email" title={me.data?.email}>
+              {me.data?.email}
+            </div>
+            <Link to="/settings" className="sidebar-link">
+              {t("nav.settings")}
+            </Link>
+            <Link to="/change-password" className="sidebar-link">
+              {t("auth.changePassword")}
+            </Link>
+            {me.data && !me.data.two_factor_enabled && (
+              <Link to="/setup-two-factor" className="sidebar-link">
+                {t("twoFactor.turnOn")}
+              </Link>
+            )}
+            <button
+              type="button"
+              className="sidebar-link"
+              onClick={() => logout.mutate()}
+              disabled={logout.isPending}
+            >
+              {t("auth.logout")}
+            </button>
+          </div>
+        </div>
       </nav>
-      <main className="content">{children}</main>
+      <main id="content" ref={mainRef} tabIndex={-1} className="content">
+        {children}
+      </main>
     </div>
   );
 }

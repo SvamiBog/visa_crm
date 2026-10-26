@@ -424,51 +424,6 @@ function Queues({ rows }: { rows: QueueCountry[] }) {
   );
 }
 
-function QuickLinks({ home }: { home: Home }) {
-  const { t } = useTranslation();
-  const cases = useHasModule("cases");
-  const finances = useHasModule("finances");
-  const analytics = useHasModule("analytics");
-  const specialist = useMe().data?.role === "specialist";
-  const links = [
-    home.clients && {
-      to: "/app/clients",
-      label: t("nav.clients"),
-      note: t("home.contacts", { count: home.clients.contacts }),
-    },
-    home.queues && {
-      to: "/app/queues",
-      label: t("nav.queues"),
-      note: t("home.waiting", { count: home.queues.waiting }),
-    },
-    cases && { to: "/app/bookings", label: t("nav.bookings"), note: t("home.bookingsNote") },
-    finances && specialist && {
-      to: "/app/registrars",
-      label: t("nav.registrars"),
-      note: t("home.registrarsNote"),
-    },
-    analytics && {
-      to: "/app/analytics",
-      label: t("nav.analytics"),
-      note: t("home.analyticsNote"),
-    },
-  ].filter((link) => !!link);
-  if (links.length === 0) return null;
-  return (
-    <section className="card">
-      <h2 className="h2">{t("home.quick")}</h2>
-      <ul className="home-list">
-        {links.map((link) => (
-          <li key={link.to}>
-            <Link to={link.to}>{link.label}</Link>
-            <span className="muted small">{link.note}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 export function HomePage() {
   const { t } = useTranslation();
   const tasks = useHasModule("tasks");
@@ -482,7 +437,7 @@ export function HomePage() {
   const data = home.data;
 
   return (
-    <div className="page">
+    <div className="page home-page">
       <header className="page-header">
         <div>
           <h1>{t("cabinet.homeTitle")}</h1>
@@ -502,6 +457,7 @@ export function HomePage() {
         )}
       </header>
 
+      {home.isPending && <p className="muted">{t("common.loading")}</p>}
       {home.isError && <ErrorAlert error={home.error} />}
       {data && <Metrics home={data} />}
 
@@ -515,7 +471,6 @@ export function HomePage() {
         <div className="column">
           {data?.funnel && <MonthFunnel initial={data.funnel} />}
           {data?.queues && <Queues rows={data.queues.countries} />}
-          {data && <QuickLinks home={data} />}
         </div>
       </div>
     </div>
