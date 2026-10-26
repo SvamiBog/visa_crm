@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, require_module
 from app.core.audit import record
+from app.core.employee_limits import LimitKind, watch
 from app.core.passwords import PasswordRules, generate_password
 from app.core.vault import decrypt_for_tenant, encrypt_for_tenant, get_tenant_key
 from app.models import (
@@ -314,6 +315,8 @@ async def reveal_password(
     entry = await _get(session, VaultEntry, entry_id)
     if entry.password_encrypted is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "no_password")
+    # An employee reveals only so many passwords a day (Т.14); the reveal is logged below.
+    await watch(session, user, LimitKind.PASSWORDS, "vault_entry", entry.id)
     key = await get_tenant_key(session, user.tenant_id)
     password = decrypt_for_tenant(key, user.tenant_id, entry.id, entry.password_encrypted)
     system = await _get(session, VaultSystem, entry.system_id)

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
 import { IssuedPasswordCard, type IssuedPassword } from "../../components/IssuedPasswordCard";
 import { ModulePicker } from "../../components/ModulePicker";
+import { RevealedPasswords } from "./RevealedPasswords";
 
 type Employee = {
   id: string;
@@ -15,6 +16,9 @@ type Employee = {
   two_factor_enabled: boolean;
   last_login_at: string | null;
   created_at: string;
+  case_count: number;
+  daily_card_limit: number;
+  daily_password_limit: number;
 };
 
 type Action = "block" | "unblock" | "reset-password";
@@ -34,15 +38,18 @@ export function EmployeesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [issued, setIssued] = useState<IssuedPassword | null>(null);
+  // Whose revealed vault passwords are open (Т.15): opens by itself after blocking.
+  const [passwordsOf, setPasswordsOf] = useState<Employee | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: KEY });
 
   const action = useMutation({
     mutationFn: ({ e, kind }: { e: Employee; kind: Action }) =>
       apiPost<Employee | { temporary_password: string }>(`/employees/${e.id}/${kind}`),
-    onSuccess: (result, { e }) => {
+    onSuccess: (result, { e, kind }) => {
       if ("temporary_password" in result) {
         setIssued({ email: e.email, password: result.temporary_password });
       }
+      if (kind === "block") setPasswordsOf({ ...e, is_active: false });
       void refresh();
     },
   });
@@ -65,6 +72,7 @@ export function EmployeesPage() {
         <div>
           <h1>{t("employees.title")}</h1>
           <div className="muted">{t("employees.subtitle")}</div>
+          <div className="muted small">{t("employees.casesHint")}</div>
         </div>
         {!formOpen && (
           <button type="button" className="btn btn-p" onClick={() => setFormOpen(true)}>
@@ -100,6 +108,14 @@ export function EmployeesPage() {
         />
       )}
 
+      {passwordsOf && (
+        <RevealedPasswords
+          key={passwordsOf.id}
+          employee={passwordsOf}
+          onClose={() => setPasswordsOf(null)}
+        />
+      )}
+
       {action.isError && (
         <div className="alert alert-error" role="alert">
           {t(`errors.${errorCode(action.error)}`, { defaultValue: t("errors.unknown") })}
@@ -118,6 +134,7 @@ export function EmployeesPage() {
                   <th>{t("employees.colName")}</th>
                   <th>{t("auth.email")}</th>
                   <th>{t("admin.colModules")}</th>
+                  <th>{t("employees.colCases")}</th>
                   <th>{t("admin.colStatus")}</th>
                   <th>{t("employees.colTwoFactor")}</th>
                   <th aria-label={t("admin.colActions")} />
@@ -133,6 +150,7 @@ export function EmployeesPage() {
                         ? e.modules.map((m) => t(`modules.name.${m}`)).join(", ")
                         : t("employees.noModules")}
                     </td>
+                    <td className="muted">{e.case_count}</td>
                     <td>
                       <StatusChip e={e} />
                     </td>
@@ -143,6 +161,9 @@ export function EmployeesPage() {
                       <div className="actions">
                         <button type="button" className="btn btn-sm" onClick={() => setEditing(e)}>
                           {t("admin.settings")}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setPasswordsOf(e)}>
+                          {t("revealed.open")}
                         </button>
                         <button
                           type="button"
@@ -200,11 +221,21 @@ function EmployeeForm({
   const [modules, setModules] = useState(
     employee?.modules.filter((m) => available.includes(m)) ?? [],
   );
+  // Daily limits (backlog Т.14): set for an existing employee, defaults for a new one.
+  const [cardLimit, setCardLimit] = useState(String(employee?.daily_card_limit ?? ""));
+  const [passwordLimit, setPasswordLimit] = useState(
+    String(employee?.daily_password_limit ?? ""),
+  );
 
   const save = useMutation({
     mutationFn: async (): Promise<IssuedPassword | undefined> => {
       if (employee) {
-        await apiPatch<Employee>(`/employees/${employee.id}`, { full_name: name, modules });
+        await apiPatch<Employee>(`/employees/${employee.id}`, {
+          full_name: name,
+          modules,
+          daily_card_limit: Number(cardLimit),
+          daily_password_limit: Number(passwordLimit),
+        });
         return undefined;
       }
       const created = await apiPost<{ employee: Employee; temporary_password: string }>(
@@ -247,6 +278,36 @@ function EmployeeForm({
       <h3 className="h3">{t("employees.modulesTitle")}</h3>
       <p className="muted small">{t("employees.modulesHint")}</p>
       <ModulePicker value={modules} onChange={setModules} allowed={available} />
+      {employee && (
+        <>
+          <h3 className="h3">{t("employees.limitsTitle")}</h3>
+          <p className="muted small">{t("employees.limitsHint")}</p>
+          <div className="form-grid">
+            <label className="field">
+              <span>{t("employees.cardLimit")}</span>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                required
+                value={cardLimit}
+                onChange={(e) => setCardLimit(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>{t("employees.passwordLimit")}</span>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                required
+                value={passwordLimit}
+                onChange={(e) => setPasswordLimit(e.target.value)}
+              />
+            </label>
+          </div>
+        </>
+      )}
       {!employee && <p className="muted small">{t("employees.newHint")}</p>}
       {save.isError && (
         <div className="alert alert-error" role="alert">

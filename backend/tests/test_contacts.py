@@ -3,7 +3,8 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, give_cases, login
+from tests.test_cases import open_case
 
 BASE = "/api/contacts"
 
@@ -246,6 +247,7 @@ async def test_employee_edits_only_own_notes(
     contact = await create(client)
     url = f"{BASE}/{contact['id']}/notes"
     specialist_note = (await client.post(url, json={"body": "от визовика"})).json()
+    assert (await open_case(client, contact["id"])).status_code == 201
     client.cookies.clear()
 
     await make_user("olga@example.com", "employee", tenant_id=tenant_id)
@@ -253,6 +255,7 @@ async def test_employee_edits_only_own_notes(
         await conn.execute(
             text("UPDATE users SET modules = '{clients}' WHERE email = 'olga@example.com'")
         )
+    await give_cases(owner_engine, "olga@example.com")
     await login(client, "olga@example.com")
     own = (await client.post(url, json={"body": "от сотрудника"})).json()
     assert (

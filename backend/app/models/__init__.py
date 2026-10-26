@@ -55,6 +55,7 @@ from app.models.vault import VaultEntry, VaultSystem, VaultSystemKind
 from app.models.visa_case import (
     CaseStage,
     EmailOwner,
+    EmployeeCase,
     SubmissionGroup,
     VisaCase,
     VisaEntries,
@@ -89,6 +90,7 @@ __all__ = [
     "DocumentTemplate",
     "EmailChange",
     "EmailOwner",
+    "EmployeeCase",
     "ExchangeRate",
     "Hall",
     "ImportKind",

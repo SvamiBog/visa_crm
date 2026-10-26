@@ -38,6 +38,7 @@ import {
   type Country,
 } from "../../reference";
 import { Appointment, useNumberLabel } from "./Appointment";
+import { CaseAccess } from "./CaseAccess";
 import { CaseBookings } from "./Bookings";
 import { CaseFinance } from "./Finance";
 import { useHasModule } from "../../workspace";
@@ -212,6 +213,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
           <Appointment visaCase={c} />
           {c.outcome && <Result visaCase={c} />}
           <Group visaCase={c} />
+          <CaseAccess visaCase={c} />
           <div className="form-actions">
             <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
               {t("reference.edit")}

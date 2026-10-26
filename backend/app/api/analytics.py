@@ -420,7 +420,7 @@ async def analytics(
         centers=await _centers(session, centers, waits, attempts, country_id),
         queues=await _queues(session, start, end, country_id),
         attempts=await _attempts(session, start, end, country_id),
-        money=await money_block(session, tenant.base_currency) if money_on else None,
+        money=await money_block(session, user, tenant.base_currency) if money_on else None,
     )
 
 

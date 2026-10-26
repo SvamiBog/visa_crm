@@ -23,7 +23,8 @@ const MENU: Record<Area, MenuItem[]> = {
     { key: "nav.clients", to: "/app/clients", module: "clients" },
     { key: "nav.queues", to: "/app/queues", module: "cases" },
     { key: "nav.bookings", to: "/app/bookings", module: "cases" },
-    { key: "nav.registrars", to: "/app/registrars", module: "finances" },
+    // The balance covers every case, so it stays with the specialist (вопрос 17).
+    { key: "nav.registrars", to: "/app/registrars", roles: ["specialist"], module: "finances" },
     { key: "nav.vault", to: "/app/vault", module: "vault" },
     { key: "nav.analytics", to: "/app/analytics", module: "analytics" },
     { key: "nav.countries", to: "/app/countries", module: "country_rules" },

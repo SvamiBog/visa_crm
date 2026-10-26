@@ -2,7 +2,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, give_cases, login
 
 CONTACTS = "/api/contacts"
 
@@ -362,12 +362,14 @@ async def test_cases_module_is_required(
 ):
     tenant_id = await as_specialist(client, make_user)
     contact = await new_contact(client)
+    [case] = (await open_case(client, contact["id"])).json()
     client.cookies.clear()
     await make_user("olga@example.com", "employee", tenant_id=tenant_id)
     async with owner_engine.begin() as conn:
         await conn.execute(
             text("UPDATE users SET modules = '{clients}' WHERE email = 'olga@example.com'")
         )
+    await give_cases(owner_engine, "olga@example.com", case["id"])
     await login(client, "olga@example.com")
     # The card without cases, and no way to open one.
     assert (await card(client, contact["id"]))["cases"] is None

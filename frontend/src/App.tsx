@@ -235,7 +235,7 @@ export default function App() {
             key={path}
             path={path}
             element={
-              <RequireUser roles={["specialist", "employee"]}>
+              <RequireUser roles={["specialist"]}>
                 <Shell area="cabinet">
                   <RegistrarsPage />
                 </Shell>

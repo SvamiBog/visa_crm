@@ -27,6 +27,9 @@ class ReminderKind(StrEnum):
     VISA_EXPIRES = "visa_expires"
     APPEAL = "appeal"
     REGISTRAR_ADVANCE = "registrar_advance"
+    # An employee went over a daily limit (backlog Т.14); for the specialist only.
+    CARD_LIMIT = "card_limit"
+    PASSWORD_LIMIT = "password_limit"
 
 
 @dataclass(frozen=True)

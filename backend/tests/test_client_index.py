@@ -6,7 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login, workspace_today
+from tests.helpers import MakeUser, give_cases, login, workspace_today
 
 CONTACTS = "/api/contacts"
 
@@ -150,6 +150,7 @@ async def test_rows_without_the_cases_module(
         await conn.execute(
             text("UPDATE users SET modules = '{clients}' WHERE email = 'olga@example.com'")
         )
+    await give_cases(owner_engine, "olga@example.com")
     await login(client, "olga@example.com")
     [row] = (await search(client))["items"]
     assert row["case"] is None

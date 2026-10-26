@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet } from "../../api";
+import { useMe } from "../../auth";
 import {
   byId,
   useCountries,
@@ -141,6 +142,8 @@ function Metrics({ home }: { home: Home }) {
   const money = useMoney();
   const rounded = useRounded();
   const day = useDay();
+  // The registrars' page is the specialist's: a balance covers every case.
+  const specialist = useMe().data?.role === "specialist";
   const { clients, submissions, queues, money: cash } = home;
   const share = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
   return (
@@ -201,7 +204,7 @@ function Metrics({ home }: { home: Home }) {
             note={t("home.kpi.debtors", { count: cash.debtors })}
           />
           <Kpi
-            to="/app/registrars"
+            to={specialist ? "/app/registrars" : undefined}
             label={t("home.kpi.payable")}
             value={
               <>
@@ -426,6 +429,7 @@ function QuickLinks({ home }: { home: Home }) {
   const cases = useHasModule("cases");
   const finances = useHasModule("finances");
   const analytics = useHasModule("analytics");
+  const specialist = useMe().data?.role === "specialist";
   const links = [
     home.clients && {
       to: "/app/clients",
@@ -438,7 +442,7 @@ function QuickLinks({ home }: { home: Home }) {
       note: t("home.waiting", { count: home.queues.waiting }),
     },
     cases && { to: "/app/bookings", label: t("nav.bookings"), note: t("home.bookingsNote") },
-    finances && {
+    finances && specialist && {
       to: "/app/registrars",
       label: t("nav.registrars"),
       note: t("home.registrarsNote"),

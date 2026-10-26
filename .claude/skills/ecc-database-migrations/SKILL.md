@@ -23,7 +23,7 @@ The schema changes only through Alembic revisions in `backend/migrations/version
    - the docstring's first line says what the change is for in plain words, then why and which rule it serves;
    - typed `revision` / `down_revision` lines as in the existing files;
    - autogenerate does not know RLS, triggers, grants or enum types: add them by hand.
-4. Business table: `tenant_id` column, a foreign key to `tenants`, `enable_tenant_rls("<table>")` after `create_table`, child rows referencing the parent by `(parent_id, tenant_id)`; add the table to `WORKSPACE_TABLES` in `backend/tests/conftest.py` and write an isolation test. Shared reference table: no `tenant_id`, `enable_shared_rls`.
+4. Business table: `tenant_id` column, a foreign key to `tenants`, `enable_tenant_rls("<table>")` after `create_table`, child rows referencing the parent by `(parent_id, tenant_id)`; add the table to `WORKSPACE_TABLES` in `backend/tests/conftest.py` and write an isolation test. A table with `contact_id` or `case_id` also gets the restrictive policy `employee_scope` (an employee sees only their cases; `0031_employee_cases.py`). Shared reference table: no `tenant_id`, `enable_shared_rls`.
 5. Types: `sa.Uuid()` ids, `sa.Numeric(14, 2)` money, `sa.DateTime(timezone=True)` moments, `sa.Date()` dates, Postgres enums with an explicit `name`; constraints the rules rely on (`NOT NULL`, `CHECK`, unique keys per workspace) and indexes on foreign keys and filters, `tenant_id` first.
 6. Check:
    ```bash

@@ -7,7 +7,8 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, give_cases, login
+from tests.test_cases import open_case
 
 SYSTEMS = "/api/dictionaries/vault-systems"
 ENTRIES = "/api/vault/entries"
@@ -245,12 +246,14 @@ async def test_employee_sees_the_vault_only_when_given(
     created = await entry(
         client, system_id=vfs["id"], contact_id=anna, login="a@mail.by", password="pw"
     )
+    assert (await open_case(client, anna)).status_code == 201
     client.cookies.clear()
     await make_user("olga@example.com", "employee", tenant_id=tenant_id)
     async with owner_engine.begin() as conn:
         await conn.execute(
             text("UPDATE users SET modules = '{clients,cases}' WHERE email = 'olga@example.com'")
         )
+    await give_cases(owner_engine, "olga@example.com")
     await login(client, "olga@example.com")
     denied = await client.get(f"/api/contacts/{anna}/vault")
     assert denied.status_code == 403 and denied.json()["detail"] == "module_disabled"

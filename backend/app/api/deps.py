@@ -112,10 +112,12 @@ async def require_tenant_user(user: Annotated[CurrentUser, Depends(current_user)
 async def tenant_session(
     user: Annotated[CurrentUser, Depends(require_tenant_user)],
 ) -> AsyncIterator[AsyncSession]:
-    """Sees only the current user's tenant (Row-Level Security)."""
+    """Sees only the current user's tenant (Row-Level Security); an employee, only their
+    cases and clients within it (EmployeeCase)."""
     assert user.tenant_id is not None
+    employee_id = user.id if user.role == UserRole.EMPLOYEE else None
     async with get_sessionmaker()() as session:
-        scope_to_tenant(session, user.tenant_id)
+        scope_to_tenant(session, user.tenant_id, employee_id)
         yield session
 
 

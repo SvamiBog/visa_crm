@@ -10,9 +10,10 @@ Closed by the «tasks» module; each kind also needs the module its data belongs
 import uuid
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
@@ -37,11 +38,13 @@ from app.core.bookings import LIVE
 from app.core.bookings import deadline as booking_deadline_of
 from app.core.cases import appeal_until
 from app.core.consultation_checks import add_months
+from app.core.employee_limits import LimitKind, day_start
 from app.core.finance import balance
 from app.core.reminders import ReminderKind
 from app.models import (
     ApplicationAttempt,
     AuditAction,
+    AuditEvent,
     Booking,
     BookingKind,
     CaseFinance,
@@ -51,6 +54,8 @@ from app.models import (
     CountryRule,
     ReminderDismissal,
     Tenant,
+    User,
+    UserRole,
     VisaCase,
     VisaOutcome,
 )
@@ -59,6 +64,9 @@ router = APIRouter(tags=["reminders"], dependencies=[Depends(require_module("tas
 
 Member = Annotated[CurrentUser, Depends(require_module("tasks"))]
 Specialist = Annotated[CurrentUser, Depends(require_specialist)]
+
+# How long «an employee went over a limit» stays in the list without «Готово».
+LIMIT_SIGNAL_DAYS = 7
 
 
 class ReminderOut(BaseModel):
@@ -81,6 +89,10 @@ class ReminderOut(BaseModel):
     registrar_name: str | None = None
     amount: Decimal | None = None
     currency: str | None = None
+    # An employee over a daily limit (card_limit, password_limit).
+    employee_id: uuid.UUID | None = None
+    employee_name: str | None = None
+    limit: int | None = None
 
 
 class DismissIn(BaseModel):
@@ -391,6 +403,38 @@ async def _registrars(session: AsyncSession, out: _Collector) -> None:
             )
 
 
+async def _limits(session: AsyncSession, out: _Collector, timezone: str) -> None:
+    """Employees who went over a daily limit lately, for the specialist (Т.14): one item
+    an employee, a limit and a day, until «Готово» or a week has passed."""
+    since = day_start(timezone) - timedelta(days=LIMIT_SIGNAL_DAYS - 1)
+    rows = await session.execute(
+        select(AuditEvent, User)
+        .join(User, User.id == AuditEvent.actor_id)
+        .where(
+            AuditEvent.action == AuditAction.EMPLOYEE_LIMIT_REACHED,
+            AuditEvent.occurred_at >= since,
+        )
+        .order_by(AuditEvent.id)
+    )
+    zone = ZoneInfo(timezone)
+    for event, employee in rows.tuples():
+        details = event.details or {}
+        kind = (
+            ReminderKind.CARD_LIMIT
+            if details.get("kind") == LimitKind.CARDS
+            else ReminderKind.PASSWORD_LIMIT
+        )
+        out.add(
+            kind,
+            employee.id,
+            event.occurred_at.astimezone(zone).date(),
+            None,
+            employee_id=employee.id,
+            employee_name=employee.full_name or employee.email,
+            limit=details.get("limit"),
+        )
+
+
 async def collect(
     session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID | None = None
 ) -> list[ReminderOut]:
@@ -409,8 +453,11 @@ async def collect(
         await _booking_deadlines(session, out, s, contact_id)
         await _visas(session, out, s, contact_id)
         await _appeals(session, out, s, contact_id)
-        if money and contact_id is None:
+        # A registrar's balance covers every case: the specialist's, not an employee's.
+        if money and contact_id is None and user.role != UserRole.EMPLOYEE:
             await _registrars(session, out)
+    if contact_id is None and user.role == UserRole.SPECIALIST:
+        await _limits(session, out, tenant.timezone)
 
     keys = [item.key for item in out.items if item.key]
     dismissed = (
@@ -426,6 +473,8 @@ async def collect(
     shown = [item for item in out.items if item.key not in dismissed]
     shown.sort(
         key=lambda i: (
+            # An employee over a limit (Т.14) is the first thing the specialist sees.
+            i.kind not in (ReminderKind.CARD_LIMIT, ReminderKind.PASSWORD_LIMIT),
             i.days_left is None,
             i.days_left if i.days_left is not None else 0,
             order.index(i.kind),

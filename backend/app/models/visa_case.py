@@ -180,3 +180,37 @@ class VisaCase(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class EmployeeCase(Base):
+    """A case the specialist gave an employee (вопрос 17, docs/decisions.md). An employee
+    sees only these cases, the other cases of their submission groups, the contacts of
+    those cases, and the contacts and cases they created; Row-Level Security enforces it
+    (policy employee_scope, migration 0031)."""
+
+    __tablename__ = "employee_cases"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["user_id", "tenant_id"],
+            ["users.id", "users.tenant_id"],
+            ondelete="CASCADE",
+            name="fk_employee_cases_user_id_same_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["case_id", "tenant_id"],
+            ["visa_cases.id", "visa_cases.tenant_id"],
+            ondelete="CASCADE",
+            name="fk_employee_cases_case_id_same_tenant",
+        ),
+        Index("ix_employee_cases_case_id", "case_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    case_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

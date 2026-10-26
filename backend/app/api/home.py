@@ -40,6 +40,7 @@ from app.models import (
     Contact,
     Decision,
     Tenant,
+    UserRole,
     VisaCase,
     VisaOutcome,
     WaitingListEntry,
@@ -352,8 +353,10 @@ async def _queues(session: AsyncSession, today: date) -> QueuesBlock:
     )
 
 
-async def money_block(session: AsyncSession, currency: str) -> MoneyBlock:
-    """What clients owe and what is due to partners and registrars, as of now."""
+async def money_block(session: AsyncSession, user: CurrentUser, currency: str) -> MoneyBlock:
+    """What clients owe and what is due to partners and registrars, as of now. Debts to
+    registrars only for the specialist: a balance covers every case, and an employee sees
+    only theirs (app/api/registrar_ledger.py)."""
     debt, debtors = ZERO, set()
     partners_due, partner_cases = ZERO, 0
     for f, contact_id, left in await _balances(session):
@@ -365,7 +368,8 @@ async def money_block(session: AsyncSession, currency: str) -> MoneyBlock:
             partners_due += payout
             partner_cases += 1
     owed: dict[str, list[Decimal]] = defaultdict(list)
-    for registrar in await ledger_summaries(session):
+    ledgers = await ledger_summaries(session) if user.role != UserRole.EMPLOYEE else []
+    for registrar in ledgers:
         if registrar.balance < 0:
             owed[registrar.currency].append(-registrar.balance)
     return MoneyBlock(
@@ -401,7 +405,7 @@ async def home(user: Member, session: TenantSession) -> HomeOut:
         submissions=await _submissions(session, today, money_on) if cases else None,
         funnel=await _funnel(session, month_start) if cases else None,
         queues=await _queues(session, today) if cases else None,
-        money=await money_block(session, tenant.base_currency) if money_on else None,
+        money=await money_block(session, user, tenant.base_currency) if money_on else None,
     )
 
 
