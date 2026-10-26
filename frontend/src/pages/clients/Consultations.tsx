@@ -190,6 +190,10 @@ export function Consultations({
                   c.destination_ids.map((id) => name.country(countryById.get(id))).join(", "),
                   c.trip_planned_on &&
                     t("contacts.tripOn", { date: formatDate(c.trip_planned_on, i18n.language) }),
+                  c.follow_up_on &&
+                    t("contacts.followUpShort", {
+                      date: formatDate(c.follow_up_on, i18n.language),
+                    }),
                   c.fee_amount &&
                     `${t("contacts.fee")}: ${c.fee_amount} ${c.fee_currency} · ${t(
                       c.fee_paid ? "contacts.feePaid" : "contacts.feeUnpaid",
@@ -242,6 +246,7 @@ function ConsultationForm({
   );
   const [destinations, setDestinations] = useState<string[]>(consultation?.destination_ids ?? []);
   const [tripOn, setTripOn] = useState(consultation?.trip_planned_on ?? "");
+  const [followUpOn, setFollowUpOn] = useState(consultation?.follow_up_on ?? "");
   const [feeAmount, setFeeAmount] = useState(consultation?.fee_amount ?? "");
   const [feeCurrency, setFeeCurrency] = useState(consultation?.fee_currency ?? "");
   const [feePaid, setFeePaid] = useState(consultation?.fee_paid ?? false);
@@ -258,6 +263,7 @@ function ConsultationForm({
         lead_channel_id: channel || null,
         destination_ids: destinations,
         trip_planned_on: tripOn || null,
+        follow_up_on: followUpOn || null,
         fee_amount: amount || null,
         fee_currency: amount ? feeCurrency || money.data?.base_currency || null : null,
         fee_paid: amount ? feePaid : false,
@@ -307,6 +313,10 @@ function ConsultationForm({
               </option>
             ))}
           </select>
+        </label>
+        <label className="field">
+          <span>{t("contacts.followUpOn")}</span>
+          <input type="date" value={followUpOn} onChange={(e) => setFollowUpOn(e.target.value)} />
         </label>
         <label className="field">
           <span>{t("contacts.channel")}</span>

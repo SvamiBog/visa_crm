@@ -1,7 +1,8 @@
 """«Требует внимания» (backlog 1.11): reminders computed from clients, cases, bookings and
 money; «Готово» hides one occurrence; the windows are the specialist's settings."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -185,6 +186,9 @@ async def test_the_windows_are_the_specialists(
         "thinking_months": [1, 3],
         "visa_expiry_months": 2,
         "appeal_days": 3,
+        "consultation_days": 1,
+        "contract_days": 3,
+        "questionnaire_days": 1,
     }
     saved = await client.put(
         "/api/reminders/settings",
@@ -247,3 +251,132 @@ async def test_reminders_follow_modules_and_workspaces(
     assert (await client.get("/api/reminders")).json() == []
     stray = await client.post("/api/reminders/dismiss", json={"key": key})
     assert stray.status_code == 404
+
+
+async def test_what_the_specialist_reminded_clients_of_by_hand(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Backlog 1.19 (question 4): the consultation ahead, the agreed follow-up, an
+    unsigned contract, the form questionnaire and the balance once in the queue."""
+    tenant_id = await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+
+    # A consultation tomorrow, not held yet.
+    ilya = await contact(client, "Илья")
+    ahead = await client.post(f"/api/contacts/{ilya['id']}/consultations", json={"held_on": day(1)})
+    assert ahead.status_code == 201, ahead.text
+
+    # Agreed at the consultation to hear the decision today.
+    ksenia = await contact(client, "Ксения")
+    talked = await client.post(
+        f"/api/contacts/{ksenia['id']}/consultations",
+        json={"held_on": day(-10), "decision": "thinking", "follow_up_on": day(0)},
+    )
+    assert talked.status_code == 201 and talked.json()["follow_up_on"] == day(0)
+
+    # A case opened three days ago, no contract; its questionnaire is due tomorrow.
+    lev = await contact(client, "Лев")
+    spain = await open_case(client, codes, lev, "ES")
+    opened = datetime.combine(
+        workspace_today() - timedelta(days=3), time(12), tzinfo=ZoneInfo("Europe/Minsk")
+    )
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE visa_cases SET created_at = :at WHERE id = CAST(:id AS uuid)"),
+            {"at": opened, "id": spain["id"]},
+        )
+    asked = await patch_case(client, spain, questionnaire_due_on=day(1))
+    assert asked["questionnaire_due_on"] == day(1)
+
+    # In the queue since five days ago, the rest not paid.
+    maria = await contact(client, "Мария")
+    poland = await open_case(client, codes, maria, "PL")
+    await client.patch(f"/api/cases/{poland['id']}/finance", json={"price": "500"})
+    queued = await client.post(f"/api/cases/{poland['id']}/queue", json={"queued_on": day(-5)})
+    assert queued.status_code == 201, queued.text
+    # Taken off the queue, the rest not paid either: no longer «in the queue since».
+    nina = await contact(client, "Нина")
+    latvia = await open_case(client, codes, nina, "LV")
+    await client.patch(f"/api/cases/{latvia['id']}/finance", json={"price": "400"})
+    left = await client.post(f"/api/cases/{latvia['id']}/queue", json={"queued_on": day(-20)})
+    assert left.status_code == 201, left.text
+    removed = await client.patch(
+        f"/api/queue-entries/{left.json()[0]['id']}",
+        json={"removed_on": day(-2), "removed_reason": "передумала"},
+    )
+    assert removed.status_code == 200, removed.text
+
+    items = (await client.get("/api/reminders")).json()
+    assert [i["contact_name"] for i in items if i["kind"] == "balance_queued"] == ["Мария"]
+    found = by_kind(items)
+    assert set(found) == {
+        "consultation",
+        "follow_up",
+        "contract",
+        "questionnaire",
+        "balance_queued",
+    }
+    assert (found["consultation"]["due_on"], found["consultation"]["contact_name"]) == (
+        day(1),
+        "Илья",
+    )
+    assert found["consultation"]["key"] == f"consultation:{ahead.json()['id']}:{day(0)}"
+    assert (found["follow_up"]["due_on"], found["follow_up"]["since"]) == (day(0), day(-10))
+    contract = found["contract"]
+    assert (contract["contact_id"], contract["since"], contract["due_on"]) == (
+        lev["id"],
+        day(-3),
+        None,
+    )
+    assert contract["key"] == f"contract:{lev['id']}:{day(0)}"
+    assert (found["questionnaire"]["case_id"], found["questionnaire"]["due_on"]) == (
+        spain["id"],
+        day(1),
+    )
+    balance = found["balance_queued"]
+    assert (balance["amount"], balance["since"], balance["due_on"]) == ("500.00", day(-5), None)
+    # In a client's card: only theirs.
+    card = (await client.get(f"/api/reminders?contact_id={lev['id']}")).json()
+    assert {i["kind"] for i in card} == {"contract", "questionnaire"}
+
+    # An employee given Lev's case sees his reminders only.
+    client.cookies.clear()
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE users SET modules = '{clients,cases,tasks,finances}' "
+                "WHERE email = 'olga@example.com'"
+            )
+        )
+    await give_cases(owner_engine, "olga@example.com", spain["id"])
+    await login(client, "olga@example.com")
+    kinds = {i["kind"] for i in (await client.get("/api/reminders")).json()}
+    assert kinds == {"contract", "questionnaire"}
+
+    # Each goes when its matter is settled.
+    client.cookies.clear()
+    await login(client, "anna@example.com")
+    decided = await client.patch(
+        f"/api/consultations/{talked.json()['id']}", json={"decision": "no"}
+    )
+    assert decided.status_code == 200, decided.text
+    signed = await client.patch(f"/api/contacts/{lev['id']}", json={"contract_signed_on": day(0)})
+    assert signed.status_code == 200, signed.text
+    await patch_case(client, spain, questionnaire_received_on=day(0))
+    paid = await client.post(
+        f"/api/cases/{poland['id']}/payments",
+        json={"paid_on": day(0), "amount": "500", "currency": "BYN"},
+    )
+    assert paid.status_code == 201, paid.text
+    moved = await client.patch(f"/api/consultations/{ahead.json()['id']}", json={"held_on": day(5)})
+    assert moved.status_code == 200, moved.text
+    assert (await client.get("/api/reminders")).json() == []
+
+    # Field names only in the log.
+    events = (await client.get("/api/audit")).json()["events"]
+    assert any(
+        e["action"] == "cases.updated" and "questionnaire_received_on" in str(e["details"])
+        for e in events
+    )

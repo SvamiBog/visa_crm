@@ -217,6 +217,13 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
             {[registrar?.name, c.hall && t(`dict.hall.${c.hall}`)].filter(Boolean).join(" · ")}
           </Row>
           <Row label={t("cases.submissionOn")}>{date(c.submission_on)}</Row>
+          {(c.questionnaire_due_on || c.questionnaire_received_on) && (
+            <Row label={t("cases.questionnaire")}>
+              {c.questionnaire_received_on
+                ? t("cases.questionnaireReceived", { date: date(c.questionnaire_received_on) })
+                : t("cases.questionnaireDue", { date: date(c.questionnaire_due_on) })}
+            </Row>
+          )}
           <Appointment visaCase={c} />
           {c.outcome && <Result visaCase={c} />}
           <Group visaCase={c} />
@@ -707,6 +714,10 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
   const [vacNumber, setVacNumber] = useState(c.vac_number ?? "");
   const [email, setEmail] = useState(c.application_email ?? "");
   const [emailOwner, setEmailOwner] = useState<EmailOwner | "">(c.application_email_owner ?? "");
+  const [questionnaireDue, setQuestionnaireDue] = useState(c.questionnaire_due_on ?? "");
+  const [questionnaireReceived, setQuestionnaireReceived] = useState(
+    c.questionnaire_received_on ?? "",
+  );
   const numberLabel = useNumberLabel();
   const isVisa = outcome === "visa";
   const decided = outcome === "visa" || outcome === "refusal";
@@ -725,6 +736,8 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
         vac_number: vacNumber.trim() || null,
         application_email: email.trim() || null,
         application_email_owner: email.trim() ? emailOwner || null : null,
+        questionnaire_due_on: questionnaireDue || null,
+        questionnaire_received_on: questionnaireReceived || null,
       }),
     onSuccess: () => {
       void refresh();
@@ -770,6 +783,27 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
                 </option>
               ))}
             </select>
+          </label>
+        </div>
+      </fieldset>
+      <fieldset className="module-block">
+        <legend>{t("cases.questionnaire")}</legend>
+        <div className="form-grid">
+          <label className="field">
+            <span>{t("cases.questionnaireDueOn")}</span>
+            <input
+              type="date"
+              value={questionnaireDue}
+              onChange={(e) => setQuestionnaireDue(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>{t("cases.questionnaireReceivedOn")}</span>
+            <input
+              type="date"
+              value={questionnaireReceived}
+              onChange={(e) => setQuestionnaireReceived(e.target.value)}
+            />
           </label>
         </div>
       </fieldset>

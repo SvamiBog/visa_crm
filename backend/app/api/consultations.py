@@ -41,6 +41,7 @@ class ConsultationFields(BaseModel):
     lead_channel_id: uuid.UUID | None = None
     destination_ids: Annotated[list[uuid.UUID], Field(max_length=10)] = []
     trip_planned_on: date | None = None
+    follow_up_on: date | None = None
     fee_amount: Amount | None = None
     fee_currency: Currency | None = None
     fee_paid: bool = False
@@ -66,6 +67,7 @@ class ConsultationUpdate(BaseModel):
     lead_channel_id: uuid.UUID | None = None
     destination_ids: Annotated[list[uuid.UUID], Field(max_length=10)] | None = None
     trip_planned_on: date | None = None
+    follow_up_on: date | None = None
     fee_amount: Amount | None = None
     fee_currency: Currency | None = None
     fee_paid: bool | None = None
@@ -84,6 +86,7 @@ class ConsultationOut(BaseModel):
     lead_channel_id: uuid.UUID | None
     destination_ids: list[uuid.UUID]
     trip_planned_on: date | None
+    follow_up_on: date | None
     fee_amount: Decimal | None
     fee_currency: str | None
     fee_paid: bool

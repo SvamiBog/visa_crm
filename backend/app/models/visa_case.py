@@ -163,6 +163,10 @@ class VisaCase(Base):
     )
     # Appointment date in the visa center or embassy (дата подачи).
     submission_on: Mapped[date | None] = mapped_column(Date)
+    # The specialist's questionnaire for the application form: when the client is to send
+    # it back, and when it came (a reminder in between, backlog 1.19).
+    questionnaire_due_on: Mapped[date | None] = mapped_column(Date)
+    questionnaire_received_on: Mapped[date | None] = mapped_column(Date)
 
     # Result: five structured fields instead of one list of hundreds of variants.
     outcome: Mapped[VisaOutcome | None] = mapped_column(_enum(VisaOutcome, "visa_outcome"))
