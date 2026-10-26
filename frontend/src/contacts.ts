@@ -268,6 +268,14 @@ export type ContactCard = {
 export const TABS = ["all", "work", "consult", "thinking", "archive"] as const;
 export type Tab = (typeof TABS)[number];
 
+/** History state of a card opened from the client index: «← Все клиенты» then goes back
+ * to the list as it was (tab, filters, search) instead of a fresh one. */
+export const FROM_INDEX = { fromIndex: true } as const;
+
+export function openedFromIndex(state: unknown): boolean {
+  return typeof state === "object" && state !== null && "fromIndex" in state;
+}
+
 export type CaseBrief = {
   id: string;
   number: number;

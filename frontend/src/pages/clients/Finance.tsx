@@ -168,14 +168,15 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
         <h4 className="h3">{t("finance.title", { currency: base })}</h4>
         {editing === null && (
           <span className="actions">
-            <button type="button" className="btn btn-sm" onClick={() => setEditing("finance")}>
-              {t("reference.edit")}
-            </button>
-            <button type="button" className="btn btn-sm" onClick={() => setEditing("payment")}>
+            {/* A payment is the frequent one; the price and terms change rarely. */}
+            <button type="button" className="btn btn-sm btn-p" onClick={() => setEditing("payment")}>
               {t("finance.addPayment")}
             </button>
             <button type="button" className="btn btn-sm" onClick={() => setEditing("expense")}>
               {t("finance.addExpense")}
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => setEditing("finance")}>
+              {t("reference.edit")}
             </button>
           </span>
         )}

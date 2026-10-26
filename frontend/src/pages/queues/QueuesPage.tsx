@@ -12,9 +12,11 @@ import {
   type Hall,
   type QueueEntry,
 } from "../../contacts";
+import { useDisclosure } from "../../components/Disclosure";
 import { byId, useCountries, useLocalName, useRules, type VisaCenter } from "../../reference";
 import { ATTEMPT_CHIP, QUEUE_CHIP } from "../clients/Appointment";
 import { CaseChip } from "../clients/Cases";
+import { ErrorAlert } from "../clients/ui";
 
 // «Очередь: страна» (backlog 1.6): who waits since when under what number, the
 // applications with their deadlines, and the average wait by city and purpose.
@@ -71,10 +73,13 @@ export function QueuesPage() {
     queryKey: ["queues", "summary"],
     queryFn: () => apiGet<QueueCountry[]>("/queues/summary"),
   });
-  // The home screen links straight to a country (?country=<id>).
-  const [params] = useSearchParams();
-  const [picked, setPicked] = useState(params.get("country") ?? "");
+  // The chosen country is in the URL (?country=<id>): the home screen links straight to
+  // it, and back from a client's card the same tab opens.
+  const [params, setParams] = useSearchParams();
+  const picked = params.get("country") ?? "";
+  const setPicked = (id: string) => setParams({ country: id }, { replace: true });
   const [closed, setClosed] = useState(false);
+  const averages = useDisclosure();
   const country = picked || summary.data?.[0]?.country_id || "";
   const view = useQuery({
     queryKey: ["queues", country, closed],
@@ -129,22 +134,8 @@ export function QueuesPage() {
         </>
       )}
 
-      {view.data && view.data.averages.length > 0 && (
-        <section className="card">
-          <h2 className="h2">{t("queues.averages")}</h2>
-          <ul className="plain-list">
-            {view.data.averages.map((a, i) => (
-              <li key={i}>
-                <span>{place(a.visa_center_id, a.purpose_id) || t("queues.anyPlace")}</span>
-                <span>
-                  {t("queues.averageDays", { count: a.average_days })}{" "}
-                  <span className="muted">{t("queues.averageOf", { count: a.entries })}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {country && view.isPending && <p className="muted">{t("common.loading")}</p>}
+      {view.isError && <ErrorAlert error={view.error} />}
 
       {view.data && view.data.entries.length > 0 && (
         <section className="card">
@@ -154,13 +145,12 @@ export function QueuesPage() {
               <thead>
                 <tr>
                   <th>{t("queues.applicant")}</th>
-                  <th>{t("queues.number")}</th>
-                  <th>{t("queues.email")}</th>
+                  <th>{t("queues.statusLabel")}</th>
+                  <th>{t("queues.numberAndEmail")}</th>
                   <th>{t("queues.place")}</th>
                   <th>{t("cases.registrar")}</th>
                   <th>{t("queues.queuedOn")}</th>
                   <th>{t("queues.letterDate")}</th>
-                  <th>{t("queues.statusLabel")}</th>
                   <th>{t("queues.waits")}</th>
                 </tr>
               </thead>
@@ -171,9 +161,14 @@ export function QueuesPage() {
                       <Link to={`/app/clients/${r.contact_id}`}>{r.full_name}</Link>
                       <div className="muted small">{t("cases.number", { number: r.number })}</div>
                     </td>
-                    <td className="mono nowrap">{r.vac_number}</td>
                     <td>
-                      {r.application_email}
+                      <span className={QUEUE_CHIP[r.status]}>{t(`queues.status.${r.status}`)}</span>
+                    </td>
+                    <td>
+                      {r.vac_number && <div className="mono nowrap">{r.vac_number}</div>}
+                      {r.application_email && (
+                        <div className="muted small">{r.application_email}</div>
+                      )}
                       {r.application_email_owner && (
                         <div className="muted small">{t(`queues.owner.${r.application_email_owner}`)}</div>
                       )}
@@ -195,9 +190,6 @@ export function QueuesPage() {
                           {t("index.nextSubmission", { date: date(r.submission_on) })}
                         </div>
                       )}
-                    </td>
-                    <td>
-                      <span className={QUEUE_CHIP[r.status]}>{t(`queues.status.${r.status}`)}</span>
                     </td>
                     <td className="nowrap">{t("queues.daysShort", { count: r.days_waiting })}</td>
                   </tr>
@@ -262,6 +254,28 @@ export function QueuesPage() {
       {view.data && view.data.entries.length === 0 && view.data.attempts.length === 0 && (
         <section className="card">
           <p className="muted">{t("queues.nobodyHere")}</p>
+        </section>
+      )}
+
+      {/* Statistics, not the day's work: under the lists, open on demand. */}
+      {view.data && view.data.averages.length > 0 && (
+        <section className="card">
+          <h2 className="h2">
+            <button className="disclosure-title" {...averages.button}>
+              {t("queues.averages")}
+            </button>
+          </h2>
+          <ul className="plain-list" {...averages.panel}>
+            {view.data.averages.map((a, i) => (
+              <li key={i}>
+                <span>{place(a.visa_center_id, a.purpose_id) || t("queues.anyPlace")}</span>
+                <span>
+                  {t("queues.averageDays", { count: a.average_days })}{" "}
+                  <span className="muted">{t("queues.averageOf", { count: a.entries })}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
     </div>

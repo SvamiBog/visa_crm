@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet } from "../../api";
@@ -10,7 +10,10 @@ import { CaseChip } from "../clients/Cases";
 import { ErrorAlert } from "../clients/ui";
 
 // «Брони: дедлайны» (backlog 1.8): every live booking of every client, nearest
-// cancellation date (or flight validity) first.
+// cancellation date (or flight validity) first. By default the passed ones and the next
+// SOON_DAYS; the later ones come with «Показать все».
+
+const SOON_DAYS = 14;
 
 type DeadlineRow = Booking & {
   contact_id: string;
@@ -33,11 +36,17 @@ export function BookingsPage() {
     queryFn: () => apiGet<DeadlineRow[]>("/bookings/deadlines"),
   });
   const [country, setCountry] = useState("");
+  const [all, setAll] = useState(false);
+  const tableId = useId();
   const destinations = useMemo(
     () => [...new Set((rows.data ?? []).map((r) => r.destination_id))],
     [rows.data],
   );
-  const shown = (rows.data ?? []).filter((r) => !country || r.destination_id === country);
+  const inCountry = (rows.data ?? []).filter((r) => !country || r.destination_id === country);
+  // A booking without a date stays in view: nothing tells when it stops mattering.
+  const soon = inCountry.filter((r) => r.days_left === null || r.days_left <= SOON_DAYS);
+  const later = inCountry.length - soon.length;
+  const shown = all ? inCountry : soon;
 
   return (
     <div className="page">
@@ -64,11 +73,14 @@ export function BookingsPage() {
         </div>
       )}
 
-      <section className="card">
+      <section className="card" id={tableId}>
         {rows.isPending && <p className="muted">{t("common.loading")}</p>}
         {rows.isError && <ErrorAlert error={rows.error} />}
-        {rows.isSuccess && shown.length === 0 && (
+        {rows.isSuccess && inCountry.length === 0 && (
           <p className="muted">{t("bookings.noneLive")}</p>
+        )}
+        {rows.isSuccess && inCountry.length > 0 && shown.length === 0 && (
+          <p className="muted">{t("bookings.noneSoon", { count: SOON_DAYS })}</p>
         )}
         {shown.length > 0 && (
           <div className="table-wrap">
@@ -131,6 +143,19 @@ export function BookingsPage() {
               </tbody>
             </table>
           </div>
+        )}
+        {(later > 0 || all) && (
+          <button
+            type="button"
+            className="btn btn-sm load-more"
+            aria-expanded={all}
+            aria-controls={tableId}
+            onClick={() => setAll(!all)}
+          >
+            {all
+              ? t("bookings.showSoon", { count: SOON_DAYS })
+              : t("bookings.showAll", { count: inCountry.length })}
+          </button>
         )}
       </section>
     </div>

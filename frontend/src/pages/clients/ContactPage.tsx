@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
   apiDelete,
@@ -16,6 +16,7 @@ import {
   contactKey,
   formatDate,
   formatPhone,
+  openedFromIndex,
   telegramUrl,
   useContactLists,
   type Consultation,
@@ -45,6 +46,33 @@ function ErrorAlert({ error }: { error: unknown }) {
   );
 }
 
+/** «← Все клиенты»: back to the list as it was when the card was opened from it. */
+function BackToList() {
+  const { t } = useTranslation();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const fromIndex = openedFromIndex(location.state);
+  return (
+    <Link
+      to="/app/clients"
+      className="small"
+      onClick={(event) => {
+        if (!fromIndex) return;
+        event.preventDefault();
+        navigate(-1);
+      }}
+    >
+      ← {t("contacts.backToList")}
+    </Link>
+  );
+}
+
+/** A block of the card. Side by side the card has two columns; in one column the work
+ * comes first — contact, cases, notes — and the reference blocks after it (styles.css). */
+function Slot({ name, children }: { name: string; children: ReactNode }) {
+  return <div className={`card-slot slot-${name}`}>{children}</div>;
+}
+
 /** The client's card: contact details, questionnaire and its checks, cases,
  * consultations, paperwork, family and links, the notes timeline. */
 export function ContactPage() {
@@ -69,7 +97,7 @@ export function ContactPage() {
     return (
       <div className="page">
         <ErrorAlert error={card.error} />
-        <Link to="/app/clients">{t("contacts.backToList")}</Link>
+        <BackToList />
       </div>
     );
   }
@@ -77,9 +105,7 @@ export function ContactPage() {
 
   return (
     <div className="page">
-      <Link to="/app/clients" className="small">
-        ← {t("contacts.backToList")}
-      </Link>
+      <BackToList />
       <header className="page-header">
         <div className="contact-head">
           <span className="avatar" aria-hidden="true">
@@ -101,7 +127,7 @@ export function ContactPage() {
             </a>
           )}
           {!editing && (
-            <button type="button" className="btn btn-p" onClick={() => setEditing(true)}>
+            <button type="button" className="btn" onClick={() => setEditing(true)}>
               {t("reference.edit")}
             </button>
           )}
@@ -123,32 +149,56 @@ export function ContactPage() {
       <Hints hints={card.data.hints} />
       {workspace.data?.modules.includes("tasks") && <AttentionList contactId={contact.id} />}
 
-      <div className="card-grid">
-        <div className="column">
-          <ContactDetails card={card.data} />
-          <PassportCard card={card.data} />
-          <QuestionnaireCard card={card.data} />
-          {workspace.data?.modules.includes("stay_calculator") && (
-            <ContactTrips contactId={contact.id} />
-          )}
-          <Paperwork card={card.data} fileStorage={workspace.data?.file_storage === true} />
-          {workspace.data?.modules.includes("document_templates") && (
-            <ContactTemplates contactId={contact.id} cases={card.data.cases ?? []} />
-          )}
-          <Relations contactId={contact.id} relations={relations} />
-        </div>
-        <div className="column">
-          {card.data.cases !== null && (
-            <Cases card={card.data} creating={creatingCase} onCreating={setCreatingCase} />
-          )}
-          {workspace.data?.modules.includes("vault") && (
-            <ContactVault contactId={contact.id} cases={card.data.cases ?? []} />
-          )}
-          <Consultations
-            card={card.data}
-            onCreateCase={card.data.cases !== null ? setCreatingCase : undefined}
-          />
-          <Timeline contactId={contact.id} notes={notes} />
+      <div className="contact-layout">
+        <div className="card-grid">
+          <div className="column">
+            <Slot name="contact">
+              <ContactDetails card={card.data} />
+            </Slot>
+            <Slot name="passport">
+              <PassportCard card={card.data} />
+            </Slot>
+            <Slot name="questionnaire">
+              <QuestionnaireCard card={card.data} />
+            </Slot>
+            {workspace.data?.modules.includes("stay_calculator") && (
+              <Slot name="trips">
+                <ContactTrips contactId={contact.id} />
+              </Slot>
+            )}
+            <Slot name="paperwork">
+              <Paperwork card={card.data} fileStorage={workspace.data?.file_storage === true} />
+            </Slot>
+            {workspace.data?.modules.includes("document_templates") && (
+              <Slot name="templates">
+                <ContactTemplates contactId={contact.id} cases={card.data.cases ?? []} />
+              </Slot>
+            )}
+            <Slot name="relations">
+              <Relations contactId={contact.id} relations={relations} />
+            </Slot>
+          </div>
+          <div className="column">
+            {card.data.cases !== null && (
+              <Slot name="cases">
+                <Cases card={card.data} creating={creatingCase} onCreating={setCreatingCase} />
+              </Slot>
+            )}
+            {workspace.data?.modules.includes("vault") && (
+              <Slot name="vault">
+                <ContactVault contactId={contact.id} cases={card.data.cases ?? []} />
+              </Slot>
+            )}
+            <Slot name="consultations">
+              <Consultations
+                card={card.data}
+                onCreateCase={card.data.cases !== null ? setCreatingCase : undefined}
+              />
+            </Slot>
+            <Slot name="notes">
+              <Timeline contactId={contact.id} notes={notes} />
+            </Slot>
+          </div>
         </div>
       </div>
     </div>

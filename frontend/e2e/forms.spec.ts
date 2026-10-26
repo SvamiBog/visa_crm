@@ -48,12 +48,14 @@ const FORMS: Form[] = [
       await page.locator(".page-header").getByRole("button", { name: t("reference.edit") }).click();
     },
   },
+  // The questionnaire is not here: it edits rows of controls without labels, not a form
+  // grid, so there is nothing to line up.
   {
-    name: "questionnaire",
+    name: "trip check in the card",
     open: async (page, t) => {
       await openCard(page);
-      await card(page, t("contacts.questionnaire"))
-        .getByRole("button", { name: t("reference.edit"), exact: true })
+      await card(page, t("stay.cardTitle"))
+        .getByRole("button", { name: t("stay.checkTitle"), exact: true })
         .click();
     },
   },

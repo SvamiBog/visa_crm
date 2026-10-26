@@ -3,6 +3,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError, apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPut } from "../../api";
 import { useMe } from "../../auth";
+import { useDisclosure } from "../../components/Disclosure";
 import { formatSize, readBase64 } from "../../files";
 import {
   DOCX_TYPES,
@@ -66,7 +67,11 @@ export function TemplatesPage() {
         )}
       </section>
 
-      <Instruction />
+      {/* Open while there is no template yet; afterwards it is there on demand. */}
+      <Instruction
+        key={templates.data?.length === 0 ? "first" : "more"}
+        initiallyOpen={templates.data?.length === 0}
+      />
       <CodeTable />
     </div>
   );
@@ -351,24 +356,31 @@ function EditForm({ template, onDone }: { template: DocumentTemplate; onDone: ()
 }
 
 /** How to make a template out of one's own document, step by step. */
-function Instruction() {
+function Instruction({ initiallyOpen }: { initiallyOpen: boolean }) {
   const { t } = useTranslation();
+  const howTo = useDisclosure(initiallyOpen);
   const steps = ["write", "codes", "save", "upload", "give", "download"] as const;
   const rules = ["anyCase", "language", "grammar", "format", "where", "empty", "unknown"] as const;
   return (
     <section className="card">
-      <h2 className="h2">{t("templates.howTo.title")}</h2>
-      <ol className="steps">
-        {steps.map((step) => (
-          <li key={step}>{t(`templates.howTo.${step}`)}</li>
-        ))}
-      </ol>
-      <h3 className="h3">{t("templates.rules.title")}</h3>
-      <ul className="steps">
-        {rules.map((rule) => (
-          <li key={rule}>{t(`templates.rules.${rule}`)}</li>
-        ))}
-      </ul>
+      <h2 className="h2">
+        <button className="disclosure-title" {...howTo.button}>
+          {t("templates.howTo.title")}
+        </button>
+      </h2>
+      <div {...howTo.panel}>
+        <ol className="steps">
+          {steps.map((step) => (
+            <li key={step}>{t(`templates.howTo.${step}`)}</li>
+          ))}
+        </ol>
+        <h3 className="h3">{t("templates.rules.title")}</h3>
+        <ul className="steps">
+          {rules.map((rule) => (
+            <li key={rule}>{t(`templates.rules.${rule}`)}</li>
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }

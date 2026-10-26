@@ -3,6 +3,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../api";
+import { useDisclosure } from "../../components/Disclosure";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { tripsKey, type ContactTrips as ContactTripsData, type Trip, type TripResult } from "../../stay";
 import { CountrySelect, StaySummaryView, TripCheck, TripFacts } from "../stay/StayParts";
@@ -18,6 +19,7 @@ export function ContactTrips({ contactId }: { contactId: string }) {
     queryFn: () => apiGet<ContactTripsData>(`/contacts/${contactId}/trips`),
   });
   const [editing, setEditing] = useState<Trip | "new" | null>(null);
+  const check = useDisclosure();
 
   return (
     <section className="card stay-block">
@@ -58,10 +60,16 @@ export function ContactTrips({ contactId }: { contactId: string }) {
               />
             ))}
           </ul>
-          <TripCheck trips={data.data.trips} />
-          <p className="muted small">
-            {t("stay.rule")} <Link to="/app/stay-calculator">{t("stay.openCalculator")}</Link>
-          </p>
+          {/* The check of a planned trip and the rule open on demand. */}
+          <button className="btn btn-sm stay-check-toggle" {...check.button}>
+            {t("stay.checkTitle")}
+          </button>
+          <div className="stay-check-panel" {...check.panel}>
+            {check.open && <TripCheck trips={data.data.trips} heading={false} />}
+            <p className="muted small">
+              {t("stay.rule")} <Link to="/app/stay-calculator">{t("stay.openCalculator")}</Link>
+            </p>
+          </div>
         </>
       )}
     </section>

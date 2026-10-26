@@ -3,8 +3,10 @@ import { useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet, apiPost, errorCode } from "../../api";
+import { useDisclosure } from "../../components/Disclosure";
 import {
   CASE_STAGES,
+  FROM_INDEX,
   formatDate,
   useCaseLists,
   type Board,
@@ -20,6 +22,11 @@ import type { Filters } from "./ClientsPage";
 // stage. A submission group at one stage is one card and moves together.
 
 const DRAG_TYPE = "application/x-visacrm-cases";
+
+/** The board is searched by name on the page: its data has names, not phones. */
+function matches(name: string, query: string): boolean {
+  return name.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+}
 
 /** Cases of one group (or a single case) at the same stage. */
 type Card = { key: string; cases: BoardCase[] };
@@ -37,9 +44,11 @@ function cardsByStage(cases: BoardCase[]): Map<CaseStage, Card[]> {
   return columns;
 }
 
-export function BoardView({ filters }: { filters: Filters }) {
+export function BoardView({ filters, query }: { filters: Filters; query: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const hint = useDisclosure();
+  const term = query.trim();
   const params = new URLSearchParams();
   if (filters.country) params.set("country_id", filters.country);
   if (filters.channel) params.set("channel_id", filters.channel);
@@ -69,7 +78,17 @@ export function BoardView({ filters }: { filters: Filters }) {
     },
   });
 
-  const columns = useMemo(() => cardsByStage(board.data?.cases ?? []), [board.data]);
+  // A family's card stays whole when the name of any of its members matches.
+  const columns = useMemo(() => {
+    const cases = board.data?.cases ?? [];
+    if (!term) return cardsByStage(cases);
+    const found = cases.filter((c) => matches(c.full_name, term));
+    const groups = new Set(found.map((c) => c.group_id).filter(Boolean));
+    return cardsByStage(
+      cases.filter((c) => matches(c.full_name, term) || (c.group_id && groups.has(c.group_id))),
+    );
+  }, [board.data, term]);
+  const leads = (board.data?.leads ?? []).filter((lead) => !term || matches(lead.full_name, term));
 
   const drop = (stage: CaseStage) => (event: DragEvent) => {
     event.preventDefault();
@@ -85,7 +104,12 @@ export function BoardView({ filters }: { filters: Filters }) {
 
   return (
     <section aria-label={t("index.board")}>
-      <p className="muted small">{t("index.boardHint")}</p>
+      <button className="link-button hint-toggle" {...hint.button}>
+        {t("index.boardHintTitle")}
+      </button>
+      <p className="muted small" {...hint.panel}>
+        {t("index.boardHint")}
+      </p>
       {move.isError && (
         <div className="alert alert-error" role="alert">
           {t(`errors.${errorCode(move.error)}`, { defaultValue: t("errors.unknown") })}
@@ -94,9 +118,9 @@ export function BoardView({ filters }: { filters: Filters }) {
       <div className="board">
         <div className="board-col">
           <h2 className="board-title">
-            {t("index.consultColumn")} <span className="muted">{board.data.leads.length}</span>
+            {t("index.consultColumn")} <span className="muted">{leads.length}</span>
           </h2>
-          {board.data.leads.map((lead) => (
+          {leads.map((lead) => (
             <LeadCard key={lead.contact_id} lead={lead} />
           ))}
         </div>
@@ -151,7 +175,7 @@ function CaseCard({ card }: { card: Card }) {
       }}
     >
       <div>
-        <Link to={`/app/clients/${first.contact_id}`} draggable={false}>
+        <Link to={`/app/clients/${first.contact_id}`} state={FROM_INDEX} draggable={false}>
           {first.full_name}
         </Link>
         {others > 0 && (
@@ -190,7 +214,9 @@ function LeadCard({ lead }: { lead: BoardLead }) {
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
   return (
     <article className="board-card lead">
-      <Link to={`/app/clients/${lead.contact_id}`}>{lead.full_name}</Link>
+      <Link to={`/app/clients/${lead.contact_id}`} state={FROM_INDEX}>
+        {lead.full_name}
+      </Link>
       <div className="muted small">
         {[
           lead.held_on && formatDate(lead.held_on, i18n.language),

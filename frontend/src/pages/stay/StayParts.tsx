@@ -161,7 +161,8 @@ export function TripFacts({
 }
 
 /** «Проверить поездку»: a planned trip against the trips given, nothing saved. */
-export function TripCheck({ trips }: { trips: TripDraft[] }) {
+/** `heading`: off where a «Проверить поездку» button already names the form. */
+export function TripCheck({ trips, heading = true }: { trips: TripDraft[]; heading?: boolean }) {
   const { t } = useTranslation();
   const [enteredOn, setEnteredOn] = useState("");
   const [leftOn, setLeftOn] = useState("");
@@ -178,8 +179,8 @@ export function TripCheck({ trips }: { trips: TripDraft[] }) {
     run.mutate();
   };
   return (
-    <form className="stay-check" onSubmit={submit}>
-      <h3 className="h3">{t("stay.checkTitle")}</h3>
+    <form className="stay-check" onSubmit={submit} aria-label={t("stay.checkTitle")}>
+      {heading && <h3 className="h3">{t("stay.checkTitle")}</h3>}
       <div className="form-grid">
         <label className="field">
           <span>{t("stay.entry")}</span>
