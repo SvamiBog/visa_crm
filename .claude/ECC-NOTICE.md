@@ -34,6 +34,8 @@ The ECC plugin itself is not installed: cloud sessions load no plugins, so local
 | `.claude/agents/ecc-database-reviewer.md` | `agents/database-reviewer.md` (credits Supabase Agent Skills, MIT) |
 | `.claude/agents/ecc-security-reviewer.md` | `agents/security-reviewer.md` |
 | `.claude/agents/ecc-vulnerability-hunter.md` | `skills/security-bounty-hunter/SKILL.md` (turned into an agent for whole-area audits) |
+| `.claude/agents/ecc-site-security-tester.md` | `skills/browser-qa/SKILL.md` + `skills/security-bounty-hunter/SKILL.md` (combined into an agent that probes a running stand) |
+| `.claude/agents/ecc-ux-reviewer.md` | `skills/browser-qa/SKILL.md` + `skills/design-system/SKILL.md` + `agents/a11y-architect.md` (combined into a UX review-and-apply agent) |
 | `.claude/agents/ecc-typescript-reviewer.md` | `agents/typescript-reviewer.md` |
 | `.claude/agents/ecc-react-reviewer.md` | `agents/react-reviewer.md` |
 | `.claude/skills/ecc-tdd-workflow/SKILL.md` | `skills/tdd-workflow/SKILL.md` |
