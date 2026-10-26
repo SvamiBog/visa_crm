@@ -10,6 +10,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     LargeBinary,
+    SmallInteger,
     String,
     UniqueConstraint,
     func,
@@ -42,6 +43,10 @@ class User(Base):
         CheckConstraint("email = lower(email)", name="email_lowercase"),
         # Target of (user_id, tenant_id) keys: a grant cannot name another workspace's user.
         UniqueConstraint("id", "tenant_id", name="uq_users_id_tenant"),
+        CheckConstraint("daily_card_limit BETWEEN 1 AND 1000", name="daily_card_limit_range"),
+        CheckConstraint(
+            "daily_password_limit BETWEEN 1 AND 1000", name="daily_password_limit_range"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -67,5 +72,8 @@ class User(Base):
     totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
     # Employees only: the specialist's modules this employee may use.
     modules: Mapped[list[str]] = mapped_column(ARRAY(String(40)), server_default=text("'{}'"))
+    # Employees only: cards and passwords a day (app/core/employee_limits.py, Т.14).
+    daily_card_limit: Mapped[int] = mapped_column(SmallInteger, server_default=text("50"))
+    daily_password_limit: Mapped[int] = mapped_column(SmallInteger, server_default=text("20"))
     ui_theme: Mapped[str] = mapped_column(String(16), server_default=UiTheme.BLUE.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

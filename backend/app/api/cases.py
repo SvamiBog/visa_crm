@@ -21,6 +21,7 @@ from app.api.client_status import Tab, latest_consultation, tab_of
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.cases import VISA_DETAILS, advance, appeal_until, cleared_by_outcome
+from app.core.employee_limits import LimitKind, watch
 from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
 from app.models import (
     AuditAction,
@@ -608,8 +609,11 @@ async def move_cases(body: StageIn, user: Member, session: TenantSession) -> Res
 
 
 @router.get("/cases/{case_id}")
-async def get_case(case_id: uuid.UUID, session: TenantSession) -> CaseOut:
-    return await _one_out(session, await _case(session, case_id))
+async def get_case(case_id: uuid.UUID, user: Member, session: TenantSession) -> CaseOut:
+    case = await _case(session, case_id)
+    # An employee's open counts against their daily limit and goes to the log (Т.14).
+    await watch(session, user, LimitKind.CARDS, "case", case.id, AuditAction.CASE_VIEWED)
+    return await _one_out(session, case)
 
 
 @router.patch("/cases/{case_id}")

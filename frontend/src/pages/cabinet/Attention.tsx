@@ -20,7 +20,9 @@ type Kind =
   | "thinking"
   | "visa_expires"
   | "appeal"
-  | "registrar_advance";
+  | "registrar_advance"
+  | "card_limit"
+  | "password_limit";
 
 type Reminder = {
   key: string | null;
@@ -39,6 +41,9 @@ type Reminder = {
   registrar_name: string | null;
   amount: string | null;
   currency: string | null;
+  employee_id: string | null;
+  employee_name: string | null;
+  limit: number | null;
 };
 
 const remindersKey = (contactId?: string) => ["reminders", contactId ?? "all"] as const;
@@ -83,6 +88,18 @@ function ReminderText({ item: r }: { item: Reminder }) {
           {t("attention.kind.registrar_advance", {
             amount: money(r.amount),
             currency: r.currency,
+          })}
+        </>
+      );
+    case "card_limit":
+    case "password_limit":
+      // An employee went over a daily limit (backlog Т.14): paused until the next day.
+      return (
+        <>
+          {t(`attention.kind.${r.kind}`, {
+            name: r.employee_name,
+            count: r.limit ?? 0,
+            date: date(r.occurs_on),
           })}
         </>
       );
@@ -142,7 +159,9 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
                   <ReminderText item={r} />
                 </div>
                 <div className="muted small">
-                  {r.registrar_id ? (
+                  {r.employee_id ? (
+                    <Link to="/app/employees">{t("nav.employees")}</Link>
+                  ) : r.registrar_id ? (
                     <Link to={`/app/registrars/${r.registrar_id}`}>{r.registrar_name}</Link>
                   ) : (
                     <>

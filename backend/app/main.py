@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
@@ -36,6 +36,7 @@ from app.api.vault import router as vault_router
 from app.api.workspace import router as workspace_router
 from app.core.audit import client_ip
 from app.core.config import get_settings
+from app.core.employee_limits import LimitReached
 from app.core.http_headers import add_security_headers
 
 
@@ -53,6 +54,11 @@ def create_app() -> FastAPI:
             client_ip.reset(token)
 
     add_security_headers(app)
+
+    @app.exception_handler(LimitReached)
+    async def limit_reached(request: Request, error: LimitReached) -> JSONResponse:
+        # An employee's daily limit (backlog Т.14): paused until the next day.
+        return JSONResponse(status_code=429, content={"detail": error.code})
 
     for router in (
         health_router,

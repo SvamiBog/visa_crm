@@ -16,6 +16,8 @@ type Employee = {
   last_login_at: string | null;
   created_at: string;
   case_count: number;
+  daily_card_limit: number;
+  daily_password_limit: number;
 };
 
 type Action = "block" | "unblock" | "reset-password";
@@ -204,11 +206,21 @@ function EmployeeForm({
   const [modules, setModules] = useState(
     employee?.modules.filter((m) => available.includes(m)) ?? [],
   );
+  // Daily limits (backlog Т.14): set for an existing employee, defaults for a new one.
+  const [cardLimit, setCardLimit] = useState(String(employee?.daily_card_limit ?? ""));
+  const [passwordLimit, setPasswordLimit] = useState(
+    String(employee?.daily_password_limit ?? ""),
+  );
 
   const save = useMutation({
     mutationFn: async (): Promise<IssuedPassword | undefined> => {
       if (employee) {
-        await apiPatch<Employee>(`/employees/${employee.id}`, { full_name: name, modules });
+        await apiPatch<Employee>(`/employees/${employee.id}`, {
+          full_name: name,
+          modules,
+          daily_card_limit: Number(cardLimit),
+          daily_password_limit: Number(passwordLimit),
+        });
         return undefined;
       }
       const created = await apiPost<{ employee: Employee; temporary_password: string }>(
@@ -251,6 +263,36 @@ function EmployeeForm({
       <h3 className="h3">{t("employees.modulesTitle")}</h3>
       <p className="muted small">{t("employees.modulesHint")}</p>
       <ModulePicker value={modules} onChange={setModules} allowed={available} />
+      {employee && (
+        <>
+          <h3 className="h3">{t("employees.limitsTitle")}</h3>
+          <p className="muted small">{t("employees.limitsHint")}</p>
+          <div className="form-grid">
+            <label className="field">
+              <span>{t("employees.cardLimit")}</span>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                required
+                value={cardLimit}
+                onChange={(e) => setCardLimit(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>{t("employees.passwordLimit")}</span>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                required
+                value={passwordLimit}
+                onChange={(e) => setPasswordLimit(e.target.value)}
+              />
+            </label>
+          </div>
+        </>
+      )}
       {!employee && <p className="muted small">{t("employees.newHint")}</p>}
       {save.isError && (
         <div className="alert alert-error" role="alert">

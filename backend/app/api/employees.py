@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_specialist
 from app.core.audit import record
+from app.core.employee_limits import MAX_LIMIT
 from app.core.modules import ModuleList
 from app.core.security import generate_temporary_password, hash_password
 from app.core.two_factor import reset_two_factor
@@ -31,9 +32,15 @@ class EmployeeIn(BaseModel):
     modules: ModuleList = []
 
 
+DailyLimit = Annotated[int, Field(ge=1, le=MAX_LIMIT)]
+
+
 class EmployeeUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=1, max_length=200)
     modules: ModuleList | None = None
+    # How many cards and passwords a day (app/core/employee_limits.py, Т.14).
+    daily_card_limit: DailyLimit | None = None
+    daily_password_limit: DailyLimit | None = None
 
 
 class EmployeeOut(BaseModel):
@@ -48,6 +55,8 @@ class EmployeeOut(BaseModel):
     created_at: datetime
     # Cases the specialist gave them; their groups and what they created come on top.
     case_count: int
+    daily_card_limit: int
+    daily_password_limit: int
 
 
 class EmployeeCreated(BaseModel):
@@ -84,6 +93,8 @@ def _out(user: User, case_count: int) -> EmployeeOut:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         case_count=case_count,
+        daily_card_limit=user.daily_card_limit,
+        daily_password_limit=user.daily_password_limit,
     )
 
 
@@ -179,6 +190,10 @@ async def update_employee(
         employee.modules = body.modules
     if body.full_name is not None:
         employee.full_name = body.full_name.strip()
+    if body.daily_card_limit is not None:
+        employee.daily_card_limit = body.daily_card_limit
+    if body.daily_password_limit is not None:
+        employee.daily_password_limit = body.daily_password_limit
     if changes:
         _record(session, AuditAction.EMPLOYEE_UPDATED, specialist, employee, details)
     await session.commit()

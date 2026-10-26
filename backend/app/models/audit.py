@@ -32,8 +32,11 @@ class AuditAction(StrEnum):
     EMPLOYEE_BLOCKED = "employees.blocked"
     EMPLOYEE_UNBLOCKED = "employees.unblocked"
     EMPLOYEE_PASSWORD_RESET = "employees.password_reset"
+    EMPLOYEE_LIMIT_REACHED = "employees.limit_reached"
     # Client data: details carry ids only, never names, phones or note text.
     CONTACT_CREATED = "contacts.created"
+    # Opens by an employee, once a card a day (app/core/employee_limits.py).
+    CONTACT_VIEWED = "contacts.viewed"
     CONTACT_UPDATED = "contacts.updated"
     CONTACT_NOTE_ADDED = "contacts.note_added"
     CONTACT_NOTE_EDITED = "contacts.note_edited"
@@ -55,6 +58,7 @@ class AuditAction(StrEnum):
     CONSULTATION_CREATED = "consultations.created"
     CONSULTATION_UPDATED = "consultations.updated"
     CASE_CREATED = "cases.created"
+    CASE_VIEWED = "cases.viewed"
     CASE_UPDATED = "cases.updated"
     CASE_GROUPED = "cases.grouped"
     CASE_UNGROUPED = "cases.ungrouped"
@@ -98,7 +102,11 @@ class AuditEvent(Base):
     and a trigger rejects UPDATE, DELETE and TRUNCATE for everyone (migration 0005)."""
 
     __tablename__ = "audit_events"
-    __table_args__ = (Index("ix_audit_events_tenant_id_id", "tenant_id", "id"),)
+    __table_args__ = (
+        Index("ix_audit_events_tenant_id_id", "tenant_id", "id"),
+        # An employee's opens of today, counted against their limits (Т.14).
+        Index("ix_audit_events_actor_action_time", "actor_id", "action", "occurred_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     occurred_at: Mapped[datetime] = mapped_column(

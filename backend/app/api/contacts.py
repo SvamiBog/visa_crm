@@ -22,6 +22,7 @@ from app.api.consultations import ConsultationOut, HintOut, consultations_of, hi
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
+from app.core.employee_limits import LimitKind, watch
 from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
 from app.core.phone import normalize_phone, phone_digits
 from app.core.questionnaire import Passport, Questionnaire
@@ -529,7 +530,10 @@ async def create_contact(body: ContactIn, user: Member, session: TenantSession) 
 
 @router.get("/{contact_id}")
 async def get_contact(contact_id: uuid.UUID, user: Member, session: TenantSession) -> ContactCard:
-    return await _card(session, user, await _contact(session, contact_id))
+    contact = await _contact(session, contact_id)
+    # An employee's open counts against their daily limit and goes to the log (Т.14).
+    await watch(session, user, LimitKind.CARDS, "contact", contact.id, AuditAction.CONTACT_VIEWED)
+    return await _card(session, user, contact)
 
 
 @router.patch("/{contact_id}", response_model=ContactOut)
