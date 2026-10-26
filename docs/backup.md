@@ -166,40 +166,26 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 
 ## 5. Проверка раз в месяц
 
-Копия, которую ни разу не восстанавливали, — не копия. Проверка идёт на своём компьютере с Docker Desktop, во временной базе, которая потом удаляется; production она не трогает. Около 15 минут.
+Копия, которую ни разу не восстанавливали, — не копия.
 
-1. **Ключи в папке `visacrm-keys`** в домашнем каталоге (`%USERPROFILE%\visacrm-keys` в Windows), не в репозитории:
-   - `visacrm-backup-key.txt` — закрытый ключ age из менеджера паролей, целиком (строки `# created`, `# public key`, `AGE-SECRET-KEY-1…`), в кодировке UTF-8;
-   - `restore.env` — как в разделе 4, с ключом B2 `restore` (Read Only). В Блокноте — «Тип файла: Все файлы», иначе он сохранит `restore.env.txt`.
-
-   Ошибка `SignatureDoesNotMatch` от B2 — неверный `BACKUP_S3_SECRET_KEY`: у ключа B2 `keyID` длиной 25 символов, `applicationKey` — 31, без пробелов в конце.
-2. **Образ и пустая база** — из папки репозитория:
+1. **Пустая база.** `docker compose up -d db` — это Postgres 18, как в production: копию от `pg_dump` 18 в базу младшей версии не восстановить. Если `db` не запускается, а в `docker compose logs db` — `Error: in 18+…`, остался том от Postgres 16: README → «Запуск локально». Затем:
 
    ```bash
-   docker build -t visacrm-backup ops/backup
-   docker network create restore-net
-   docker run -d --name restore-db --network restore-net -e POSTGRES_USER=visacrm -e POSTGRES_PASSWORD=visacrm -e POSTGRES_DB=restore_drill postgres:18
+   docker compose exec db createdb -U visacrm restore_drill
    ```
-3. **Восстановление последней копии** (в PowerShell — `"$HOME\visacrm-keys\restore.env"` и `"$HOME\visacrm-keys:/keys:ro"`):
+2. **Восстановление.** Как в разделе 4, с адресом `postgresql://visacrm:visacrm@host.docker.internal:5432/restore_drill`.
+3. **Сверка.** Число клиентов и кейсов совпадает с тем, что видно в CRM на день копии:
 
    ```bash
-   docker run --rm --network restore-net --env-file ~/visacrm-keys/restore.env -v ~/visacrm-keys:/keys:ro --entrypoint restore.sh visacrm-backup latest postgresql://visacrm:visacrm@restore-db:5432/restore_drill
+   docker compose exec db psql -U visacrm restore_drill -c "SELECT (SELECT count(*) FROM contacts) AS contacts, (SELECT count(*) FROM visa_cases) AS cases"
    ```
-
-   В конце — `restore: db/daily/visacrm-….dump.age restored, N tables`.
-4. **Сверка.** Число клиентов и кейсов по кабинетам совпадает с CRM на время копии (04:00 по Минску): клиенты — вкладка «Все» в «Клиентах», кейсы — самый большой номер кейса.
+4. **Удаление.** Удалите проверочную базу и ключ с диска — в ней настоящие данные клиентов:
 
    ```bash
-   docker exec restore-db psql -U visacrm -d restore_drill -c "SELECT t.name AS cabinet, (SELECT count(*) FROM contacts c WHERE c.tenant_id = t.id) AS clients, (SELECT count(*) FROM visa_cases v WHERE v.tenant_id = t.id) AS cases FROM tenants t ORDER BY t.name"
+   docker compose exec db dropdb -U visacrm restore_drill
    ```
-5. **Уборка.** Удалите временную базу и с диска — ключ и `restore.env`: в базе настоящие данные клиентов.
-
-   ```bash
-   docker rm -f -v restore-db
-   docker network rm restore-net
-   ```
-6. **Запись.** Добавьте строку в таблицу.
+5. **Запись.** Запишите строку ниже.
 
 | Дата | Копия | Результат |
 | --- | --- | --- |
-| 26.10.2026 | `daily/visacrm-20261026T010124Z.dump.age` | Восстановлена, 46 таблиц; 2 кабинета, 2 клиента, 0 кейсов — совпало с CRM |
+| 2026-10-26 | `daily/visacrm-20261026T010124Z.dump.age` | Восстановлена в пустую базу Postgres 18 (`docker compose`); число визовиков, клиентов и кейсов совпало с production |
