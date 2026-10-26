@@ -307,6 +307,7 @@ def _user(
     tenant_id: uuid.UUID | None,
     now: datetime,
     modules: list[str] | None = None,
+    full_name: str | None = None,
 ) -> User:
     user_id = uuid.uuid4()
     two_factor = role != UserRole.EMPLOYEE and bool(settings.totp_secret)
@@ -314,6 +315,7 @@ def _user(
         id=user_id,
         tenant_id=tenant_id,
         email=email,
+        full_name=full_name,
         password_hash=hash_password(settings.password),
         role=role,
         must_change_password=False,
@@ -410,6 +412,7 @@ async def _workspace(
         tenant.id,
         now,
         modules=["clients", "cases"],
+        full_name=f"Помощник (демо {index})",
     )
     session.add_all([owner, staff])
     add_default_dictionaries(session, tenant.id)

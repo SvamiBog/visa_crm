@@ -85,7 +85,9 @@ async def test_past_the_card_limit_the_employee_waits_for_the_next_day(
 
     # The specialist sees it once, with the employee's name, and can dismiss it.
     await switch_to(client, "anna@example.com")
-    [signal] = [i for i in (await client.get("/api/reminders")).json() if i["kind"] == "card_limit"]
+    items = (await client.get("/api/reminders")).json()
+    [signal] = [i for i in items if i["kind"] == "card_limit"]
+    assert items[0] == signal  # before any date of the clients
     assert signal["employee_name"] == EMPLOYEE and signal["limit"] == 2
     assert len(await events(owner_engine, "employees.limit_reached")) == 1
     assert (await client.post("/api/reminders/dismiss", json={"key": signal["key"]})).is_success

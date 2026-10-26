@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
 import { IssuedPasswordCard, type IssuedPassword } from "../../components/IssuedPasswordCard";
 import { ModulePicker } from "../../components/ModulePicker";
+import { RevealedPasswords } from "./RevealedPasswords";
 
 type Employee = {
   id: string;
@@ -37,15 +38,18 @@ export function EmployeesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [issued, setIssued] = useState<IssuedPassword | null>(null);
+  // Whose revealed vault passwords are open (Т.15): opens by itself after blocking.
+  const [passwordsOf, setPasswordsOf] = useState<Employee | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: KEY });
 
   const action = useMutation({
     mutationFn: ({ e, kind }: { e: Employee; kind: Action }) =>
       apiPost<Employee | { temporary_password: string }>(`/employees/${e.id}/${kind}`),
-    onSuccess: (result, { e }) => {
+    onSuccess: (result, { e, kind }) => {
       if ("temporary_password" in result) {
         setIssued({ email: e.email, password: result.temporary_password });
       }
+      if (kind === "block") setPasswordsOf({ ...e, is_active: false });
       void refresh();
     },
   });
@@ -104,6 +108,14 @@ export function EmployeesPage() {
         />
       )}
 
+      {passwordsOf && (
+        <RevealedPasswords
+          key={passwordsOf.id}
+          employee={passwordsOf}
+          onClose={() => setPasswordsOf(null)}
+        />
+      )}
+
       {action.isError && (
         <div className="alert alert-error" role="alert">
           {t(`errors.${errorCode(action.error)}`, { defaultValue: t("errors.unknown") })}
@@ -149,6 +161,9 @@ export function EmployeesPage() {
                       <div className="actions">
                         <button type="button" className="btn btn-sm" onClick={() => setEditing(e)}>
                           {t("admin.settings")}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setPasswordsOf(e)}>
+                          {t("revealed.open")}
                         </button>
                         <button
                           type="button"

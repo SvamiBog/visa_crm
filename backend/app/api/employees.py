@@ -1,6 +1,7 @@
 """A specialist's employees: invite, choose modules, block, new password (backlog 0.7).
 The cases an employee sees are given in the case itself (app/api/case_access.py); the
-list shows how many each has.
+list shows how many each has. Letting one go (Т.15): the vault passwords they revealed,
+from the audit log, and whether each was changed since.
 
 Everything runs in the specialist's own workspace scope (Row-Level Security)."""
 
@@ -19,7 +20,18 @@ from app.core.employee_limits import MAX_LIMIT
 from app.core.modules import ModuleList
 from app.core.security import generate_temporary_password, hash_password
 from app.core.two_factor import reset_two_factor
-from app.models import AuditAction, EmployeeCase, RecoveryCode, User, UserRole, UserSession
+from app.models import (
+    AuditAction,
+    AuditEvent,
+    Contact,
+    EmployeeCase,
+    RecoveryCode,
+    User,
+    UserRole,
+    UserSession,
+    VaultEntry,
+    VaultSystem,
+)
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
@@ -57,6 +69,25 @@ class EmployeeOut(BaseModel):
     case_count: int
     daily_card_limit: int
     daily_password_limit: int
+
+
+class RevealedPassword(BaseModel):
+    """A vault password the employee saw: change it when they leave."""
+
+    entry_id: uuid.UUID
+    system_name: str | None
+    login: str | None  # None once the entry is deleted
+    contact_id: uuid.UUID | None
+    contact_name: str | None
+    times: int
+    last_revealed_at: datetime
+    # Changed after the employee last saw it: nothing more to do.
+    changed_since: bool
+    deleted: bool
+
+
+# More than an employee ever reveals; bounds the answer.
+REVEALED_LIMIT = 500
 
 
 class EmployeeCreated(BaseModel):
@@ -244,3 +275,69 @@ async def reset_employee_password(
     _record(session, AuditAction.EMPLOYEE_PASSWORD_RESET, specialist, employee)
     await session.commit()
     return TemporaryPassword(temporary_password=password)
+
+
+@router.get("/{employee_id}/revealed-passwords")
+async def revealed_passwords(
+    employee_id: uuid.UUID, specialist: Specialist, session: TenantSession
+) -> list[RevealedPassword]:
+    """Every vault password the employee revealed, those not changed since first."""
+    employee = await _get_employee(session, specialist, employee_id)
+    last = func.max(AuditEvent.occurred_at)
+    reveals = (
+        (
+            await session.execute(
+                select(
+                    AuditEvent.target_id,
+                    func.count(),
+                    last,
+                    func.max(AuditEvent.details["name"].astext),
+                )
+                .where(
+                    AuditEvent.actor_id == employee.id,
+                    AuditEvent.action == AuditAction.VAULT_PASSWORD_REVEALED,
+                )
+                .group_by(AuditEvent.target_id)
+                .order_by(last.desc())
+                .limit(REVEALED_LIMIT)
+            )
+        )
+        .tuples()
+        .all()
+    )
+    ids = [uuid.UUID(target) for target, *_ in reveals if target]
+    entries = {
+        entry.id: (entry, system, name)
+        for entry, system, name in (
+            await session.execute(
+                select(VaultEntry, VaultSystem.name, Contact.full_name)
+                .join(VaultSystem, VaultSystem.id == VaultEntry.system_id)
+                .outerjoin(Contact, Contact.id == VaultEntry.contact_id)
+                .where(VaultEntry.id.in_(ids))
+            )
+        ).tuples()
+    }
+    rows = []
+    for target, times, last_at, system_name in reveals:
+        if not target:
+            continue
+        found = entries.get(uuid.UUID(target))
+        entry, current_system, contact_name = found if found else (None, None, None)
+        rows.append(
+            RevealedPassword(
+                entry_id=uuid.UUID(target),
+                system_name=current_system or system_name,
+                login=entry.login if entry else None,
+                contact_id=entry.contact_id if entry else None,
+                contact_name=contact_name,
+                times=times,
+                last_revealed_at=last_at,
+                changed_since=bool(
+                    entry and entry.password_updated_at and entry.password_updated_at > last_at
+                ),
+                deleted=entry is None,
+            )
+        )
+    # Still to change first; a deleted entry has nothing left to change.
+    rows.sort(key=lambda r: r.changed_since or r.deleted)
+    return rows

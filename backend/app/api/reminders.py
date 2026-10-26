@@ -473,6 +473,8 @@ async def collect(
     shown = [item for item in out.items if item.key not in dismissed]
     shown.sort(
         key=lambda i: (
+            # An employee over a limit (Т.14) is the first thing the specialist sees.
+            i.kind not in (ReminderKind.CARD_LIMIT, ReminderKind.PASSWORD_LIMIT),
             i.days_left is None,
             i.days_left if i.days_left is not None else 0,
             order.index(i.kind),
