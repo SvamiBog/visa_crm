@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import Select, and_, exists, extract, func, select, true
+from sqlalchemy import Date, Select, and_, cast, exists, extract, func, or_, select, true
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -50,14 +50,17 @@ from app.models import (
     CaseFinance,
     CasePayment,
     CaseStage,
+    Consultation,
     Contact,
     CountryRule,
+    Decision,
     ReminderDismissal,
     Tenant,
     User,
     UserRole,
     VisaCase,
     VisaOutcome,
+    WaitingListEntry,
 )
 
 router = APIRouter(tags=["reminders"], dependencies=[Depends(require_module("tasks"))])
@@ -77,7 +80,8 @@ class ReminderOut(BaseModel):
     occurs_on: date | None
     due_on: date | None
     days_left: int | None
-    # Thinking clients: the day of the consultation.
+    # Thinking clients and a follow-up: the day of the consultation; an unsigned contract:
+    # the day the case was opened; a balance once in the queue: the day queued.
     since: date | None = None
     contact_id: uuid.UUID | None = None
     contact_name: str | None = None
@@ -112,6 +116,9 @@ class SettingsIO(BaseModel):
     thinking_months: list[Annotated[int, Field(ge=1, le=24)]] = Field(min_length=1, max_length=3)
     visa_expiry_months: Annotated[int, Field(ge=1, le=12)]
     appeal_days: Days
+    consultation_days: Days
+    contract_days: Days
+    questionnaire_days: Days
 
     @field_validator("thinking_months")
     @classmethod
@@ -210,6 +217,80 @@ async def _thinking(
             )
 
 
+async def _consultations(
+    session: AsyncSession, out: _Collector, s: rules.Settings, contact_id: uuid.UUID | None
+) -> None:
+    """A consultation ahead, not held yet (no decision), and the day agreed at the latest
+    consultation to hear the decision, while there is none or the client still thinks."""
+    query = (
+        select(Consultation, Contact.full_name)
+        .join(Contact, Contact.id == Consultation.contact_id)
+        .where(
+            Consultation.decision.is_(None),
+            Consultation.held_on.between(
+                out.today, out.today + timedelta(days=s.consultation_days)
+            ),
+        )
+    )
+    for c, name in await session.execute(_for_contact(query, Consultation.contact_id, contact_id)):
+        day = rules.consultation(c.held_on, out.today, s)
+        if day is not None:
+            out.add(
+                ReminderKind.CONSULTATION,
+                c.id,
+                day,
+                c.held_on,
+                contact_id=c.contact_id,
+                contact_name=name,
+            )
+
+    later = aliased(Consultation)
+    query = (
+        select(Consultation, Contact.full_name)
+        .join(Contact, Contact.id == Consultation.contact_id)
+        .where(
+            Consultation.follow_up_on.between(add_months(out.today, -1), out.today),
+            or_(Consultation.decision.is_(None), Consultation.decision == Decision.THINKING),
+            ~exists().where(
+                later.contact_id == Consultation.contact_id,
+                later.held_on > Consultation.held_on,
+            ),
+        )
+    )
+    for c, name in await session.execute(_for_contact(query, Consultation.contact_id, contact_id)):
+        assert c.follow_up_on is not None
+        day = rules.follow_up(c.follow_up_on, out.today)
+        if day is not None:
+            out.add(
+                ReminderKind.FOLLOW_UP,
+                c.id,
+                day,
+                c.follow_up_on,
+                since=c.held_on,
+                contact_id=c.contact_id,
+                contact_name=name,
+            )
+
+
+async def _balances(
+    session: AsyncSession, case_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, Decimal | None]:
+    """What the client still owes on each case (app/core/finance.py)."""
+    owed: dict[uuid.UUID, Decimal | None] = {}
+    if not case_ids:
+        return owed
+    paid: dict[uuid.UUID, list[Decimal]] = defaultdict(list)
+    for case_id, amount in await session.execute(
+        select(CasePayment.case_id, CasePayment.amount_base).where(
+            CasePayment.case_id.in_(case_ids)
+        )
+    ):
+        paid[case_id].append(amount)
+    for f in await session.scalars(select(CaseFinance).where(CaseFinance.case_id.in_(case_ids))):
+        owed[f.case_id] = balance(f.price, f.consultation_credit, paid[f.case_id])
+    return owed
+
+
 async def _submissions(
     session: AsyncSession,
     out: _Collector,
@@ -230,16 +311,7 @@ async def _submissions(
         )
     )
     rows = (await session.execute(_for_contact(query, VisaCase.contact_id, contact_id))).all()
-    owed: dict[uuid.UUID, Decimal | None] = {}
-    if money and rows:
-        ids = [case.id for case, _ in rows]
-        paid: dict[uuid.UUID, list[Decimal]] = defaultdict(list)
-        for case_id, amount in await session.execute(
-            select(CasePayment.case_id, CasePayment.amount_base).where(CasePayment.case_id.in_(ids))
-        ):
-            paid[case_id].append(amount)
-        for f in await session.scalars(select(CaseFinance).where(CaseFinance.case_id.in_(ids))):
-            owed[f.case_id] = balance(f.price, f.consultation_credit, paid[f.case_id])
+    owed = await _balances(session, [case.id for case, _ in rows]) if money else {}
     for case, name in rows:
         assert case.submission_on is not None
         day = rules.submission(case.submission_on, out.today, s)
@@ -388,6 +460,97 @@ async def _appeals(
             out.add(ReminderKind.APPEAL, case.id, day, until, **_case_fields(case, name))
 
 
+async def _contracts(
+    session: AsyncSession,
+    out: _Collector,
+    s: rules.Settings,
+    contact_id: uuid.UUID | None,
+    timezone: str,
+) -> None:
+    """A client with a case in work and no contract date: counted from the latest such
+    case, opened on its day in the specialist's time zone."""
+    opened = func.max(cast(func.timezone(timezone, VisaCase.created_at), Date))
+    query = (
+        select(Contact.id, Contact.full_name, opened)
+        .join(VisaCase, VisaCase.contact_id == Contact.id)
+        .where(Contact.contract_signed_on.is_(None), VisaCase.stage != CaseStage.RESULT)
+        .group_by(Contact.id, Contact.full_name)
+    )
+    for cid, name, opened_on in await session.execute(_for_contact(query, Contact.id, contact_id)):
+        day = rules.contract_unsigned(opened_on, out.today, s)
+        if day is not None:
+            out.add(
+                ReminderKind.CONTRACT,
+                cid,
+                day,
+                None,
+                since=opened_on,
+                contact_id=cid,
+                contact_name=name,
+            )
+
+
+async def _questionnaires(
+    session: AsyncSession, out: _Collector, s: rules.Settings, contact_id: uuid.UUID | None
+) -> None:
+    query = (
+        select(VisaCase, Contact.full_name)
+        .join(Contact, Contact.id == VisaCase.contact_id)
+        .where(
+            VisaCase.questionnaire_received_on.is_(None),
+            VisaCase.questionnaire_due_on <= out.today + timedelta(days=s.questionnaire_days),
+            VisaCase.stage != CaseStage.RESULT,
+        )
+    )
+    for case, name in await session.execute(_for_contact(query, VisaCase.contact_id, contact_id)):
+        assert case.questionnaire_due_on is not None
+        day = rules.questionnaire(case.questionnaire_due_on, out.today, s)
+        if day is not None:
+            out.add(
+                ReminderKind.QUESTIONNAIRE,
+                case.id,
+                day,
+                case.questionnaire_due_on,
+                **_case_fields(case, name),
+            )
+
+
+async def _queued_balances(
+    session: AsyncSession,
+    out: _Collector,
+    s: rules.Settings,
+    contact_id: uuid.UUID | None,
+    currency: str,
+) -> None:
+    """The client pays the rest once put in the waiting list: from the first day queued,
+    while the case is still in the queue (taken off it — no longer)."""
+    queued_on = func.min(WaitingListEntry.queued_on)
+    query = (
+        select(VisaCase, Contact.full_name, queued_on)
+        .join(Contact, Contact.id == VisaCase.contact_id)
+        .join(WaitingListEntry, WaitingListEntry.case_id == VisaCase.id)
+        .where(VisaCase.outcome.is_(None))
+        .group_by(VisaCase.id, Contact.full_name)
+        .having(func.bool_or(WaitingListEntry.removed_on.is_(None)))
+    )
+    rows = (await session.execute(_for_contact(query, VisaCase.contact_id, contact_id))).all()
+    owed = await _balances(session, [case.id for case, _, _ in rows])
+    for case, name, first in rows:
+        left = owed.get(case.id)
+        day = rules.balance_queued(first, left, case.submission_on, out.today, s)
+        if day is not None:
+            out.add(
+                ReminderKind.BALANCE_QUEUED,
+                case.id,
+                day,
+                None,
+                since=first,
+                amount=left,
+                currency=currency,
+                **_case_fields(case, name),
+            )
+
+
 async def _registrars(session: AsyncSession, out: _Collector) -> None:
     for r in await ledger_summaries(session):
         if r.low and r.is_active:
@@ -446,6 +609,7 @@ async def collect(
     if "clients" in modules:
         await _birthdays(session, out, contact_id)
         await _thinking(session, out, s, contact_id)
+        await _consultations(session, out, s, contact_id)
     if "cases" in modules:
         money = "finances" in modules
         await _submissions(session, out, s, contact_id, money, tenant.base_currency)
@@ -453,6 +617,10 @@ async def collect(
         await _booking_deadlines(session, out, s, contact_id)
         await _visas(session, out, s, contact_id)
         await _appeals(session, out, s, contact_id)
+        await _contracts(session, out, s, contact_id, tenant.timezone)
+        await _questionnaires(session, out, s, contact_id)
+        if money:
+            await _queued_balances(session, out, s, contact_id, tenant.base_currency)
         # A registrar's balance covers every case: the specialist's, not an employee's.
         if money and contact_id is None and user.role != UserRole.EMPLOYEE:
             await _registrars(session, out)

@@ -21,6 +21,11 @@ type Kind =
   | "visa_expires"
   | "appeal"
   | "registrar_advance"
+  | "consultation"
+  | "follow_up"
+  | "contract"
+  | "questionnaire"
+  | "balance_queued"
   | "card_limit"
   | "password_limit";
 
@@ -82,6 +87,33 @@ function ReminderText({ item: r }: { item: Reminder }) {
       );
     case "thinking":
       return <>{t("attention.kind.thinking", { date: date(r.since) })}</>;
+    case "follow_up":
+      return (
+        <>{t("attention.kind.follow_up", { date: date(r.due_on), since: date(r.since) })}</>
+      );
+    case "contract":
+      return <>{t("attention.kind.contract", { date: date(r.since) })}</>;
+    case "questionnaire":
+      return (
+        <>
+          {t(
+            (r.days_left ?? 0) < 0
+              ? "attention.kind.questionnaire_overdue"
+              : "attention.kind.questionnaire",
+            { date: date(r.due_on) },
+          )}
+        </>
+      );
+    case "balance_queued":
+      return (
+        <>
+          {t("attention.kind.balance_queued", {
+            amount: money(r.amount),
+            currency: r.currency,
+            date: date(r.since),
+          })}
+        </>
+      );
     case "registrar_advance":
       return (
         <>
@@ -213,6 +245,9 @@ type Settings = {
   thinking_months: number[];
   visa_expiry_months: number;
   appeal_days: number;
+  consultation_days: number;
+  contract_days: number;
+  questionnaire_days: number;
 };
 
 const NUMBER_FIELDS = [
@@ -222,6 +257,9 @@ const NUMBER_FIELDS = [
   "booking_days",
   "visa_expiry_months",
   "appeal_days",
+  "consultation_days",
+  "contract_days",
+  "questionnaire_days",
 ] as const;
 
 /** The specialist's reminder windows («Справочники» → «Напоминания»). */

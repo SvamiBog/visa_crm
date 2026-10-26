@@ -63,6 +63,7 @@ export type Consultation = {
   lead_channel_id: string | null;
   destination_ids: string[];
   trip_planned_on: string | null;
+  follow_up_on: string | null;
   fee_amount: string | null;
   fee_currency: string | null;
   fee_paid: boolean;
@@ -188,6 +189,8 @@ export type VisaCase = {
   hall: Hall | null;
   stage: CaseStage;
   submission_on: string | null;
+  questionnaire_due_on: string | null;
+  questionnaire_received_on: string | null;
   outcome: Outcome | null;
   decided_on: string | null;
   visa_entries: VisaEntries | null;
