@@ -3,7 +3,7 @@ import { useId, useState, type ChangeEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiPatch, apiPost } from "../../api";
 import { PASSPORT_FIELDS, contactKey, formatDate, type ContactCard } from "../../contacts";
-import { PhotoUnreadable, readZone } from "../../ocr";
+import { PhotoUnreadable, readZones } from "../../ocr";
 import { useCountries, useLocalName } from "../../reference";
 import { useHasModule } from "../../workspace";
 import { ErrorAlert, Row } from "./ui";
@@ -110,6 +110,14 @@ export type MrzReading = {
   corrected: string[];
 };
 
+// How many checks the lines fail; Infinity when the API finds no zone in them or cannot be
+// reached — the reading shown at the end then reports why.
+const failedChecks = (text: string): Promise<number> =>
+  apiPost<MrzReading>("/mrz/read", { text }).then(
+    (mrz) => mrz.failed.length,
+    () => Infinity,
+  );
+
 type Field = {
   key: string;
   label: string;
@@ -135,13 +143,24 @@ export function PassportReader({ card, onDone }: { card: ContactCard; onDone: ()
     read.reset();
     setProgress(0);
     try {
-      const text = await readZone(file, setProgress);
-      if (text) {
-        setLines(text);
-        read.mutate(text);
-      } else {
-        setPhotoError("notFound");
+      // Each way of reading the photo is checked: the first whose check digits agree is
+      // taken, else the one failing the fewest checks, for the specialist to correct.
+      let best: string | null = null;
+      let fewest = Infinity;
+      for await (const text of readZones(file, setProgress)) {
+        const failed = await failedChecks(text);
+        if (best === null || failed < fewest) {
+          best = text;
+          fewest = failed;
+        }
+        if (failed === 0) break;
       }
+      if (best === null) {
+        setPhotoError("notFound");
+        return;
+      }
+      setLines(best);
+      read.mutate(best);
     } catch (error) {
       setPhotoError(error instanceof PhotoUnreadable ? "photoUnreadable" : "notFound");
     } finally {
