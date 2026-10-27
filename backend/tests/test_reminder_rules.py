@@ -154,3 +154,27 @@ def test_settings_change_the_new_windows():
     assert r.contract_unsigned(days(-3), TODAY, wide) is None
     assert r.contract_unsigned(days(-7), TODAY, wide) == TODAY
     assert r.questionnaire(days(3), TODAY, wide) == TODAY
+
+
+# The package check (backlog 2.3): documents not collected before the submission.
+
+
+def test_an_incomplete_package_a_week_and_the_day_before_the_submission():
+    assert S.package_days == 7
+    assert r.package(days(7), False, TODAY, S) == TODAY  # the week trigger is today
+    assert r.package(days(8), False, TODAY, S) is None  # not yet
+    assert r.package(days(3), False, TODAY, S) == days(-4)  # still the week occurrence
+    assert r.package(days(1), False, TODAY, S) == TODAY  # tomorrow: the day-before trigger
+    assert r.package(TODAY, False, TODAY, S) == days(-1)  # the day itself still shows
+    assert r.package(days(-1), False, TODAY, S) is None  # submitted: over
+
+
+def test_a_ready_package_gives_no_reminder():
+    assert r.package(days(7), True, TODAY, S) is None
+    assert r.package(days(1), True, TODAY, S) is None
+
+
+def test_settings_change_the_package_window():
+    wide = r.Settings(package_days=14)
+    assert r.package(days(14), False, TODAY, wide) == TODAY
+    assert r.package(days(7), False, TODAY, wide) == days(-7)

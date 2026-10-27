@@ -189,6 +189,7 @@ async def test_the_windows_are_the_specialists(
         "consultation_days": 1,
         "contract_days": 3,
         "questionnaire_days": 1,
+        "package_days": 7,
     }
     saved = await client.put(
         "/api/reminders/settings",

@@ -38,6 +38,40 @@ async function openClient(page: Page): Promise<void> {
   throw new Error("The demo has no client in work with a case and a passport to fill");
 }
 
+type CardCases = { cases: { id: string; number: number; destination_id: string }[] | null };
+type PackageItem = { name: string; max_age_days: number | null };
+
+/** A Polish case of a client in work (the demo has a checklist for Poland), and the first
+ * document of its checklist with a freshness limit. The tests run in parallel, so each
+ * language takes its own case (`which`) not to mark the same document at once. */
+async function openPackage(
+  page: Page,
+  which: number,
+): Promise<{ number: number; document: string }> {
+  const countries = (await (await page.request.get("/api/reference/countries")).json()) as {
+    id: string;
+    code: string;
+  }[];
+  const poland = countries.find((c) => c.code === "PL")?.id;
+  const found = await page.request.post("/api/contacts/search", { data: { tab: "work" } });
+  expect(found.ok()).toBe(true);
+  let seen = 0;
+  for (const item of (await found.json()).items as { id: string }[]) {
+    const card = (await (await page.request.get(`/api/contacts/${item.id}`)).json()) as CardCases;
+    for (const c of (card.cases ?? []).filter((c) => c.destination_id === poland)) {
+      const result = await page.request.get(`/api/cases/${c.id}/package`);
+      expect(result.ok(), await result.text()).toBe(true);
+      const dated = ((await result.json()).items as PackageItem[]).find((i) => i.max_age_days);
+      if (dated && seen++ === which) {
+        await page.goto(`/app/clients/${item.id}`);
+        await page.locator("h1").waitFor();
+        return { number: c.number, document: dated.name };
+      }
+    }
+  }
+  throw new Error("The demo has too few clients in work with a Polish case");
+}
+
 /** The part a disclosure button opens. */
 function panelOf(page: Page, button: Locator): Promise<Locator> {
   return button.getAttribute("aria-controls").then((id) => {
@@ -127,6 +161,46 @@ for (const lang of ["ru", "en"] as const) {
       await expect(panel.getByRole("checkbox").first()).toBeVisible();
       await change.click();
       await expect(panel).toBeHidden();
+    });
+
+    test("a case's documents are one line; the checklist opens with «Показать документы»", async ({
+      page,
+    }) => {
+      const { number, document } = await openPackage(page, lang === "ru" ? 0 : 1);
+      const title = `${t("cases.number").replace("{{number}}", String(number))} ·`;
+      const panelOfCase = page
+        .locator("article.case-panel")
+        .filter({ has: page.getByRole("heading", { name: title }) });
+      const block = panelOfCase
+        .locator("section")
+        .filter({ has: page.getByRole("heading", { name: t("package.title"), exact: true }) });
+      const show = block.getByRole("button", { name: t("package.show").split("{{count}}")[0] });
+      const list = await panelOf(page, show);
+
+      await expect(show).toHaveAttribute("aria-expanded", "false");
+      await expect(list, "the checklist is closed at first").toBeHidden();
+      await show.click();
+      await expect(list).toBeVisible();
+      const hide = block.getByRole("button", { name: t("package.hide"), exact: true });
+      await expect(hide).toHaveAttribute("aria-expanded", "true");
+
+      // Marking a document changes its status; a dated document needs its date.
+      const item = list.getByRole("listitem").filter({ hasText: document });
+      const status = item.locator(".chip");
+      await item.getByLabel(t("package.state"), { exact: true }).selectOption("missing");
+      await expect(status).toHaveText(t("package.status.missing"));
+      await item.getByLabel(t("package.state"), { exact: true }).selectOption("present");
+      await expect(status, "«есть» without a date").toHaveText(t("package.status.no_date"));
+      const date = item.getByLabel(t("package.documentDate"), { exact: true });
+      // Today in UTC is never later than today in the specialist's time zone.
+      await date.fill(new Date().toISOString().slice(0, 10));
+      await date.blur();
+      await expect(status, "the date is saved when the field is left").toHaveText(
+        t("package.status.ok"),
+      );
+
+      await hide.click();
+      await expect(list).toBeHidden();
     });
   });
 }

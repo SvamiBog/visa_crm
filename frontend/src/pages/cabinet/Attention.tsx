@@ -26,6 +26,7 @@ type Kind =
   | "contract"
   | "questionnaire"
   | "balance_queued"
+  | "package"
   | "card_limit"
   | "password_limit";
 
@@ -49,6 +50,8 @@ type Reminder = {
   employee_id: string | null;
   employee_name: string | null;
   limit: number | null;
+  // Documents not collected (package): required ones still to collect.
+  missing: number | null;
 };
 
 const remindersKey = (contactId?: string) => ["reminders", contactId ?? "all"] as const;
@@ -113,6 +116,10 @@ function ReminderText({ item: r }: { item: Reminder }) {
             date: date(r.since),
           })}
         </>
+      );
+    case "package":
+      return (
+        <>{t("attention.kind.package", { date: date(r.due_on), count: r.missing ?? 0 })}</>
       );
     case "registrar_advance":
       return (
@@ -248,6 +255,7 @@ type Settings = {
   consultation_days: number;
   contract_days: number;
   questionnaire_days: number;
+  package_days: number;
 };
 
 const NUMBER_FIELDS = [
@@ -260,6 +268,7 @@ const NUMBER_FIELDS = [
   "consultation_days",
   "contract_days",
   "questionnaire_days",
+  "package_days",
 ] as const;
 
 /** The specialist's reminder windows («Справочники» → «Напоминания»). */

@@ -4,7 +4,8 @@ app/api/reminders.py. Spec: docs/clients-module.md → «Картотека и �
 
 Open to every workspace member; each block needs the modules its data belongs to
 (clients — people and consultations; cases — submissions, queues and the funnel;
-finances — money), so an employee sees only what they were given.
+finances — money; package_check — the documents of the nearest submissions), so an
+employee sees only what they were given.
 """
 
 import uuid
@@ -26,10 +27,12 @@ from app.api.deps import (
     require_module,
     require_tenant_user,
 )
+from app.api.package import package_summaries
 from app.api.registrar_ledger import ledger_summaries
 from app.core.clock import today_in
 from app.core.consultation_checks import add_months
 from app.core.finance import ZERO, balance, money, partner_payout
+from app.core.package import Summary
 from app.core.queues import SUBMITTED_STAGES
 from app.models import (
     ApplicationAttempt,
@@ -64,6 +67,13 @@ class ClientsBlock(BaseModel):
     cases_opened: int
 
 
+class PackageReadiness(BaseModel):
+    """The documents of a submission line (the package check, 2.3)."""
+
+    ready: bool
+    missing: int  # required documents still to collect, over the line's cases
+
+
 class Upcoming(BaseModel):
     """A submission day of one client, or of a family submitting together."""
 
@@ -78,6 +88,8 @@ class Upcoming(BaseModel):
     stage: CaseStage
     # What these clients still owe; None without the money module or a price.
     balance: Decimal | None
+    # None without the package module or a checklist: the stage is shown instead.
+    package: PackageReadiness | None
 
 
 class SubmissionsBlock(BaseModel):
@@ -189,7 +201,9 @@ async def _balances(session: AsyncSession, case_ids: list[uuid.UUID] | None = No
     ]
 
 
-async def _submissions(session: AsyncSession, today: date, money_on: bool) -> SubmissionsBlock:
+async def _submissions(
+    session: AsyncSession, today: date, money_on: bool, package_on: bool
+) -> SubmissionsBlock:
     ahead = and_(VisaCase.outcome.is_(None), VisaCase.submission_on >= today)
     week = await session.scalar(
         select(func.count()).where(ahead, VisaCase.submission_on < today + timedelta(days=WEEK))
@@ -214,12 +228,25 @@ async def _submissions(session: AsyncSession, today: date, money_on: bool) -> Su
     if money_on and shown:
         ids = [case.id for line in shown for case, _ in line]
         owed = {f.case_id: left for f, _, left in await _balances(session, ids)}
+    packages: dict[uuid.UUID, Summary] = {}
+    if package_on and shown:
+        packages = await package_summaries(
+            session, [case for line in shown for case, _ in line], today
+        )
 
     def line_balance(line: list[tuple[VisaCase, str]]) -> Decimal | None:
         known = [owed[case.id] for case, _ in line if owed.get(case.id) is not None]
         if not known:
             return None
         return money(sum((left for left in known if left and left > 0), ZERO))
+
+    def line_package(line: list[tuple[VisaCase, str]]) -> PackageReadiness | None:
+        known = [packages[case.id] for case, _ in line if case.id in packages]
+        if not known:
+            return None
+        return PackageReadiness(
+            ready=all(s.ready for s in known), missing=sum(s.missing for s in known)
+        )
 
     def upcoming(line: list[tuple[VisaCase, str]]) -> Upcoming:
         first, name = line[0]
@@ -235,6 +262,7 @@ async def _submissions(session: AsyncSession, today: date, money_on: bool) -> Su
             visa_center_id=first.visa_center_id,
             stage=first.stage,
             balance=line_balance(line),
+            package=line_package(line),
         )
 
     return SubmissionsBlock(
@@ -399,10 +427,11 @@ async def home(user: Member, session: TenantSession) -> HomeOut:
     clients = "clients" in modules
     cases = clients and "cases" in modules
     money_on = cases and "finances" in modules
+    package_on = cases and "package_check" in modules
     return HomeOut(
         today=today,
         clients=await _clients(session, today, month_from) if clients else None,
-        submissions=await _submissions(session, today, money_on) if cases else None,
+        submissions=await _submissions(session, today, money_on, package_on) if cases else None,
         funnel=await _funnel(session, month_start) if cases else None,
         queues=await _queues(session, today) if cases else None,
         money=await money_block(session, user, tenant.base_currency) if money_on else None,

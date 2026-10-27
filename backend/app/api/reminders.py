@@ -3,7 +3,8 @@ messages on stage 1, the list is shown on the home screen and in the client card
 and windows: app/core/reminders.py; the specialist sets the windows.
 
 Closed by the «tasks» module; each kind also needs the module its data belongs to
-(birthdays and thinking clients — «clients», case dates — «cases», money — «finances»).
+(birthdays and thinking clients — «clients», case dates — «cases», money — «finances»,
+documents not collected — «package_check»).
 «Готово» hides one occurrence for the whole workspace.
 """
 
@@ -31,6 +32,7 @@ from app.api.deps import (
     require_specialist,
     workspace_today,
 )
+from app.api.package import package_summaries
 from app.api.registrar_ledger import ledger_summaries
 from app.core import reminders as rules
 from app.core.audit import record
@@ -97,6 +99,8 @@ class ReminderOut(BaseModel):
     employee_id: uuid.UUID | None = None
     employee_name: str | None = None
     limit: int | None = None
+    # Documents not collected (package): how many required ones are still to collect.
+    missing: int | None = None
 
 
 class DismissIn(BaseModel):
@@ -119,6 +123,7 @@ class SettingsIO(BaseModel):
     consultation_days: Days
     contract_days: Days
     questionnaire_days: Days
+    package_days: Days
 
     @field_validator("thinking_months")
     @classmethod
@@ -551,6 +556,38 @@ async def _queued_balances(
             )
 
 
+async def _packages(
+    session: AsyncSession, out: _Collector, s: rules.Settings, contact_id: uuid.UUID | None
+) -> None:
+    """Documents still to collect before the submission (the package check, 2.3); a case
+    whose country has no checklist has nothing to collect."""
+    query = (
+        select(VisaCase, Contact.full_name)
+        .join(Contact, Contact.id == VisaCase.contact_id)
+        .where(
+            VisaCase.outcome.is_(None),
+            VisaCase.submission_on.between(out.today, out.today + timedelta(days=s.package_days)),
+        )
+    )
+    rows = (await session.execute(_for_contact(query, VisaCase.contact_id, contact_id))).all()
+    summaries = await package_summaries(session, [case for case, _ in rows], out.today)
+    for case, name in rows:
+        summary = summaries.get(case.id)
+        if summary is None:
+            continue
+        assert case.submission_on is not None
+        day = rules.package(case.submission_on, summary.ready, out.today, s)
+        if day is not None:
+            out.add(
+                ReminderKind.PACKAGE,
+                case.id,
+                day,
+                case.submission_on,
+                missing=summary.missing,
+                **_case_fields(case, name),
+            )
+
+
 async def _registrars(session: AsyncSession, out: _Collector) -> None:
     for r in await ledger_summaries(session):
         if r.low and r.is_active:
@@ -619,6 +656,8 @@ async def collect(
         await _appeals(session, out, s, contact_id)
         await _contracts(session, out, s, contact_id, tenant.timezone)
         await _questionnaires(session, out, s, contact_id)
+        if "package_check" in modules:
+            await _packages(session, out, s, contact_id)
         if money:
             await _queued_balances(session, out, s, contact_id, tenant.base_currency)
         # A registrar's balance covers every case: the specialist's, not an employee's.
