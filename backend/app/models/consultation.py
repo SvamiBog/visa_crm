@@ -81,6 +81,8 @@ class Consultation(Base):
         ARRAY(Uuid), server_default=text("'{}'")
     )
     trip_planned_on: Mapped[date | None] = mapped_column(Date)
+    # The day agreed to get in touch about the decision (a reminder, backlog 1.19).
+    follow_up_on: Mapped[date | None] = mapped_column(Date)
     # Consultation fee: counted towards the service price whenever the client comes back.
     fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     fee_currency: Mapped[str | None] = mapped_column(String(3))

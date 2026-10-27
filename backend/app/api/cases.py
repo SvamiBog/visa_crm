@@ -116,6 +116,8 @@ class CaseUpdate(BaseModel):
     hall: Hall | None = None
     stage: CaseStage | None = None
     submission_on: date | None = None
+    questionnaire_due_on: date | None = None
+    questionnaire_received_on: date | None = None
     outcome: VisaOutcome | None = None
     decided_on: date | None = None
     visa_entries: VisaEntries | None = None
@@ -161,6 +163,8 @@ class CaseOut(BaseModel):
     hall: Hall | None
     stage: CaseStage
     submission_on: date | None
+    questionnaire_due_on: date | None
+    questionnaire_received_on: date | None
     outcome: VisaOutcome | None
     decided_on: date | None
     visa_entries: VisaEntries | None

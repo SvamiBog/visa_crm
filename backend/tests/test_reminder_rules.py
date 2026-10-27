@@ -100,3 +100,57 @@ def test_settings_change_the_windows():
     wide = r.Settings(submission_days=7, thinking_months=(2,))
     assert r.submission(days(7), TODAY, wide) == TODAY
     assert r.thinking(date(2026, 9, 16), TODAY, wide) is None
+
+
+# What the specialist now reminds clients of by hand (backlog 1.19, question 4).
+
+
+def test_a_consultation_the_day_before_and_on_the_day():
+    assert r.consultation(days(1), TODAY, S) == TODAY  # tomorrow: the day-before trigger
+    assert r.consultation(TODAY, TODAY, S) == TODAY  # today: the day itself
+    assert r.consultation(days(2), TODAY, S) is None  # not yet
+    assert r.consultation(days(-1), TODAY, S) is None  # over
+
+
+def test_the_agreed_follow_up_on_its_day_and_for_a_month():
+    assert r.follow_up(TODAY, TODAY) == TODAY
+    assert r.follow_up(days(1), TODAY) is None
+    assert r.follow_up(date(2026, 9, 16), TODAY) == date(2026, 9, 16)  # a month on: still there
+    assert r.follow_up(date(2026, 9, 15), TODAY) is None  # longer ago: gone
+
+
+def test_an_unsigned_contract_three_days_after_the_case_opened_and_for_a_month():
+    assert r.contract_unsigned(days(-3), TODAY, S) == TODAY
+    assert r.contract_unsigned(days(-2), TODAY, S) is None  # not yet
+    # Opened 13.09: the reminder came on 16.09 and stays a month, to 16.10.
+    assert r.contract_unsigned(date(2026, 9, 13), TODAY, S) == date(2026, 9, 16)
+    # Opened earlier (an old case from the tables): no reminder.
+    assert r.contract_unsigned(date(2026, 9, 12), TODAY, S) is None
+
+
+def test_the_questionnaire_the_day_before_it_is_due_and_after_it_until_received():
+    assert r.questionnaire(days(1), TODAY, S) == TODAY
+    assert r.questionnaire(TODAY, TODAY, S) == TODAY
+    assert r.questionnaire(days(2), TODAY, S) is None
+    assert r.questionnaire(days(-5), TODAY, S) == days(-5)  # overdue: stays
+
+
+def test_the_balance_right_after_the_queue_until_the_reminder_before_the_submission():
+    owed = D("300.00")
+    assert r.balance_queued(TODAY, owed, None, TODAY, S) == TODAY
+    assert r.balance_queued(days(-60), owed, None, TODAY, S) == days(-60)  # no date yet: stays
+    assert r.balance_queued(TODAY, D("0.00"), None, TODAY, S) is None  # paid
+    assert r.balance_queued(TODAY, D("-20.00"), None, TODAY, S) is None  # paid more
+    assert r.balance_queued(TODAY, None, None, TODAY, S) is None  # no price yet
+    # The submission is near: the reminder 3 days before it takes over, no two at once.
+    assert r.balance_queued(days(-30), owed, days(4), TODAY, S) == days(-30)
+    assert r.balance_queued(days(-30), owed, days(3), TODAY, S) is None
+    assert r.balance_due(days(3), owed, TODAY, S) == TODAY
+
+
+def test_settings_change_the_new_windows():
+    wide = r.Settings(consultation_days=2, contract_days=7, questionnaire_days=3)
+    assert r.consultation(days(2), TODAY, wide) == TODAY
+    assert r.contract_unsigned(days(-3), TODAY, wide) is None
+    assert r.contract_unsigned(days(-7), TODAY, wide) == TODAY
+    assert r.questionnaire(days(3), TODAY, wide) == TODAY
