@@ -14,11 +14,16 @@ const MODEL_DIR = "/assets/ocr/eng-4.0.0_best_int";
 // Wide enough for the small characters of the zone, small enough to be quick on a phone.
 const MAX_WIDTH = 1800;
 
-type Attempt = { rotate: 0 | 90 | 180 | 270; fromTop: number };
-// The zone is at the bottom of the data page: try the lower half first, then the whole
-// photo, then the photo turned over or on its side.
+type Attempt = { rotate: 0 | 90 | 180 | 270; fromTop: number; grey?: boolean };
+// The zone is at the bottom of the data page: try the lower half first, then its lower part,
+// then the whole photo, then the photo turned over or on its side. The engine makes its own
+// greys from a colour photo; ours lost the first characters of a Belarusian passport's zone
+// that the engine's read whole, so ours are only one more way to try. Each way misreads
+// different characters, so the caller checks each reading and stops at one that agrees.
 const ATTEMPTS: Attempt[] = [
   { rotate: 0, fromTop: 0.5 },
+  { rotate: 0, fromTop: 0.7 },
+  { rotate: 0, fromTop: 0.5, grey: true },
   { rotate: 0, fromTop: 0 },
   { rotate: 180, fromTop: 0.5 },
   { rotate: 90, fromTop: 0 },
@@ -39,8 +44,12 @@ export function zoneLines(text: string): string[] {
   return first < 0 ? [] : lines.slice(first, first + 3);
 }
 
-/** The text of the zone, or "" when none of the attempts finds it. */
-export async function readZone(file: File, onProgress: (share: number) => void): Promise<string> {
+/** The text of the zone from each attempt that finds its lines, in the order of ATTEMPTS.
+ * The caller stops asking once a reading checks out; the engine shuts down then. */
+export async function* readZones(
+  file: File,
+  onProgress: (share: number) => void,
+): AsyncGenerator<string, void, undefined> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file);
@@ -71,20 +80,16 @@ export async function readZone(file: File, onProgress: (share: number) => void):
     for (; attempt < ATTEMPTS.length; attempt++) {
       const { data } = await worker.recognize(prepare(bitmap, ATTEMPTS[attempt]));
       const lines = zoneLines(data.text);
-      if (lines.length >= 2) {
-        onProgress(1);
-        return lines.join("\n");
-      }
+      if (lines.length >= 2) yield lines.join("\n");
     }
-    return "";
   } finally {
     bitmap.close();
     await worker.terminate();
   }
 }
 
-/** The part of the photo to read, turned upright, scaled down and in greys. */
-function prepare(bitmap: ImageBitmap, { rotate, fromTop }: Attempt): HTMLCanvasElement {
+/** The part of the photo to read, turned upright, scaled down and, if asked, in greys. */
+function prepare(bitmap: ImageBitmap, { rotate, fromTop, grey }: Attempt): HTMLCanvasElement {
   const sideways = rotate === 90 || rotate === 270;
   const scale = Math.min(1, MAX_WIDTH / (sideways ? bitmap.height : bitmap.width));
   const whole = canvas(
@@ -99,6 +104,7 @@ function prepare(bitmap: ImageBitmap, { rotate, fromTop }: Attempt): HTMLCanvasE
   const top = Math.round(whole.canvas.height * fromTop);
   const part = canvas(whole.canvas.width, whole.canvas.height - top);
   part.ctx.drawImage(whole.canvas, 0, -top);
+  if (!grey) return part.canvas;
   const image = part.ctx.getImageData(0, 0, part.canvas.width, part.canvas.height);
   const px = image.data;
   for (let i = 0; i < px.length; i += 4) {

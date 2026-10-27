@@ -152,6 +152,42 @@ def test_names_line_with_a_miscounted_filler_is_cut_to_the_data_line():
         assert mrz.document_number == "MP1234567"
 
 
+def test_data_line_a_few_characters_off_is_read_from_its_end():
+    # Recognition loses or adds characters at the start of the data line, in the document
+    # number: the rest is read where it belongs, and the number is never taken as checked.
+    names, data = belarus_passport().splitlines()
+    for damaged in (data[4:], data[2:], "8" + data):
+        mrz = read_mrz(f"{names}\n{damaged}", TODAY)
+        assert mrz.format == "TD3"
+        assert "document_number" in mrz.failed and not mrz.valid
+        assert (mrz.surname, mrz.given_names, mrz.nationality) == ("IVANOVA", "ANNA", "BLR")
+        assert (mrz.birth_date, mrz.sex, mrz.expiry_date) == (
+            date(1985, 5, 12),
+            "F",
+            date(2030, 1, 1),
+        )
+        assert mrz.personal_number == "3120585A001PB8"
+        assert [c for c in mrz.failed if c not in ("document_number", "composite")] == []
+    # A line too far off, or without the dates where they belong, is no zone.
+    with pytest.raises(MrzNotFound):
+        read_mrz(f"{names}\n{data[6:]}", TODAY)
+    with pytest.raises(MrzNotFound):
+        read_mrz(f"{names}\n{data[:-2]}", TODAY)
+
+
+def test_characters_added_before_the_issuing_state_are_dropped():
+    # «P<» read as «FPE»: the nationality from the data line shows where the names begin.
+    _, data = belarus_passport().splitlines()
+    mrz = read_mrz("FPEBLRIVANOVA<<ANNA" + "<" * 26 + f"\n{data}", TODAY)
+    assert (mrz.issuing_state, mrz.surname, mrz.given_names) == ("BLR", "IVANOVA", "ANNA")
+    assert mrz.valid, mrz.failed
+    # A one-letter code is not looked for: it would be found inside the names.
+    text = (
+        TD3.replace("P<UTO", "P<D<<").replace("UTO7408", "D<<7408").replace("ERIKSSON", "DRIKSSON")
+    )
+    assert read_mrz(text, TODAY).surname == "DRIKSSON"
+
+
 def test_noise_with_fillers_above_the_zone_is_not_taken_for_the_names():
     noise = "<<KLL<<<LKLKLKKLLKLKKLLKLKLKL"
     mrz = read_mrz(f"{noise}\n{TD3}", TODAY)
