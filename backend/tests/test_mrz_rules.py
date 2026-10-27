@@ -110,6 +110,18 @@ def test_document_number_is_fixed_only_when_the_check_digit_agrees():
     assert mrz.valid and mrz.corrected == ["document_number"]
 
 
+def test_belarusian_personal_number_is_read_by_its_mask():
+    # Digits, a letter, digits, letters, a digit: O read for 0 and 8 for B.
+    text = belarus_passport().replace("3120585A001PB8", "312O585AOO1P88")
+    mrz = read_mrz(text, TODAY)
+    assert mrz.personal_number == "3120585A001PB8"
+    assert mrz.valid, mrz.failed
+    # Another state's optional data has no mask: it stays as read.
+    mrz = read_mrz(TD3.replace("ZE184226B", "ZE1842268"), TODAY)
+    assert mrz.personal_number == "ZE1842268"
+    assert mrz.failed == ["personal_number", "composite"]
+
+
 def test_a_wrong_check_digit_is_reported():
     text = TD3.replace("7408122F", "7408123F")
     mrz = read_mrz(text, TODAY)
@@ -124,6 +136,40 @@ def test_filler_read_as_letters_is_dropped_from_the_names():
     # A line a character short at the end of the filler is padded.
     short = TD3.replace("<<<<<<<<<<<<<<<<<<<\n", "<<<<<<<<<<<<<<<<<<\n")
     assert read_mrz(short, TODAY).valid
+
+
+def test_names_line_with_a_miscounted_filler_is_cut_to_the_data_line():
+    # Recognition reads the long filler of the names line as L and K and miscounts it;
+    # the data line under it keeps its exact length.
+    _, data = belarus_passport().splitlines()
+    longer = "P<BLRIVANOVA<<ANNA" + "<" * 8 + "L" * 16 + "KLL"
+    shorter = "P<BLRIVANOVA<<ANNA" + "<" * 20
+    assert (len(longer), len(shorter)) == (45, 38)
+    for names in (longer, shorter):
+        mrz = read_mrz(f"{names}\n{data}", TODAY)
+        assert mrz.valid, mrz.failed
+        assert (mrz.issuing_state, mrz.surname, mrz.given_names) == ("BLR", "IVANOVA", "ANNA")
+        assert mrz.document_number == "MP1234567"
+
+
+def test_noise_with_fillers_above_the_zone_is_not_taken_for_the_names():
+    noise = "<<KLL<<<LKLKLKKLLKLKKLLKLKLKL"
+    mrz = read_mrz(f"{noise}\n{TD3}", TODAY)
+    assert mrz.valid, mrz.failed
+    assert mrz.surname == "ERIKSSON"
+    # Nor when the names line under it is a filler too long.
+    longer = TD3.replace("<<<<<\n", "<<<<<KL\n")
+    mrz = read_mrz(f"{noise}\n{longer}", TODAY)
+    assert mrz.valid, mrz.failed
+
+
+def test_filler_read_as_letters_right_after_the_names_is_dropped():
+    text = TD3.replace("MARIA" + "<" * 19, "MARIA<C<" + "L" * 14 + "KL")
+    mrz = read_mrz(text, TODAY)
+    assert (mrz.surname, mrz.given_names) == ("ERIKSSON", "ANNA MARIA")
+    # A one-letter name before three fillers stays.
+    one_letter = TD3.replace("ANNA<MARIA<<<", "C" + "<" * 12)
+    assert read_mrz(one_letter, TODAY).given_names == "C"
 
 
 def test_years_get_their_century():

@@ -6,8 +6,9 @@ the server (docs/decisions.md → «Распознавание паспорта�
 
 Formats: TD3 (passports: two lines of 44), TD2 (two lines of 36) and TD1 (ID cards: three
 lines of 30). Recognition mixes up look-alike characters, so each field is read by its
-type: digits in dates and check digits, letters in names and country codes. A document
-number is alphanumeric; a look-alike there is swapped only when the check digit agrees.
+type: digits in dates and check digits, letters in names and country codes, and by its
+mask in a personal number whose state fixes one (Belarus). A document number is
+alphanumeric; a look-alike there is swapped only when the check digit agrees.
 """
 
 import re
@@ -33,6 +34,12 @@ LOOK_ALIKE = {
     "8": "B",
     "B": "8",
 }
+# The filler that pads the names, with some of it read as C, K or L.
+PADDING = re.compile(f"{FILLER}[{FILLER}CKL]{{2,}}$")
+# What the personal number holds, place by place, where the issuing state fixes it: 9 a
+# digit, A a letter. Belarus: the identification number — sex and century, birth date,
+# region, sequence number, series, check digit.
+PERSONAL_NUMBER_MASKS = {"BLR": "9999999A999AA9"}
 WEIGHTS = (7, 3, 1)
 # Checks in the order they are reported.
 CHECKS = ("document_number", "birth_date", "expiry_date", "personal_number", "composite")
@@ -98,32 +105,42 @@ def _clean(line: str) -> str:
     return "".join(c for c in line if c in ALLOWED)
 
 
-def _fit(line: str, length: int) -> str | None:
-    """A names line a couple of fillers short or long still fits: its end is filler."""
+def _fit(line: str, length: int, *, exact: bool) -> str | None:
+    """The names line. Recognition miscounts the long filler at its end and reads some of
+    it as letters, so a line of another length fits when it has the double filler after
+    the surname: it is cut or padded to the length of the data line."""
     if len(line) == length:
         return line
-    if length - 2 <= len(line) < length:
-        return line + FILLER * (length - len(line))
-    if length < len(line) <= length + 2 and line[length:].strip(FILLER) == "":
-        return line[:length]
-    return None
+    if exact or FILLER * 2 not in line:
+        return None
+    return line[:length].ljust(length, FILLER)
 
 
 def _find(text: str) -> tuple[str, list[str]]:
     lines = [c for c in (_clean(raw) for raw in text.splitlines()) if len(c) >= 28]
-    for i in range(len(lines)):
-        # TD3 and TD2: the names line, then the data line of exact length.
-        for kind, length in (("TD3", 44), ("TD2", 36)):
-            if i + 1 < len(lines) and len(lines[i + 1]) == length:
-                first = _fit(lines[i], length)
-                if first is not None:
-                    return kind, [first, lines[i + 1]]
-        # TD1: two data lines of 30, then the names.
-        if i + 2 < len(lines) and len(lines[i]) == 30 and len(lines[i + 1]) == 30:
-            third = _fit(lines[i + 2], 30)
-            if third is not None:
-                return "TD1", [lines[i], lines[i + 1], third]
+    # Names lines of the exact length first: once a line of another length fits, noise
+    # with fillers above the zone fits too and would take the names line for the data.
+    for exact in (True, False):
+        for i in range(len(lines)):
+            found = _zone_at(lines, i, exact=exact)
+            if found is not None:
+                return found
     raise MrzNotFound
+
+
+def _zone_at(lines: list[str], i: int, *, exact: bool) -> tuple[str, list[str]] | None:
+    # TD3 and TD2: the names line, then the data line of exact length.
+    for kind, length in (("TD3", 44), ("TD2", 36)):
+        if i + 1 < len(lines) and len(lines[i + 1]) == length:
+            first = _fit(lines[i], length, exact=exact)
+            if first is not None:
+                return kind, [first, lines[i + 1]]
+    # TD1: two data lines of 30, then the names.
+    if i + 2 < len(lines) and len(lines[i]) == 30 and len(lines[i + 1]) == 30:
+        third = _fit(lines[i + 2], 30, exact=exact)
+        if third is not None:
+            return "TD1", [lines[i], lines[i + 1], third]
+    return None
 
 
 # --- Reading the fields ----------------------------------------------------------------
@@ -139,13 +156,18 @@ def _digits(value: str) -> str:
 
 def _names(value: str) -> tuple[str, str]:
     """Surname and given names. Three fillers in a row start the padding: anything after
-    them is the padding read as letters."""
+    them is the padding read as letters. The padding can also be read as C, K or L right
+    after a name, before any three fillers: a filler followed only by those is padding."""
     value = _letters(value)
     end = value.find(FILLER * 3)
     if end > 0:
         value = value[:end]
     surname, _, given = value.partition(FILLER * 2)
-    return surname.replace(FILLER, " ").strip(), given.replace(FILLER, " ").strip()
+    return _name(surname), _name(given)
+
+
+def _name(value: str) -> str:
+    return PADDING.sub("", value).replace(FILLER, " ").strip()
 
 
 def _date(value: str, today: date, *, birth: bool) -> date | None:
@@ -166,6 +188,18 @@ def _date(value: str, today: date, *, birth: bool) -> date | None:
 
 def _sex(value: str) -> str | None:
     return {"M": "M", "F": "F", FILLER: "X", "X": "X"}.get(value)
+
+
+def _personal(value: str, issuing_state: str) -> str:
+    """The personal number read by its mask where the issuing state fixes one. A guessed
+    swap is not tried here: in 14 characters a wrong one agrees with the check digit too
+    often."""
+    mask = PERSONAL_NUMBER_MASKS.get(issuing_state)
+    if mask is None or len(mask) != len(value):
+        return value
+    return "".join(
+        _digits(c) if kind == "9" else _letters(c) for c, kind in zip(value, mask, strict=True)
+    )
 
 
 def _fix_number(number: str, digit: str, still_ok) -> tuple[str, bool]:
@@ -246,6 +280,8 @@ def read_mrz(text: str, today: date) -> MrzReading:
     for part in (layout.birth, layout.expiry):
         data = _splice(data, part, _digits(data[part]))
     data = _splice(data, layout.nationality, _letters(data[layout.nationality]))
+    issuing_state = _letters(names[2:5]).strip(FILLER)
+    data = _splice(data, layout.optional, _personal(data[layout.optional], issuing_state))
 
     def composite_ok(line: str) -> bool:
         return _checks("".join(line[s] for s in layout.composite), line[layout.composite_check])
@@ -269,7 +305,7 @@ def read_mrz(text: str, today: date) -> MrzReading:
     reading = MrzReading(
         format=kind,
         document_type=_letters(names[0:2]).strip(FILLER),
-        issuing_state=_letters(names[2:5]).strip(FILLER),
+        issuing_state=issuing_state,
         surname=surname,
         given_names=given,
         document_number=number.strip(FILLER),
