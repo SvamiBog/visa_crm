@@ -40,6 +40,8 @@ PADDING = re.compile(f"{FILLER}[{FILLER}CKL]{{2,}}$")
 # digit, A a letter. Belarus: the identification number — sex and century, birth date,
 # region, sequence number, series, check digit.
 PERSONAL_NUMBER_MASKS = {"BLR": "9999999A999AA9"}
+# How many characters a passport's data line may be off and still be read from its end.
+REALIGN_LIMIT = 4
 WEIGHTS = (7, 3, 1)
 # Checks in the order they are reported.
 CHECKS = ("document_number", "birth_date", "expiry_date", "personal_number", "composite")
@@ -116,25 +118,47 @@ def _fit(line: str, length: int, *, exact: bool) -> str | None:
     return line[:length].ljust(length, FILLER)
 
 
-def _find(text: str) -> tuple[str, list[str]]:
+def _realign(line: str) -> str | None:
+    """A passport's data line a few characters short or long. Recognition loses or adds
+    them at its start, in the document number, most often: the line is read from its end
+    when the dates are where they belong there, and the number is cut or padded to fit."""
+    if not 0 < abs(len(line) - 44) <= REALIGN_LIMIT:
+        return None
+    tail = line[-34:]  # from the nationality on
+    if not _digits(tail[3:9] + tail[11:17]).isdigit():
+        return None
+    head = line[:-34]
+    return head[:-1][:9].ljust(9, FILLER) + head[-1] + tail
+
+
+def _find(text: str) -> tuple[str, list[str], bool]:
+    """The zone's format and lines, and whether its data line was realigned."""
     lines = [c for c in (_clean(raw) for raw in text.splitlines()) if len(c) >= 28]
-    # Names lines of the exact length first: once a line of another length fits, noise
-    # with fillers above the zone fits too and would take the names line for the data.
-    for exact in (True, False):
+    # Exact lines first, then a names line of another length, then a data line a few
+    # characters off too: once lines of other lengths fit, noise with fillers above the
+    # zone fits too and would take the names line for the data.
+    for tolerance in ("exact", "names", "data"):
         for i in range(len(lines)):
-            found = _zone_at(lines, i, exact=exact)
+            found = _zone_at(lines, i, tolerance)
             if found is not None:
-                return found
+                return *found, tolerance == "data"
     raise MrzNotFound
 
 
-def _zone_at(lines: list[str], i: int, *, exact: bool) -> tuple[str, list[str]] | None:
-    # TD3 and TD2: the names line, then the data line of exact length.
-    for kind, length in (("TD3", 44), ("TD2", 36)):
-        if i + 1 < len(lines) and len(lines[i + 1]) == length:
-            first = _fit(lines[i], length, exact=exact)
-            if first is not None:
-                return kind, [first, lines[i + 1]]
+def _zone_at(lines: list[str], i: int, tolerance: str) -> tuple[str, list[str]] | None:
+    exact = tolerance == "exact"
+    if i + 1 < len(lines):
+        # TD3 and TD2: the names line, then the data line of exact length.
+        for kind, length in (("TD3", 44), ("TD2", 36)):
+            if len(lines[i + 1]) == length:
+                first = _fit(lines[i], length, exact=exact)
+                if first is not None:
+                    return kind, [first, lines[i + 1]]
+        if tolerance == "data":
+            data = _realign(lines[i + 1])
+            first = _fit(lines[i], 44, exact=False)
+            if data is not None and first is not None:
+                return "TD3", [first, data]
     # TD1: two data lines of 30, then the names.
     if i + 2 < len(lines) and len(lines[i]) == 30 and len(lines[i + 1]) == 30:
         third = _fit(lines[i + 2], 30, exact=exact)
@@ -188,6 +212,19 @@ def _date(value: str, today: date, *, birth: bool) -> date | None:
 
 def _sex(value: str) -> str | None:
     return {"M": "M", "F": "F", FILLER: "X", "X": "X"}.get(value)
+
+
+def _shift_names(names: str, nationality: str) -> str:
+    """Recognition now and then adds a character or two before the issuing state. When the
+    state is not in its place but the holder's nationality is just after it, the names
+    line is read from there. A one-letter code (D) is not looked for: the names have it."""
+    code = nationality.strip(FILLER)
+    if len(code) != 3 or _letters(names[2:5]) == code:
+        return names
+    found = _letters(names[:8]).find(code, 3)
+    if found < 0:
+        return names
+    return names[found - 2 :].ljust(len(names), FILLER)
 
 
 def _personal(value: str, issuing_state: str) -> str:
@@ -271,7 +308,7 @@ def _splice(line: str, where: slice | int, value: str) -> str:
 
 
 def read_mrz(text: str, today: date) -> MrzReading:
-    kind, lines = _find(text)
+    kind, lines, realigned = _find(text)
     if kind == "TD1":
         return _read_td1(lines, today)
     layout = TD3 if kind == "TD3" else TD2
@@ -280,21 +317,26 @@ def read_mrz(text: str, today: date) -> MrzReading:
     for part in (layout.birth, layout.expiry):
         data = _splice(data, part, _digits(data[part]))
     data = _splice(data, layout.nationality, _letters(data[layout.nationality]))
+    names = _shift_names(names, data[layout.nationality])
     issuing_state = _letters(names[2:5]).strip(FILLER)
     data = _splice(data, layout.optional, _personal(data[layout.optional], issuing_state))
 
     def composite_ok(line: str) -> bool:
         return _checks("".join(line[s] for s in layout.composite), line[layout.composite_check])
 
-    number, fixed = _fix_number(
-        data[layout.number],
-        data[layout.number_check],
-        lambda candidate: composite_ok(_splice(data, layout.number, candidate)),
-    )
+    # A realigned line lost or gained characters in its number: no swap mends that, and its
+    # check digit agreeing would be chance, so the number is left as read and not checked.
+    number, fixed = data[layout.number], False
+    if not realigned:
+        number, fixed = _fix_number(
+            number,
+            data[layout.number_check],
+            lambda candidate: composite_ok(_splice(data, layout.number, candidate)),
+        )
     data = _splice(data, layout.number, number)
     optional = data[layout.optional]
     checks = {
-        "document_number": _checks(number, data[layout.number_check]),
+        "document_number": not realigned and _checks(number, data[layout.number_check]),
         "birth_date": _checks(data[layout.birth], data[layout.birth_check]),
         "expiry_date": _checks(data[layout.expiry], data[layout.expiry_check]),
         "personal_number": layout.optional_check is None
