@@ -37,4 +37,4 @@ npm run dev                             # http://localhost:5173
 
 ## Деплой
 
-Railway собирает образ из `Dockerfile` (фронтенд + бэкенд в одном контейнере) по настройкам `railway.json`. Переменные окружения: `DATABASE_URL` (из сервиса Postgres), `SECRET_KEY`, `VAULT_MASTER_KEY`, `ENV=production`. Регион всех сервисов — EU West.
+Railway собирает образ из `Dockerfile` (фронтенд + бэкенд в одном контейнере); путь к нему, healthcheck и перезапуск заданы в настройках сервиса в Railway (docs/deploy.md, шаг 3). Переменные окружения: `DATABASE_URL` (из сервиса Postgres), `SECRET_KEY`, `VAULT_MASTER_KEY`, `ENV=production`. Регион всех сервисов — EU West.
