@@ -187,9 +187,11 @@ for (const lang of ["ru", "en"] as const) {
       // Marking a document changes its status; a dated document needs its date.
       const item = list.getByRole("listitem").filter({ hasText: document });
       const status = item.locator(".chip");
-      await item.getByLabel(t("package.state"), { exact: true }).selectOption("missing");
+      // By role: the text of the <label> around a <select> takes in its options too.
+      const state = item.getByRole("combobox", { name: t("package.state"), exact: true });
+      await state.selectOption("missing");
       await expect(status).toHaveText(t("package.status.missing"));
-      await item.getByLabel(t("package.state"), { exact: true }).selectOption("present");
+      await state.selectOption("present");
       await expect(status, "«есть» without a date").toHaveText(t("package.status.no_date"));
       const date = item.getByLabel(t("package.documentDate"), { exact: true });
       // Today in UTC is never later than today in the specialist's time zone.
