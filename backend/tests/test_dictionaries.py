@@ -108,6 +108,51 @@ async def test_employee_reads_but_does_not_edit(client: AsyncClient, make_user: 
     assert response.status_code == 403
 
 
+async def test_employee_reads_partners_and_registrars_without_money(
+    client: AsyncClient, make_user: MakeUser
+):
+    """An employee's forms need only the names: partners' terms, registrars' prices and
+    balances, and prepayments are the specialist's (backlog Т.13)."""
+    tenant_id = await as_specialist(client, make_user)
+    tourism = await add_purpose(client)
+    poland = await country_id(client, "PL")
+    partner = (await client.post(f"{BASE}/partners", json={"name": "P", "contact": "@p"})).json()
+    terms = [{"country_id": None, "terms_type": "percent", "percent": "10"}]
+    response = await client.put(f"{BASE}/partners/{partner['id']}/terms", json=terms)
+    assert response.status_code == 200, response.text
+    registrar = (
+        await client.post(
+            f"{BASE}/registrars",
+            json={"name": "R", "kind": "individual", "contact": "@r", "low_balance": "100"},
+        )
+    ).json()
+    price = {
+        "country_id": poland,
+        "purpose_id": tourism,
+        "hall": "standard",
+        "amount": "60",
+        "currency": "USD",
+    }
+    response = await client.put(f"{BASE}/registrars/{registrar['id']}/prices", json=[price])
+    assert response.status_code == 200, response.text
+    prepayment = {"country_id": poland, "purpose_id": None, "amount": "100"}
+    assert (await client.put(f"{BASE}/prepayments", json=[prepayment])).status_code == 200
+    # The specialist still gets everything.
+    assert (await client.get(f"{BASE}/partners")).json()[0]["terms"]
+    assert (await client.get(f"{BASE}/registrars")).json()[0]["prices"]
+
+    client.cookies.clear()
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    await login(client, "olga@example.com")
+    for kind, item in (("partners", partner), ("registrars", registrar)):
+        response = await client.get(f"{BASE}/{kind}")
+        assert response.status_code == 200
+        assert response.json() == [{"id": item["id"], "name": item["name"], "is_active": True}]
+    response = await client.get(f"{BASE}/prepayments")
+    assert response.status_code == 403
+    assert response.json()["detail"] == "forbidden"
+
+
 async def test_admin_has_no_workspace_lists(client: AsyncClient, make_user: MakeUser):
     await make_user("root@example.com", role="admin")
     await login(client, "root@example.com")

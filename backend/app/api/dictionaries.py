@@ -2,7 +2,9 @@
 with terms, registrars with prices, prepayments, currencies and tax; the systems of the
 vault with their password rules (backlog 1.7).
 
-Everyone in the workspace reads them (forms need them); only the specialist edits.
+Everyone in the workspace reads them (forms need them); only the specialist edits. An
+employee gets partners and registrars as names only: their terms, prices and contacts,
+and the prepayments, are the specialist's (backlog Т.13).
 Everything runs in the workspace scope, so Row-Level Security keeps other workspaces out.
 """
 
@@ -41,6 +43,7 @@ from app.models import (
     RegistrarKind,
     RegistrarPrice,
     Tenant,
+    UserRole,
     VaultSystem,
     VaultSystemKind,
     VisaPurpose,
@@ -135,6 +138,16 @@ class PartnerUpdate(BaseModel):
     contact: Contact | None = None
     note: Note | None = None
     is_active: bool | None = None
+
+
+class RefOut(BaseModel):
+    """A partner or registrar as an employee's forms pick it: no terms, prices or contacts."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    is_active: bool
 
 
 class PartnerOut(BaseModel):
@@ -468,8 +481,10 @@ async def update_system(
 
 
 @router.get("/partners")
-async def list_partners(session: TenantSession) -> list[PartnerOut]:
+async def list_partners(user: Reader, session: TenantSession) -> list[PartnerOut] | list[RefOut]:
     rows = await session.scalars(select(Partner).order_by(Partner.name))
+    if user.role != UserRole.SPECIALIST:
+        return [RefOut.model_validate(p) for p in rows]
     return [PartnerOut.model_validate(p) for p in rows]
 
 
@@ -520,8 +535,12 @@ async def replace_partner_terms(
 
 
 @router.get("/registrars")
-async def list_registrars(session: TenantSession) -> list[RegistrarOut]:
+async def list_registrars(
+    user: Reader, session: TenantSession
+) -> list[RegistrarOut] | list[RefOut]:
     rows = await session.scalars(select(Registrar).order_by(Registrar.name))
+    if user.role != UserRole.SPECIALIST:
+        return [RefOut.model_validate(r) for r in rows]
     return [RegistrarOut.model_validate(r) for r in rows]
 
 
@@ -580,7 +599,7 @@ async def replace_registrar_prices(
 # --- Prepayments ---------------------------------------------------------------------
 
 
-@router.get("/prepayments")
+@router.get("/prepayments", dependencies=[Depends(require_specialist)])
 async def list_prepayments(session: TenantSession) -> list[PrepaymentOut]:
     rows = await session.scalars(select(Prepayment))
     return [PrepaymentOut.model_validate(p) for p in rows]
