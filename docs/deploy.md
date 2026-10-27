@@ -32,15 +32,20 @@
 
 ## 3. Веб-сервис из GitHub
 
-1. В проекте: **+ Create → GitHub Repo → `SvamiBog/visa_crm`**. Railway найдёт `Dockerfile` в корне и будет собирать по нему.
+1. В проекте: **+ Create → GitHub Repo → `SvamiBog/visa_crm`**.
 2. В **Settings** веб-сервиса:
    - **Region** — EU West Metal (Amsterdam);
    - **Source → Branch** — `main`;
    - **Wait for CI** — включить. Тогда Railway выкатывает коммит, только если тесты в GitHub Actions прошли. Переключатель появляется после того, как Railway получит доступ к результатам GitHub Actions (он покажет баннер с запросом прав).
+   - **Build → Dockerfile Path** — `/Dockerfile`;
    - **Deploy → Healthcheck Path** — `/api/health`;
    - **Deploy → Restart Policy** — On Failure.
 
-Последние два пункта записаны и в `railway.json`, но Railway объявил такие файлы («Config as Code») устаревшими: для старых сервисов они работают до 2026-12-01, новые сервисы могут их не читать. Поэтому задаём настройки в панели — так они точно применятся.
+Настройки сборки и запуска хранятся только здесь, в настройках сервиса: файла `railway.json` в репозитории нет. Railway объявил такие файлы («Config as Code») устаревшими и с 2026-12-01 перестаёт их читать.
+
+- **Путь к Dockerfile обязателен.** Без него Railway собирает сервис своим сборщиком по умолчанию (Railpack), а не по `Dockerfile`. Отдельного переключателя «Dockerfile» нет, его включает сам путь, в том числе через API (`dockerfilePath`).
+- **Как проверить:** Deployments → выкладка → Details: сборщик `Dockerfile`, путь `/Dockerfile`. В логе сборки после `unpacking archive` идёт `load build definition from Dockerfile`.
+- **Infrastructure as Code** (`.railway/railway.ts`, замена `railway.json`) не используем. Railway не читает этот файл при выкладке: команда `railway config apply` записывает те же настройки сервиса, только из терминала. Решение — decisions.md, 2026-10-26.
 
 ## 4. Переменные окружения
 
@@ -160,6 +165,8 @@ exit
 | --- | --- |
 | `"db":"error"` в `/api/health?db=1` | `DATABASE_URL` ссылается на сервис с другим именем; имя в `${{…}}` должно совпадать с именем сервиса базы |
 | Выкладка падает на сборке | Логи сборки во вкладке Deployments; чаще всего — сеть до PyPI или npm, помогает повторная выкладка |
+| Сборка падает через несколько минут, в логе только `All aboard, next stop: builder v4` или `Build Failed: build daemon returned an error` | Сбой сборщиков Railway, а не наш код: смотрите status.railway.com (2026-10-26 — медленная загрузка снимков сборки в EU West). Работающая версия остаётся на месте; после сбоя — **Redeploy** |
+| В деталях выкладки сборщик Railpack, а не Dockerfile | Не задан **Build → Dockerfile Path** (`/Dockerfile`) — задайте и выкатите заново |
 | Выкладка падает после сборки, healthcheck не проходит | Логи выкладки: ошибка миграции или пустой `VAULT_MASTER_KEY` |
 | Выкладка висит в `WAITING` | Тесты в GitHub Actions ещё идут или упали; через 2 часа Railway пропускает выкладку |
 | Не открываются пароли из сейфа или не проходит двухфакторный код после смены ключа | Ротация ключа — по шагам в docs/operations.md |
@@ -171,4 +178,4 @@ exit
 - Удалять том базы: вместе с ним удаляются резервные копии.
 - Терять `VAULT_MASTER_KEY`: без него зашифрованные данные не восстановить.
 
-Источники: [регионы](https://docs.railway.com/deployments/regions), [бэкапы и PITR](https://docs.railway.com/guides/postgres-backups-restores), [тарифы](https://docs.railway.com/pricing/plans), [CLI](https://docs.railway.com/guides/cli), [переменные](https://docs.railway.com/guides/variables), [окружения](https://docs.railway.com/guides/environments), [автодеплой из GitHub](https://docs.railway.com/guides/github-autodeploys), [Config as Code](https://docs.railway.com/reference/config-as-code).
+Источники: [регионы](https://docs.railway.com/deployments/regions), [бэкапы и PITR](https://docs.railway.com/guides/postgres-backups-restores), [тарифы](https://docs.railway.com/pricing/plans), [CLI](https://docs.railway.com/guides/cli), [переменные](https://docs.railway.com/guides/variables), [окружения](https://docs.railway.com/guides/environments), [автодеплой из GitHub](https://docs.railway.com/guides/github-autodeploys), [Dockerfile](https://docs.railway.com/builds/dockerfiles), [Infrastructure as Code](https://docs.railway.com/infrastructure-as-code).

@@ -87,12 +87,11 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 1. **Версия Postgres.** Postgres → **Data** → Query: `SHOW server_version;`. Если первая цифра не 18, позже понадобится переменная `PG_MAJOR` (шаг 4): `pg_dump` должен быть той же версии, что сервер, или новее.
 2. **Создание сервиса.** **+ Create → GitHub Repo** → этот репозиторий. Назовите сервис `backup`.
 3. **Settings:**
-   - Source → **Root Directory**: `ops/backup` (Railway соберёт `ops/backup/Dockerfile`);
+   - Source → **Root Directory**: `ops/backup`;
+   - Build → **Dockerfile Path**: `/ops/backup/Dockerfile` — путь от корня репозитория. Без него Railway собирает своим сборщиком (Railpack), а не по `Dockerfile`. В логе сборки должно быть `load build definition from ops/backup/Dockerfile`;
    - Deploy → **Cron Schedule**: `0 1 * * *` — каждый день в 01:00 UTC (04:00 по Минску);
    - Deploy → Restart Policy: **Never**; Healthcheck Path — пусто;
    - Networking — домен не создавайте: сервису не нужен вход снаружи.
-
-   Если в настройках появились `Healthcheck Path /api/health` или команда запуска веб-сервиса, их подтянул общий `railway.json` — уберите.
 4. **Variables:**
 
    ```

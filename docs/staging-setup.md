@@ -24,8 +24,11 @@
 1. **+ Create → GitHub Repo → `SvamiBog/visa_crm`.** Railway попросит доступ к репозиторию — разрешите.
 2. В **Settings** сервиса:
    - **Source → Branch:** `main`;
+   - **Build → Dockerfile Path:** `/Dockerfile` — без него Railway собирает своим сборщиком (Railpack), а не по `Dockerfile` (deploy.md, шаг 3);
    - **Deploy → Healthcheck Path:** `/api/health`;
    - **Deploy → Restart Policy:** On Failure.
+
+   Стенды PR копируют эти настройки из `staging`, поэтому правьте их здесь, а не в стенде.
 3. **Settings → Networking → Generate Domain.**
 
 ## 4. Переменные приложения
@@ -107,6 +110,16 @@ python3 -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"  
 5. После мержа или закрытия PR Railway удаляет его окружение сам.
 
 Пока PR открыт, его стенд работает и стоит денег (приложение, база, Mailpit) — старые PR лучше не держать открытыми.
+
+**Если первая выкладка стенда упала.** 2026-10-26 первые выкладки стендов PR #52–#54 падали. Случай двойной:
+
+- у Railway был сбой сборок в EU West (status.railway.com: «Slow build snapshot uploads in EU West»);
+- первая выкладка нового стенда не прочитала тогдашний `railway.json` и собиралась Railpack.
+
+Теперь сборщик задан путём к Dockerfile в настройках `staging` (шаг 3), и стенд получает его при создании. Что проверить:
+
+1. В окружении PR: приложение → **Settings → Build → Dockerfile Path** — `/Dockerfile`. У стендов, созданных до 2026-10-26, пути нет — задайте его вручную.
+2. Лог сборки. Если там только `All aboard, next stop: builder v4` или `Build Failed: build daemon returned an error`, это сбой Railway, а не кода: проверьте status.railway.com и после сбоя нажмите **Redeploy** (или запушьте в PR).
 
 ## Сброс стенда
 
