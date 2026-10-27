@@ -14,6 +14,7 @@ import {
 } from "../../reference";
 import { useHasModule } from "../../workspace";
 import { useMoney } from "../clients/Finance";
+import { PackageChip } from "../clients/Package";
 import { ErrorAlert } from "../clients/ui";
 import { AttentionList } from "./Attention";
 
@@ -34,6 +35,8 @@ type Upcoming = {
   visa_center_id: string | null;
   stage: string;
   balance: string | null;
+  // The documents of the line (package check); null: the stage is shown instead.
+  package: { ready: boolean; missing: number } | null;
 };
 
 type Funnel = {
@@ -242,6 +245,7 @@ function UpcomingSubmissions({
   const name = useLocalName();
   const money = useMoney();
   const day = useDay();
+  const packageCheck = useHasModule("package_check");
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
   const rules = useRules(false);
@@ -281,7 +285,7 @@ function UpcomingSubmissions({
                 <th>{t("home.col.client")}</th>
                 <th>{t("home.col.country")}</th>
                 <th>{t("home.col.center")}</th>
-                <th>{t("home.col.stage")}</th>
+                <th>{t(packageCheck ? "home.col.documents" : "home.col.stage")}</th>
                 {withMoney && <th className="money-cell">{t("home.col.balance")}</th>}
               </tr>
             </thead>
@@ -298,7 +302,11 @@ function UpcomingSubmissions({
                   <td>{name.country(countryById.get(r.destination_id))}</td>
                   <td>{place(r.visa_center_id)}</td>
                   <td>
-                    <span className="chip st-gray">{t(`cases.stage.${r.stage}`)}</span>
+                    {r.package ? (
+                      <PackageChip ready={r.package.ready} missing={r.package.missing} />
+                    ) : (
+                      <span className="chip st-gray">{t(`cases.stage.${r.stage}`)}</span>
+                    )}
                   </td>
                   {withMoney && (
                     <td className="money-cell">

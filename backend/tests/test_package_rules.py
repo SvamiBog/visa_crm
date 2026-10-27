@@ -79,3 +79,21 @@ def test_an_empty_checklist_has_nothing_to_hold_the_package_back():
     empty = summarize([])
     assert empty.ready
     assert sum(empty.counts.values()) == 0
+
+
+def test_missing_counts_only_required_items_that_hold_the_package_back():
+    summary = summarize(
+        [
+            (True, ItemStatus.MISSING),
+            (True, ItemStatus.NO_DATE),
+            (True, ItemStatus.EXPIRED),
+            (True, ItemStatus.OK),
+            (True, ItemStatus.NOT_NEEDED),
+            # «По ситуации»: shown, but not counted as what the package lacks.
+            (False, ItemStatus.MISSING),
+            (False, ItemStatus.EXPIRED),
+        ]
+    )
+    assert summary.missing == 3
+    assert summarize([(True, ItemStatus.OK), (False, ItemStatus.MISSING)]).missing == 0
+    assert summarize([]).missing == 0

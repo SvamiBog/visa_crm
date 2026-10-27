@@ -41,6 +41,7 @@ import { Appointment, useNumberLabel } from "./Appointment";
 import { CaseAccess } from "./CaseAccess";
 import { CaseBookings } from "./Bookings";
 import { CaseFinance } from "./Finance";
+import { CasePackage } from "./Package";
 import { useHasModule } from "../../workspace";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
@@ -157,6 +158,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
   const rules = useRules(false, c.submission_country_id);
   const refresh = useRefreshCards();
   const finances = useHasModule("finances");
+  const packageCheck = useHasModule("package_check");
   const [editing, setEditing] = useState(false);
   const moveTo = useMutation({
     mutationFn: (stage: CaseStage) => apiPatch<VisaCase>(`/cases/${c.id}`, { stage }),
@@ -230,6 +232,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
           <CaseAccess visaCase={c} />
         </>
       )}
+      {packageCheck && <CasePackage visaCase={c} />}
       <CaseBookings visaCase={c} />
       {finances && <CaseFinance visaCase={c} />}
     </article>

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import PackageItem
-from tests.helpers import MakeUser, login, workspace_today
+from tests.helpers import MakeUser, give_cases, login, workspace_today
 
 
 def day(offset: int) -> str:
@@ -319,3 +319,161 @@ async def test_marking_is_in_the_audit_log_with_ids_only(
         "item": bank["id"],
         "state": "present",
     }
+
+
+# --- «Требует внимания» and the home screen (part 2) ---------------------------------
+
+
+async def package_reminders(client: AsyncClient, **params) -> list[dict]:
+    response = await client.get("/api/reminders", params=params)
+    assert response.status_code == 200, response.text
+    return [i for i in response.json() if i["kind"] == "package"]
+
+
+async def run(owner_engine: AsyncEngine, sql: str, **params) -> None:
+    async with owner_engine.begin() as conn:
+        await conn.execute(text(sql), params)
+
+
+async def test_an_incomplete_package_is_in_attention_before_the_submission(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await as_admin(client, make_user)
+    codes = await countries(client)
+    form = await shared(client, codes["PL"], name="Анкета")
+    bank = await shared(client, codes["PL"], name="Выписка из банка", max_age_days=30)
+    await shared(client, codes["PL"], name="Справка с работы", required=False)
+
+    anna = await as_specialist(client, make_user, owner_engine)
+    soon = await open_case(client, submission_on=day(5))
+    later = await open_case(client, submission_on=day(8))  # not within the week yet
+    await open_case(client, "DE", submission_on=day(2))  # no checklist: nothing to collect
+    await open_case(client)  # no submission date
+
+    [item] = await package_reminders(client)
+    assert (item["case_id"], item["due_on"], item["days_left"]) == (soon["id"], day(5), 5)
+    # The required documents still to collect; the optional one does not count.
+    assert item["missing"] == 2 == (await package(client, soon))["missing"]
+    assert item["key"] == f"package:{soon['id']}:{day(-2)}"
+    assert len(await package_reminders(client, contact_id=soon["contact_id"])) == 1
+    assert await package_reminders(client, contact_id=later["contact_id"]) == []
+
+    await mark(client, soon, form, state="present")
+    assert [i["missing"] for i in await package_reminders(client)] == [1]
+
+    # «Готово» hides this occurrence; the day before the submission brings it back.
+    done = await client.post("/api/reminders/dismiss", json={"key": item["key"]})
+    assert done.status_code == 204
+    assert await package_reminders(client) == []
+    moved = await client.patch(f"/api/cases/{soon['id']}", json={"submission_on": day(1)})
+    assert moved.status_code == 200, moved.text
+    [item] = await package_reminders(client)
+    assert item["key"] == f"package:{soon['id']}:{day(0)}"
+
+    # The window is the specialist's: ten days bring the later case in.
+    settings = (await client.get("/api/reminders/settings")).json()
+    assert settings["package_days"] == 7
+    saved = await client.put("/api/reminders/settings", json=settings | {"package_days": 10})
+    assert saved.status_code == 200 and saved.json()["package_days"] == 10
+    assert {i["case_id"] for i in await package_reminders(client)} == {soon["id"], later["id"]}
+
+    # A collected package leaves the list.
+    await mark(client, soon, bank, state="present", document_date=day(-1))
+    assert [i["case_id"] for i in await package_reminders(client)] == [later["id"]]
+
+    # An employee sees only the cases given to them, and only with the module.
+    client.cookies.clear()
+    await make_user("olga@example.com", "employee", tenant_id=anna)
+    await run(
+        owner_engine,
+        "UPDATE users SET modules = '{clients,cases,tasks,package_check}' "
+        "WHERE email = 'olga@example.com'",
+    )
+    await give_cases(owner_engine, "olga@example.com", soon["id"])
+    await login(client, "olga@example.com")
+    assert await package_reminders(client) == []
+    await give_cases(owner_engine, "olga@example.com", later["id"])
+    assert [i["case_id"] for i in await package_reminders(client)] == [later["id"]]
+    await run(
+        owner_engine,
+        "UPDATE users SET modules = '{clients,cases,tasks}' WHERE email = 'olga@example.com'",
+    )
+    assert await package_reminders(client) == []
+
+    # Without the module in the workspace there is no package to remind of.
+    await relogin(client, "anna@example.com")
+    await run(
+        owner_engine,
+        "UPDATE tenants SET modules = array_remove(modules, 'package_check') WHERE id = :t",
+        t=anna,
+    )
+    assert await package_reminders(client) == []
+
+
+async def test_upcoming_submissions_show_package_readiness(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await as_admin(client, make_user)
+    codes = await countries(client)
+    form = await shared(client, codes["PL"], name="Анкета")
+    bank = await shared(client, codes["PL"], name="Выписка из банка", max_age_days=30)
+    await shared(client, codes["PL"], name="Справка с работы", required=False)
+
+    anna = await as_specialist(client, make_user, owner_engine)
+    # A family submitting together: the mother has her documents, the daughter none.
+    mother = (await client.post("/api/contacts", json={"first_name": "Анна"})).json()
+    response = await client.post(
+        f"/api/contacts/{mother['id']}/cases",
+        json={
+            "destination_id": codes["PL"],
+            "submission_country_id": codes["BY"],
+            "applicants": [{"contact_id": mother["id"]}, {"first_name": "Мария"}],
+        },
+    )
+    assert response.status_code == 201, response.text
+    family = response.json()
+    for case in family:
+        moved = await client.patch(f"/api/cases/{case['id']}", json={"submission_on": day(2)})
+        assert moved.status_code == 200, moved.text
+    await mark(client, family[0], form, state="present")
+    await mark(client, family[0], bank, state="present", document_date=day(-3))
+    ready = await open_case(client, submission_on=day(3))
+    await mark(client, ready, form, state="present")
+    await mark(client, ready, bank, state="present", document_date=day(-3))
+    await open_case(client, "DE", submission_on=day(4))  # no checklist for Germany
+
+    async def lines() -> list[dict | None]:
+        home = await client.get("/api/home")
+        assert home.status_code == 200, home.text
+        return [line["package"] for line in home.json()["submissions"]["upcoming"]]
+
+    assert await lines() == [
+        {"ready": False, "missing": 2},  # the daughter's two required documents
+        {"ready": True, "missing": 0},
+        None,  # the stage is shown instead
+    ]
+
+    # An employee with the module sees the readiness of the cases given to them.
+    client.cookies.clear()
+    await make_user("olga@example.com", "employee", tenant_id=anna)
+    await run(
+        owner_engine,
+        "UPDATE users SET modules = '{clients,cases,package_check}' "
+        "WHERE email = 'olga@example.com'",
+    )
+    await give_cases(owner_engine, "olga@example.com", ready["id"])
+    await login(client, "olga@example.com")
+    assert await lines() == [{"ready": True, "missing": 0}]
+    await run(
+        owner_engine,
+        "UPDATE users SET modules = '{clients,cases}' WHERE email = 'olga@example.com'",
+    )
+    assert await lines() == [None]
+
+    await relogin(client, "anna@example.com")
+    await run(
+        owner_engine,
+        "UPDATE tenants SET modules = array_remove(modules, 'package_check') WHERE id = :t",
+        t=anna,
+    )
+    assert await lines() == [None, None, None]

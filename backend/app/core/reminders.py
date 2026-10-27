@@ -33,6 +33,8 @@ class ReminderKind(StrEnum):
     CONTRACT = "contract"
     QUESTIONNAIRE = "questionnaire"
     BALANCE_QUEUED = "balance_queued"
+    # Documents not collected before the submission (backlog 2.3).
+    PACKAGE = "package"
     # An employee went over a daily limit (backlog Т.14); for the specialist only.
     CARD_LIMIT = "card_limit"
     PASSWORD_LIMIT = "password_limit"
@@ -50,6 +52,7 @@ class Settings:
     consultation_days: int = 1  # before the consultation, and on the day
     contract_days: int = 3  # after the case is opened
     questionnaire_days: int = 1  # before the questionnaire is due, and on the day
+    package_days: int = 7  # before the submission, and the day before (question 26)
 
 
 def occurrence(triggers: Iterable[date], today: date, until: date | None = None) -> date | None:
@@ -139,6 +142,14 @@ def balance_queued(
     if submission_on is not None:
         until = submission_on - timedelta(days=s.balance_days + 1)
     return occurrence([queued_on], today, until=until)
+
+
+def package(submission_on: date, ready: bool, today: date, s: Settings) -> date | None:
+    """Documents still to collect before the submission (the package check, 2.3)."""
+    if ready:
+        return None
+    triggers = (submission_on - timedelta(days=s.package_days), submission_on - timedelta(1))
+    return occurrence(triggers, today, until=submission_on)
 
 
 def birthday_in(birth_date: date, year: int) -> date:

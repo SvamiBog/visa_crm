@@ -34,6 +34,8 @@ BLOCKING = frozenset({ItemStatus.MISSING, ItemStatus.NO_DATE, ItemStatus.EXPIRED
 class Summary:
     ready: bool
     counts: dict[ItemStatus, int]
+    # Required items holding the package back: what is left to collect.
+    missing: int
 
 
 def reference_day(submission_on: date | None, today: date) -> date:
@@ -64,9 +66,9 @@ def item_status(
 def summarize(items: Iterable[tuple[bool, ItemStatus]]) -> Summary:
     """Readiness and the number of items in each status; items are (required, status)."""
     counts = dict.fromkeys(ItemStatus, 0)
-    ready = True
+    missing = 0
     for required, status in items:
         counts[status] += 1
         if required and status in BLOCKING:
-            ready = False
-    return Summary(ready=ready, counts=counts)
+            missing += 1
+    return Summary(ready=missing == 0, counts=counts, missing=missing)
