@@ -19,6 +19,10 @@ const CLIENTS_LINE: Record<Lang, RegExp> = {
 };
 const WIDTHS = [1280, 390];
 
+// One demo specialist for all the tests, and a new check of a workspace stops the one still
+// running (app/core/import_jobs.py): the tests take turns.
+test.describe.configure({ mode: "serial" });
+
 // The demo specialist (python -m app.cli seed-demo).
 const EMAIL = process.env.E2E_EMAIL ?? "visa1@demo.visacrm.test";
 const PASSWORD = process.env.DEMO_PASSWORD ?? "";

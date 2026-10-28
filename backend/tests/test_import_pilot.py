@@ -10,7 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, import_report, login
 from tests.pilot_book_visacrm import SYSTEMS, xlsx
 
 API = "/api/imports"
@@ -52,7 +52,7 @@ async def test_the_pilot_book_in_the_format_loads_whole_and_once(
         )
     request = {"file_name": "VisaCRM-импорт.xlsx", "content": content()}
 
-    report = await ok(await client.post(API, json=request))
+    report = await import_report(client, API, request)
 
     assert report["skipped"] == []
     # The test workspace has no visa centers in Belarus: the cities are not found.
@@ -105,5 +105,5 @@ async def test_the_pilot_book_in_the_format_loads_whole_and_once(
         ("Агентство Виза", "0.00", 0),
     }
 
-    again = await ok(await client.post(API, json=request))
+    again = await import_report(client, API, request)
     assert (again["created"], again["updated"], again["skipped"]) == ({}, {}, [])

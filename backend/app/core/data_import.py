@@ -18,6 +18,11 @@ is left alone. A password is never cleared by an empty cell.
 The workspace's records are loaded once and looked up in memory. Each row runs in its own
 savepoint: a row the database refuses is skipped and reported, and the records are loaded
 again, since the rollback expired them.
+
+The National Bank rates the file needs are asked for ahead, all at once (app/core/rates.py
+→ prefetch). A run reports how far it is in its Progress, which the page shows while the
+file loads in the background (app/core/import_jobs.py), and stops at the next row when
+asked to.
 """
 
 import hashlib
@@ -26,7 +31,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
@@ -39,7 +44,7 @@ from app.core.data_values import normalize
 from app.core.finance import to_base
 from app.core.names import joined, latin_fields, name_fields
 from app.core.queues import deadline
-from app.core.rates import RateUnavailable, rate_to_base
+from app.core.rates import RateUnavailable, prefetch, rate_to_base
 from app.core.vault import decrypt_for_tenant, encrypt_for_tenant, get_tenant_key
 from app.core.workbook import Issue, Row, SheetData, Workbook
 from app.models import (
@@ -118,6 +123,30 @@ PASSPORT = (
 NEW, SKIP = "new", "skip"
 # Sheets whose codes other sheets point to.
 _CODED = {"clients", "consultations", "cases"}
+
+
+class ImportStopped(Exception):
+    """The run was asked to stop (a newer check replaced it); nothing it did is kept."""
+
+
+@dataclass
+class Progress:
+    """How far a run is: the bank's rates asked for ahead, then the rows."""
+
+    stage: Literal["rates", "rows"] = "rates"
+    rates_done: int = 0
+    rates_total: int = 0
+    rows_done: int = 0
+    rows_total: int = 0
+    # Set from outside: the run stops before its next row.
+    stop: bool = False
+
+    def rate_done(self) -> None:
+        self.rates_done += 1
+
+    def check(self) -> None:
+        if self.stop:
+            raise ImportStopped
 
 
 class SkipRow(Exception):
@@ -247,8 +276,10 @@ class WorkbookImport:
         choices: dict[str, dict[str, str]],
         today: date,
         run_id: uuid.UUID,
+        progress: Progress | None = None,
     ) -> None:
         self.session = session
+        self.progress = progress or Progress()
         self.tenant_id = tenant.id
         self.base = tenant.base_currency
         self.zone = ZoneInfo(tenant.timezone)
@@ -427,6 +458,13 @@ class WorkbookImport:
         for issue in book.warnings:
             self.report.warn(issue)
         await self.load()
+        progress = self.progress
+        pairs = self._rate_pairs(book)
+        progress.rates_total = len(pairs)
+        await prefetch(pairs, progress.rate_done)
+        progress.check()
+        progress.stage = "rows"
+        progress.rows_total = sum(len(sheet.rows) for sheet in book.sheets.values())
         for key in SHEET_ORDER:
             sheet = book.sheets.get(key)
             if sheet is None:
@@ -434,14 +472,49 @@ class WorkbookImport:
             if sheet.spec.module not in self.modules:
                 self.report.rows += len(sheet.rows)
                 self.report.skip(Issue("module_disabled", sheet.title))
+                progress.rows_done += len(sheet.rows)
                 continue
             self._drop_disabled_columns(sheet)
             handler = getattr(self, f"_{key}")
             for row in sheet.rows:
+                progress.check()
                 await self._row(sheet, row, handler)
+                progress.rows_done += 1
             if key == "cases":
                 await self._families(sheet.title)
         return self.report
+
+    def _rate_pairs(self, book: Workbook) -> set[tuple[str, date]]:
+        """The (currency, day) rates the bank is asked for: rows in another currency with
+        no rate of their own. A talon's day may come from the CRM's records; the row asks
+        for it itself if it is not among these."""
+        needed: list[tuple[str, date]] = []
+        for key, day_key, prefix in (
+            ("payments", "paid_on", ""),
+            ("expenses", "spent_on", ""),
+            ("cases", "registrar_fee_on", "registrar_fee_"),
+        ):
+            sheet = book.sheets.get(key)
+            if sheet is None or "finances" not in self.modules:
+                continue
+            for row in sheet.rows:
+                v = row.values
+                if key == "cases" and v.get("registrar_fee") is None:
+                    continue
+                if v.get(f"{prefix}rate") is not None:
+                    continue
+                day = v.get(day_key) or (v.get("submission_on") if key == "cases" else None)
+                needed.append((v.get(f"{prefix}currency") or self.base, day or self.today))
+        pairs: set[tuple[str, date]] = set()
+        for currency, day in needed:
+            if currency == self.base:
+                continue
+            # A rate goes through BYN (rates.rate_to_base): the bank has none for BYN.
+            if currency != "BYN":
+                pairs.add((currency, day))
+            if self.base != "BYN":
+                pairs.add((self.base, day))
+        return pairs
 
     def _drop_disabled_columns(self, sheet: SheetData) -> None:
         """A column of a module the workspace has not is passed by, with a warning."""

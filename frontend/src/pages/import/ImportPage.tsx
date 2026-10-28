@@ -1,28 +1,33 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { apiPost } from "../../api";
 import { useCaseLists, useContactLists, type Entry } from "../../contacts";
-import { readBase64 } from "../../files";
+import { formatSize, readBase64 } from "../../files";
 import {
   CREATABLE,
   MAX_IMPORT_BYTES,
   downloadImportTemplate,
   fetchImportPrompt,
   promptLanguage,
+  startImportJob,
+  useImportJob,
   useImportReport,
   useImportRuns,
+  useRunningImportJobs,
   type ImportChoices,
   type ImportIssue,
+  type ImportJob,
   type ImportReport,
   type ImportRunSummary,
+  type ImportUpload,
 } from "../../imports";
 import { ErrorAlert } from "../clients/ui";
 
 // «Импорт таблиц» (backlog 1.21, docs/data-format.md): the template and the prompt for
 // the AI, then the workbook it makes — checked first, loaded after. The file stays in the
-// browser and is sent again for the check and the import.
+// browser and is sent again for the check and the import. Both run on the server in the
+// background; the page shows how far they are.
 
 // The order counts come in: people first, then what hangs on them.
 const COUNT_ORDER = [
@@ -45,43 +50,40 @@ const COUNT_ORDER = [
   "registrar",
 ];
 const SHOWN_ISSUES = 30;
-type Upload = { name: string; content: string };
+type Upload = ImportUpload & { size: number };
 
 export function ImportPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [upload, setUpload] = useState<Upload | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [choices, setChoices] = useState<ImportChoices>({});
-  const [checked, setChecked] = useState<ImportReport | null>(null);
-  const [result, setResult] = useState<ImportReport | null>(null);
+  const [checkId, setCheckId] = useState<string | null>(null);
+  const [importId, setImportId] = useState<string | null>(null);
   // A new key clears the file input for the next file.
   const [inputKey, setInputKey] = useState(0);
   const runs = useImportRuns();
+  const checkJob = useImportJob(checkId);
+  const importJob = useImportJob(importId);
 
-  const body = (file: Upload, picked: ImportChoices) => ({
-    file_name: file.name,
-    content: file.content,
-    choices: picked,
-  });
-  const checking = useMutation({
-    mutationFn: (request: { file: Upload; choices: ImportChoices }) =>
-      apiPost<ImportReport>("/imports/check", body(request.file, request.choices)),
-    onSuccess: setChecked,
-  });
-  const importing = useMutation({
-    mutationFn: (file: Upload) => apiPost<ImportReport>("/imports", body(file, choices)),
-    onSuccess: (report) => {
-      setResult(report);
-      setChecked(null);
-      // Cards, cases, queues and lists all may have changed.
-      void queryClient.invalidateQueries();
-    },
-  });
+  const checking = useStartJob("check", setCheckId);
+  const importing = useStartJob("import", setImportId);
+
+  const checked = checkJob.data?.status === "done" ? checkJob.data.report : null;
+  const result = importJob.data?.status === "done" ? importJob.data.report : null;
+  const importRunning = importing.isPending || importJob.data?.status === "running";
+
+  const imported = result !== null;
+  useEffect(() => {
+    // Cards, cases, queues, lists and the history all may have changed.
+    if (imported) {
+      void queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "import-jobs" });
+    }
+  }, [imported, queryClient]);
 
   const chooseFile = async (picked: File | undefined) => {
-    setChecked(null);
-    setResult(null);
+    setCheckId(null);
+    setImportId(null);
     setChoices({});
     setUpload(null);
     setFileError(null);
@@ -90,7 +92,11 @@ export function ImportPage() {
       setFileError("file_too_large");
       return;
     }
-    const next = { name: picked.name.slice(-200), content: await readBase64(picked) };
+    const next = {
+      name: picked.name.slice(-200),
+      size: picked.size,
+      content: await readBase64(picked),
+    };
     setUpload(next);
     checking.mutate({ file: next, choices: {} });
   };
@@ -129,8 +135,17 @@ export function ImportPage() {
             {t(`errors.${fileError}`)}
           </div>
         )}
-        {checking.isPending && <p className="muted">{t("import.checking")}</p>}
+        {upload && checkJob.data && (
+          <p className="muted import-note">
+            {t("import.fileAccepted", {
+              name: upload.name,
+              size: formatSize(upload.size, i18n.language),
+            })}
+          </p>
+        )}
+        {checking.isPending && <p className="muted">{t("import.sending")}</p>}
         {checking.isError && <ErrorAlert error={checking.error} />}
+        <JobState job={checkJob.data} error={checkJob.error} />
       </section>
 
       {checked && upload && !result && (
@@ -139,27 +154,33 @@ export function ImportPage() {
           <p className="muted import-note">{t("import.checkNote")}</p>
           <ReportView report={checked} dryRun />
           <UnknownValues report={checked} choices={choices} onChange={choose} />
-          <div className="form-actions">
-            <button
-              type="button"
-              className="btn btn-p"
-              disabled={importing.isPending || checked.imported === 0}
-              onClick={() => importing.mutate(upload)}
-            >
-              {importing.isPending
-                ? t("import.importing")
-                : t("import.run", { count: checked.imported })}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={checking.isPending}
-              onClick={() => checking.mutate({ file: upload, choices })}
-            >
-              {t("import.checkAgain")}
-            </button>
-          </div>
+          {importJob.data?.status !== "running" && (
+            <div className="form-actions">
+              <button
+                type="button"
+                className="btn btn-p"
+                disabled={importRunning || checked.imported === 0}
+                onClick={() => importing.mutate({ file: upload, choices })}
+              >
+                {importing.isPending
+                  ? t("import.sending")
+                  : t("import.run", { count: checked.imported })}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={checking.isPending || importRunning}
+                onClick={() => {
+                  setImportId(null);
+                  checking.mutate({ file: upload, choices });
+                }}
+              >
+                {t("import.checkAgain")}
+              </button>
+            </div>
+          )}
           {importing.isError && <ErrorAlert error={importing.error} />}
+          <JobState job={importJob.data} error={importJob.error} />
         </section>
       )}
 
@@ -180,7 +201,8 @@ export function ImportPage() {
               type="button"
               className="btn"
               onClick={() => {
-                setResult(null);
+                setCheckId(null);
+                setImportId(null);
                 setUpload(null);
                 setInputKey(inputKey + 1);
               }}
@@ -191,7 +213,64 @@ export function ImportPage() {
         </section>
       )}
 
-      <History runs={runs.data} error={runs.isError ? runs.error : null} />
+      <History
+        runs={runs.data}
+        error={runs.isError ? runs.error : null}
+        shown={[checkId, importId]}
+      />
+    </div>
+  );
+}
+
+/** Start a check or an import; the job the request started is shown at once and then
+ * asked about while it runs. */
+function useStartJob(kind: ImportJob["kind"], onStarted: (id: string) => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: { file: Upload; choices: ImportChoices }) =>
+      startImportJob(kind, request.file, request.choices),
+    onSuccess: (job) => {
+      queryClient.setQueryData(["import-jobs", job.id], job);
+      onStarted(job.id);
+    },
+  });
+}
+
+/** A running job's progress, or why it did not finish. A done job shows its report. */
+function JobState({ job, error }: { job: ImportJob | undefined; error: unknown }) {
+  const { t } = useTranslation();
+  // A poll lost to a weak connection is asked again; only an answer of the server counts.
+  if (error && !(job && job.status === "running")) return <ErrorAlert error={error} />;
+  if (!job || job.status === "done") return null;
+  if (job.status === "running") return <JobProgress job={job} />;
+  return (
+    <div className="alert alert-error" role="alert">
+      {job.status === "stopped"
+        ? t("import.stopped")
+        : t(`errors.${job.error ?? "unknown"}`, { defaultValue: t("errors.unknown") })}
+    </div>
+  );
+}
+
+function JobProgress({ job }: { job: ImportJob }) {
+  const { t } = useTranslation();
+  const rates = job.stage === "rates";
+  const done = rates ? job.rates_done : job.rows_done;
+  const total = rates ? job.rates_total : job.rows_total;
+  const label =
+    total === 0
+      ? t("import.preparing")
+      : rates
+        ? t("import.progressRates", { done, total })
+        : t(job.kind === "check" ? "import.progressChecked" : "import.progressLoaded", {
+            done,
+            total,
+          });
+  return (
+    <div className="import-progress" role="status">
+      <span>{label}</span>
+      <progress max={Math.max(total, 1)} value={total ? done : 0} aria-label={label} />
+      <small className="muted">{t("import.progressHint")}</small>
     </div>
   );
 }
@@ -474,10 +553,29 @@ function UnknownValues({
   );
 }
 
-function History({ runs, error }: { runs: ImportRunSummary[] | undefined; error: unknown }) {
+function History({
+  runs,
+  error,
+  shown,
+}: {
+  runs: ImportRunSummary[] | undefined;
+  error: unknown;
+  shown: (string | null)[];
+}) {
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState<string | null>(null);
   const report = useImportReport(open);
+  // A job started before the page was opened again: shown here while it runs.
+  const running = (useRunningImportJobs().data ?? []).filter((job) => !shown.includes(job.id));
+  const busy = running.length > 0;
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !busy) {
+      void queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "import-jobs" });
+    }
+    wasBusy.current = busy;
+  }, [busy, queryClient]);
   const when = (value: string) =>
     new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(
       new Date(value),
@@ -485,8 +583,18 @@ function History({ runs, error }: { runs: ImportRunSummary[] | undefined; error:
   return (
     <section className="card">
       <h2 className="h2">{t("import.history")}</h2>
+      {running.map((job) => (
+        <div key={job.id} className="import-running">
+          <strong>
+            {t(job.kind === "check" ? "import.runningCheck" : "import.runningImport", {
+              file: job.file_name,
+            })}
+          </strong>
+          <JobProgress job={job} />
+        </div>
+      ))}
       {error ? <ErrorAlert error={error} /> : null}
-      {runs && runs.length === 0 && <p className="muted">{t("import.noRuns")}</p>}
+      {runs && runs.length === 0 && !busy && <p className="muted">{t("import.noRuns")}</p>}
       {runs && runs.length > 0 && (
         <div className="table-wrap">
           <table className="tbl">
