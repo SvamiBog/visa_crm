@@ -20,7 +20,7 @@ import {
 } from "../../imports";
 import { ErrorAlert } from "../clients/ui";
 
-// «Импорт таблиц» (backlog 1.20, docs/data-format.md): the template and the prompt for
+// «Импорт таблиц» (backlog 1.21, docs/data-format.md): the template and the prompt for
 // the AI, then the workbook it makes — checked first, loaded after. The file stays in the
 // browser and is sent again for the check and the import.
 

@@ -60,7 +60,7 @@ export function QueuesPage() {
   const name = useLocalName();
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
-  const rules = useRules(false);
+  const rules = useRules();
   const centerById = useMemo(() => {
     const centers = new Map<string, VisaCenter>();
     for (const rule of rules.data ?? []) for (const v of rule.visa_centers) centers.set(v.id, v);

@@ -1,22 +1,31 @@
-"""Shared reference: countries, visa center operators and appointment rules.
+"""Countries and visa center operators (shared, the admin edits them) and the workspace's
+directions: appointment rules «destination × submission country» with their cities.
 
-Workspaces read it (forms need the country list, so no module check here); the admin
-edits it in the admin panel. Entries are switched off, never deleted: cases refer to them.
+Every workspace user reads them (forms need them, so no module check here). Directions are
+set up by the specialist herself (backlog 1.20): an entry a case uses is switched off, an
+unused one can be deleted. Shared entries are switched off, never deleted.
 """
 
 import uuid
 from datetime import date, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import Select, select
+from sqlalchemy import Select, exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.deps import CurrentUser, SystemSession, TenantSession, require_admin
+from app.api.deps import (
+    CurrentUser,
+    SystemSession,
+    TenantSession,
+    require_admin,
+    require_specialist,
+)
 from app.core.audit import record
+from app.core.directions import city_key, new_cities
 from app.models import (
     AuditAction,
     BookingType,
@@ -24,6 +33,7 @@ from app.models import (
     CountryRule,
     VacIdentifierType,
     VacOperator,
+    VisaCase,
     VisaCenter,
 )
 
@@ -33,6 +43,7 @@ admin_router = APIRouter(
 )
 
 Admin = Annotated[CurrentUser, Depends(require_admin)]
+Specialist = Annotated[CurrentUser, Depends(require_specialist)]
 
 Name = Annotated[str, Field(min_length=1, max_length=100)]
 Days = Annotated[int, Field(ge=1, le=365)]
@@ -108,13 +119,19 @@ class OperatorOut(BaseModel):
     is_active: bool
 
 
-class VisaCenterIn(BaseModel):
-    city_ru: Name
-    city_en: Name
-    is_active: bool = True
+# A direction is set up for up to every destination at once; cities come in a short list.
+MAX_DESTINATIONS = 60
+MAX_CITIES = 50
+Cities = Annotated[list[Name], Field(max_length=MAX_CITIES)]
+
+
+class CitiesIn(BaseModel):
+    cities: Annotated[list[Name], Field(min_length=1, max_length=MAX_CITIES)]
 
 
 class VisaCenterUpdate(BaseModel):
+    """Only the fields sent are changed; the English name may be cleared."""
+
     city_ru: Name | None = None
     city_en: Name | None = None
     is_active: bool | None = None
@@ -125,7 +142,7 @@ class VisaCenterOut(BaseModel):
 
     id: uuid.UUID
     city_ru: str
-    city_en: str
+    city_en: str | None
     is_active: bool
 
 
@@ -136,20 +153,23 @@ class RuleFields(BaseModel):
     identifier_type: VacIdentifierType | None = None
     appeals_accepted: bool | None = None
     appeal_deadline_days: Days | None = None
-    is_verified: bool = False
     notes: Annotated[str, Field(max_length=1000)] | None = None
     is_active: bool = True
 
 
 class RuleIn(RuleFields):
-    destination_id: uuid.UUID
+    """One direction set up for several destinations at once, with its cities."""
+
+    destination_ids: Annotated[list[uuid.UUID], Field(min_length=1, max_length=MAX_DESTINATIONS)]
     submission_id: uuid.UUID
     booking_type: BookingType
+    cities: Cities = []
 
     @model_validator(mode="after")
     def different_countries(self) -> "RuleIn":
-        if self.destination_id == self.submission_id:
+        if self.submission_id in self.destination_ids:
             raise ValueError("a country cannot be its own submission country")
+        self.destination_ids = list(dict.fromkeys(self.destination_ids))
         return self
 
 
@@ -163,7 +183,6 @@ class RuleUpdate(BaseModel):
     identifier_type: VacIdentifierType | None = None
     appeals_accepted: bool | None = None
     appeal_deadline_days: Days | None = None
-    is_verified: bool | None = None
     notes: Annotated[str, Field(max_length=1000)] | None = None
     is_active: bool | None = None
 
@@ -181,7 +200,6 @@ class RuleOut(BaseModel):
     identifier_type: VacIdentifierType | None
     appeals_accepted: bool | None
     appeal_deadline_days: int | None
-    is_verified: bool
     notes: str | None
     is_active: bool
     updated_at: datetime
@@ -194,17 +212,18 @@ class RuleOut(BaseModel):
 def _audit(
     session: AsyncSession,
     action: AuditAction,
-    admin: CurrentUser,
+    user: CurrentUser,
     target_type: str,
     target_id: uuid.UUID,
     name: str,
 ) -> None:
-    """Platform-level event (no workspace): visible in the admin's log."""
+    """Shared entries go to the admin's log (no workspace), a direction to its workspace's
+    log; only ids and the entry's name."""
     record(
         session,
         action,
-        actor=admin,
-        tenant_id=None,
+        actor=user,
+        tenant_id=user.tenant_id,
         target_type=target_type,
         target_id=target_id,
         details={"name": name},
@@ -248,6 +267,27 @@ async def _rule_name(session: AsyncSession, rule: CountryRule) -> str:
         ).all()
     )
     return f"{codes.get(rule.destination_id)} ← {codes.get(rule.submission_id)}"
+
+
+async def _in_use(session: AsyncSession, rule: CountryRule) -> bool:
+    """A case of the pair still counts on the rule (its window, its appeals)."""
+    query = exists().where(
+        VisaCase.destination_id == rule.destination_id,
+        VisaCase.submission_country_id == rule.submission_id,
+    )
+    return bool(await session.scalar(select(query)))
+
+
+async def _add_cities(
+    session: AsyncSession, user: CurrentUser, rule: CountryRule, cities: list[str]
+) -> None:
+    have = await session.scalars(select(VisaCenter.city_ru).where(VisaCenter.rule_id == rule.id))
+    for city in new_cities(have, cities):
+        center = VisaCenter(tenant_id=rule.tenant_id, rule_id=rule.id, city_ru=city)
+        session.add(center)
+        # A double click adds the same city twice at once: the second gets a 409.
+        await _flush_or_conflict(session, "visa_center_exists")
+        _audit(session, AuditAction.REFERENCE_CREATED, user, "visa_center", center.id, city)
 
 
 async def _rule_out(session: AsyncSession, rule: CountryRule) -> RuleOut:
@@ -321,23 +361,130 @@ async def list_operators(session: TenantSession) -> list[OperatorOut]:
 
 @router.get("/rules")
 async def list_rules(
-    session: TenantSession, submission: Annotated[uuid.UUID | None, Query()] = None
+    session: TenantSession,
+    submission: Annotated[uuid.UUID | None, Query()] = None,
+    include_inactive: Annotated[bool, Query()] = False,
 ) -> list[RuleOut]:
+    """The workspace's directions. Forms get what is on; the builder asks for the
+    switched-off entries too."""
     # A switched-off country takes its rules out of the workspace lists too.
     submission_country = aliased(Country)
     query = (
         _rules_query()
         .join(submission_country, submission_country.id == CountryRule.submission_id)
-        .where(CountryRule.is_active, Country.is_active, submission_country.is_active)
+        .where(Country.is_active, submission_country.is_active)
     )
+    if not include_inactive:
+        query = query.where(CountryRule.is_active)
     if submission is not None:
         query = query.where(CountryRule.submission_id == submission)
     rules = []
     for rule in await session.scalars(query):
         out = RuleOut.model_validate(rule)
-        out.visa_centers = [c for c in out.visa_centers if c.is_active]
+        if not include_inactive:
+            out.visa_centers = [c for c in out.visa_centers if c.is_active]
         rules.append(out)
     return rules
+
+
+# --- Workspace: the specialist sets up her directions ---------------------------------
+
+
+@router.post("/rules", status_code=status.HTTP_201_CREATED)
+async def create_rules(body: RuleIn, user: Specialist, session: TenantSession) -> list[RuleOut]:
+    """The same direction for every destination sent; all or nothing."""
+    fields = body.model_dump(exclude={"destination_ids", "cities"})
+    await _check_refs(session, fields)
+    for destination_id in body.destination_ids:
+        await _get(session, Country, destination_id)
+    rules = []
+    for destination_id in body.destination_ids:
+        rule = CountryRule(tenant_id=user.tenant_id, destination_id=destination_id, **fields)
+        _normalize_rule(rule)
+        session.add(rule)
+        rules.append(rule)
+    await _flush_or_conflict(session, "rule_exists")
+    for rule in rules:
+        name = await _rule_name(session, rule)
+        _audit(session, AuditAction.REFERENCE_CREATED, user, "country_rule", rule.id, name)
+        await _add_cities(session, user, rule, body.cities)
+    await session.commit()
+    return [await _rule_out(session, rule) for rule in rules]
+
+
+@router.patch("/rules/{rule_id}")
+async def update_rule(
+    rule_id: uuid.UUID, body: RuleUpdate, user: Specialist, session: TenantSession
+) -> RuleOut:
+    rule = await _get(session, CountryRule, rule_id)
+    changes = body.model_dump(exclude_unset=True)
+    await _check_refs(session, changes)
+    _apply(rule, changes, nullable=RULE_NULLABLE)
+    _normalize_rule(rule)
+    name = await _rule_name(session, rule)
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "country_rule", rule.id, name)
+    await session.commit()
+    return await _rule_out(session, rule)
+
+
+@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_rule(rule_id: uuid.UUID, user: Specialist, session: TenantSession) -> Response:
+    """Only a direction no case uses; otherwise it is switched off."""
+    rule = await _get(session, CountryRule, rule_id)
+    if await _in_use(session, rule):
+        raise HTTPException(status.HTTP_409_CONFLICT, "rule_in_use")
+    name = await _rule_name(session, rule)
+    await session.delete(rule)
+    _audit(session, AuditAction.REFERENCE_DELETED, user, "country_rule", rule.id, name)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/rules/{rule_id}/visa-centers")
+async def add_visa_centers(
+    rule_id: uuid.UUID, body: CitiesIn, user: Specialist, session: TenantSession
+) -> RuleOut:
+    """Cities the direction does not have yet: «Минск» and «минск» are one city."""
+    rule = await _get(session, CountryRule, rule_id)
+    await _add_cities(session, user, rule, body.cities)
+    await session.commit()
+    return await _rule_out(session, rule)
+
+
+@router.patch("/visa-centers/{center_id}")
+async def update_visa_center(
+    center_id: uuid.UUID, body: VisaCenterUpdate, user: Specialist, session: TenantSession
+) -> VisaCenterOut:
+    center = await _get(session, VisaCenter, center_id)
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("city_ru") is not None:
+        changes["city_ru"] = " ".join(changes["city_ru"].split())
+        others = await session.scalars(
+            select(VisaCenter.city_ru).where(
+                VisaCenter.rule_id == center.rule_id, VisaCenter.id != center.id
+            )
+        )
+        if city_key(changes["city_ru"]) in {city_key(c) for c in others}:
+            raise HTTPException(status.HTTP_409_CONFLICT, "visa_center_exists")
+    _apply(center, changes, nullable=frozenset({"city_en"}))
+    await _flush_or_conflict(session, "visa_center_exists")
+    _audit(session, AuditAction.REFERENCE_UPDATED, user, "visa_center", center.id, center.city_ru)
+    await session.commit()
+    return VisaCenterOut.model_validate(center)
+
+
+@router.delete("/visa-centers/{center_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_visa_center(
+    center_id: uuid.UUID, user: Specialist, session: TenantSession
+) -> Response:
+    """Only a city no case names; otherwise it is switched off."""
+    center = await _get(session, VisaCenter, center_id)
+    if await session.scalar(select(exists().where(VisaCase.visa_center_id == center.id))):
+        raise HTTPException(status.HTTP_409_CONFLICT, "visa_center_in_use")
+    await session.delete(center)
+    _audit(session, AuditAction.REFERENCE_DELETED, user, "visa_center", center.id, center.city_ru)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --- Admin: read and edit ------------------------------------------------------------
@@ -414,66 +561,3 @@ async def update_operator(
     )
     await session.commit()
     return OperatorOut.model_validate(operator)
-
-
-@admin_router.get("/rules")
-async def admin_list_rules(
-    session: SystemSession, submission: Annotated[uuid.UUID | None, Query()] = None
-) -> list[RuleOut]:
-    query = _rules_query()
-    if submission is not None:
-        query = query.where(CountryRule.submission_id == submission)
-    return [RuleOut.model_validate(r) for r in await session.scalars(query)]
-
-
-@admin_router.post("/rules", status_code=status.HTTP_201_CREATED)
-async def create_rule(body: RuleIn, admin: Admin, session: SystemSession) -> RuleOut:
-    await _check_refs(session, body.model_dump())
-    rule = CountryRule(**body.model_dump())
-    _normalize_rule(rule)
-    session.add(rule)
-    await _flush_or_conflict(session, "rule_exists")
-    name = await _rule_name(session, rule)
-    _audit(session, AuditAction.REFERENCE_CREATED, admin, "country_rule", rule.id, name)
-    await session.commit()
-    return await _rule_out(session, rule)
-
-
-@admin_router.patch("/rules/{rule_id}")
-async def update_rule(
-    rule_id: uuid.UUID, body: RuleUpdate, admin: Admin, session: SystemSession
-) -> RuleOut:
-    rule = await _get(session, CountryRule, rule_id)
-    changes = body.model_dump(exclude_unset=True)
-    await _check_refs(session, changes)
-    _apply(rule, changes, nullable=RULE_NULLABLE)
-    _normalize_rule(rule)
-    name = await _rule_name(session, rule)
-    _audit(session, AuditAction.REFERENCE_UPDATED, admin, "country_rule", rule.id, name)
-    await session.commit()
-    return await _rule_out(session, rule)
-
-
-@admin_router.post("/rules/{rule_id}/visa-centers", status_code=status.HTTP_201_CREATED)
-async def create_visa_center(
-    rule_id: uuid.UUID, body: VisaCenterIn, admin: Admin, session: SystemSession
-) -> VisaCenterOut:
-    await _get(session, CountryRule, rule_id)
-    center = VisaCenter(rule_id=rule_id, **body.model_dump())
-    session.add(center)
-    await _flush_or_conflict(session, "visa_center_exists")
-    _audit(session, AuditAction.REFERENCE_CREATED, admin, "visa_center", center.id, center.city_ru)
-    await session.commit()
-    return VisaCenterOut.model_validate(center)
-
-
-@admin_router.patch("/visa-centers/{center_id}")
-async def update_visa_center(
-    center_id: uuid.UUID, body: VisaCenterUpdate, admin: Admin, session: SystemSession
-) -> VisaCenterOut:
-    center = await _get(session, VisaCenter, center_id)
-    _apply(center, body.model_dump(exclude_unset=True))
-    await _flush_or_conflict(session, "visa_center_exists")
-    _audit(session, AuditAction.REFERENCE_UPDATED, admin, "visa_center", center.id, center.city_ru)
-    await session.commit()
-    return VisaCenterOut.model_validate(center)

@@ -1,6 +1,6 @@
 """import of the VisaCRM data format: a new import kind and when rows last changed
 
-Backlog 1.20 (docs/data-format.md, docs/decisions.md → «Формат данных VisaCRM»): the
+Backlog 1.21 (docs/data-format.md, docs/decisions.md → «Формат данных VisaCRM»): the
 import takes one workbook with every sheet at once, so its runs and remembered rows get
 their own kind, «workbook». A row exported from the CRM and loaded back is a snapshot of
 its record; a record changed in the CRM after the export must not be overwritten by it,
@@ -10,8 +10,8 @@ the other records already have. Existing rows count as changed now.
 The remembered column mappings of the old import (import_mappings) are no longer used;
 the table is dropped by a later revision, once no running code reads it.
 
-Revision ID: 0034
-Revises: 0033
+Revision ID: 0035
+Revises: 0034
 Create Date: 2026-10-28
 
 """
@@ -21,8 +21,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0034"
-down_revision: str | None = "0033"
+revision: str = "0035"
+down_revision: str | None = "0034"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

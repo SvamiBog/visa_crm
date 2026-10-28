@@ -1,4 +1,4 @@
-"""Import of the VisaCRM data format (backlog 1.20, docs/data-format.md): one workbook with
+"""Import of the VisaCRM data format (backlog 1.21, docs/data-format.md): one workbook with
 every sheet at once, linked by codes, read strictly. A repeated or re-made file finds the
 records it made; a row of a CRM export is a snapshot of its record and is not loaded over
 a later change; codes of another workspace find nothing; the report never holds a value
@@ -789,3 +789,45 @@ async def test_the_prompt_comes_in_both_languages_with_the_format_columns(
 
     assert "Клиенты: Код клиента* | Фамилия | Имя" in ru["text"]
     assert "Clients: Client code* | Last name | First name" in en["text"]
+
+
+async def test_a_city_of_her_direction_is_found_without_an_english_name(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    countries = {c["code"]: c["id"] for c in (await client.get("/api/reference/countries")).json()}
+    [poland] = [
+        r
+        for r in (await client.get("/api/reference/rules")).json()
+        if r["destination_id"] == countries["PL"]
+    ]
+    await ok(
+        await client.post(
+            f"/api/reference/rules/{poland['id']}/visa-centers", json={"cities": ["Минск"]}
+        )
+    )
+
+    report = await run(
+        client,
+        {
+            "Клиенты": CLIENTS[:2],
+            "Кейсы": [
+                ["Код кейса", "Код клиента", "Страна визы", "Город подачи"],
+                ["k1", "Подача25-2", "Польша", "минск"],
+            ],
+        },
+    )
+
+    assert report["warnings"] == []
+    [case] = await rows(
+        owner_engine,
+        "SELECT c.city_ru FROM visa_cases v JOIN visa_centers c ON c.id = v.visa_center_id "
+        "WHERE v.tenant_id = :t",
+        t=tenant,
+    )
+    assert case == {"city_ru": "Минск"}
+    # The English template names the city as she wrote it.
+    response = await client.get(f"{API}/template", params={"language": "en"})
+    book = openpyxl.load_workbook(io.BytesIO(response.content))
+    assert "Минск" in [c.value for column in book["Reference"].iter_cols() for c in column]

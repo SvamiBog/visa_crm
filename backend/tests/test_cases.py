@@ -1,7 +1,11 @@
+import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import text, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.core.db import scope_to_tenant
+from app.models import VisaCase
 from tests.helpers import MakeUser, give_cases, login
 
 CONTACTS = "/api/contacts"
@@ -43,34 +47,28 @@ async def card(client: AsyncClient, contact_id: str) -> dict:
     return (await client.get(f"{CONTACTS}/{contact_id}")).json()
 
 
-async def as_admin(client: AsyncClient, make_user: MakeUser) -> None:
-    await make_user("root@example.com", role="admin")
-    await login(client, "root@example.com")
-
-
-async def admin_rule(client: AsyncClient, destination: str, **changes) -> dict:
-    """As the admin: change the rule «destination × Belarus»; returns it."""
+async def own_rule(client: AsyncClient, destination: str, **changes) -> dict:
+    """As the specialist: change her direction «destination × Belarus»; returns it."""
     codes = await countries(client)
-    rules = (await client.get("/api/admin/reference/rules")).json()
+    rules = (await client.get("/api/reference/rules")).json()
     rule = next(
         r
         for r in rules
         if r["destination_id"] == codes[destination] and r["submission_id"] == codes["BY"]
     )
     if changes:
-        response = await client.patch(f"/api/admin/reference/rules/{rule['id']}", json=changes)
+        response = await client.patch(f"/api/reference/rules/{rule['id']}", json=changes)
         assert response.status_code == 200, response.text
         rule = response.json()
     return rule
 
 
-async def add_city(client: AsyncClient, rule_id: str, city_ru: str, city_en: str) -> str:
+async def add_city(client: AsyncClient, rule_id: str, city: str) -> str:
     response = await client.post(
-        f"/api/admin/reference/rules/{rule_id}/visa-centers",
-        json={"city_ru": city_ru, "city_en": city_en},
+        f"/api/reference/rules/{rule_id}/visa-centers", json={"cities": [city]}
     )
-    assert response.status_code == 201, response.text
-    return response.json()["id"]
+    assert response.status_code == 200, response.text
+    return next(c["id"] for c in response.json()["visa_centers"] if c["city_ru"] == city)
 
 
 async def test_case_for_one_applicant(client: AsyncClient, make_user: MakeUser):
@@ -236,10 +234,8 @@ async def test_result_rules(client: AsyncClient, make_user: MakeUser):
 
 
 async def test_appeal_deadline_from_the_rules(client: AsyncClient, make_user: MakeUser):
-    await as_admin(client, make_user)
-    await admin_rule(client, "LT", appeals_accepted=True, appeal_deadline_days=14)
-    client.cookies.clear()
     await as_specialist(client, make_user)
+    await own_rule(client, "LT", appeals_accepted=True, appeal_deadline_days=14)
     contact = await new_contact(client)
     [case] = (await open_case(client, contact["id"], destination="LT")).json()
     url = f"/api/cases/{case['id']}"
@@ -254,14 +250,9 @@ async def test_appeal_deadline_from_the_rules(client: AsyncClient, make_user: Ma
 
 
 async def test_visa_center_belongs_to_the_pair(client: AsyncClient, make_user: MakeUser):
-    await as_admin(client, make_user)
-    poland = await admin_rule(client, "PL")
-    minsk = await add_city(client, poland["id"], "Минск", "Minsk")
-    italy = await admin_rule(client, "IT")
-    brest = await add_city(client, italy["id"], "Брест", "Brest")
-    client.cookies.clear()
-
     await as_specialist(client, make_user)
+    minsk = await add_city(client, (await own_rule(client, "PL"))["id"], "Минск")
+    brest = await add_city(client, (await own_rule(client, "IT"))["id"], "Брест")
     contact = await new_contact(client)
     wrong = await open_case(client, contact["id"], visa_center_id=brest)
     assert wrong.status_code == 422 and wrong.json()["detail"] == "visa_center_mismatch"
@@ -275,6 +266,48 @@ async def test_visa_center_belongs_to_the_pair(client: AsyncClient, make_user: M
         f"/api/cases/{case['id']}", json={"destination_id": codes["IT"], "visa_center_id": brest}
     )
     assert moved.status_code == 200
+
+
+async def test_direction_in_use_is_switched_off_not_deleted(
+    client: AsyncClient, make_user: MakeUser
+):
+    await as_specialist(client, make_user)
+    poland = await own_rule(client, "PL")
+    minsk = await add_city(client, poland["id"], "Минск")
+    contact = await new_contact(client)
+    [case] = (await open_case(client, contact["id"], visa_center_id=minsk)).json()
+
+    city = await client.delete(f"/api/reference/visa-centers/{minsk}")
+    assert city.status_code == 409 and city.json()["detail"] == "visa_center_in_use"
+    rule = await client.delete(f"/api/reference/rules/{poland['id']}")
+    assert rule.status_code == 409 and rule.json()["detail"] == "rule_in_use"
+
+    # Switched off: no longer offered, the case keeps its city.
+    off = await client.patch(f"/api/reference/visa-centers/{minsk}", json={"is_active": False})
+    assert off.status_code == 200
+    assert (await own_rule(client, "PL"))["visa_centers"] == []
+    assert (await client.get(f"/api/cases/{case['id']}")).json()["visa_center_id"] == minsk
+
+
+async def test_case_cannot_take_another_workspaces_city(
+    client: AsyncClient, make_user: MakeUser, sessionmaker: async_sessionmaker[AsyncSession]
+):
+    await as_specialist(client, make_user)
+    foreign = await add_city(client, (await own_rule(client, "PL"))["id"], "Минск")
+    client.cookies.clear()
+
+    bella = await as_specialist(client, make_user, "bella@example.com")
+    contact = await new_contact(client)
+    # Someone else's city is simply not found, like any other foreign id.
+    assert (await open_case(client, contact["id"], visa_center_id=foreign)).status_code == 404
+    [case] = (await open_case(client, contact["id"])).json()
+    # Not even a direct write in her own scope: the city must be of the same workspace.
+    async with sessionmaker() as session:
+        scope_to_tenant(session, bella)
+        with pytest.raises(IntegrityError):
+            await session.execute(
+                update(VisaCase).where(VisaCase.id == case["id"]).values(visa_center_id=foreign)
+            )
 
 
 async def test_group_join_and_leave(client: AsyncClient, make_user: MakeUser):

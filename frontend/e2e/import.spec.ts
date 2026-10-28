@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-// «Импорт таблиц» (backlog 1.20): the template and the prompt for the AI, then the check of
+// «Импорт таблиц» (backlog 1.21): the template and the prompt for the AI, then the check of
 // the file it makes. The downloaded template itself is checked: nothing would change and
 // nothing is written, so the demo data stays as it is. Both languages, a wide screen and a
 // phone, where the page must not scroll sideways.

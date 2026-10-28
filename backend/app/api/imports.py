@@ -1,4 +1,4 @@
-"""Импорт в формате VisaCRM (backlog 1.20, docs/data-format.md): the specialist downloads
+"""Импорт в формате VisaCRM (backlog 1.21, docs/data-format.md): the specialist downloads
 the template and the prompt, has an AI turn her spreadsheets into one workbook of the
 format, checks what loading it would do and loads it. The file is not kept: it is sent
 again for the check and for the import. Only the workspace owner imports.
@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import Base64Bytes, BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -214,7 +214,12 @@ async def _names(session: AsyncSession, model: Any) -> list[str]:
 async def _lists(session: AsyncSession, language: Language) -> Lists:
     """The workspace's values for the template's «Справочник»."""
     country = Country.name_ru if language == "ru" else Country.name_en
-    city = VisaCenter.city_ru if language == "ru" else VisaCenter.city_en
+    # The English name of a city is optional: the Russian one stands in for it.
+    city = (
+        VisaCenter.city_ru
+        if language == "ru"
+        else func.coalesce(VisaCenter.city_en, VisaCenter.city_ru)
+    )
     cities = await session.scalars(
         select(city).join(CountryRule, VisaCenter.rule_id == CountryRule.id).distinct()
     )

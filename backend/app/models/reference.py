@@ -1,7 +1,10 @@
-"""Shared reference data: countries and appointment rules (справочник стран и правил записи).
+"""Countries and visa center operators — shared reference data — and each workspace's
+directions: appointment rules «destination × submission country» with their cities.
 
-Common to the whole platform, so no tenant_id: every workspace reads it, only the admin
-changes it (Row-Level Security in migration 0009 allows writes in the system scope only).
+Countries and operators are common to the whole platform, so no tenant_id: every workspace
+reads them, only the admin changes them (Row-Level Security of migration 0009). Directions
+are the workspace's own: every specialist works her own countries and cities (backlog 1.20,
+docs/decisions.md → «Свои направления визовика»).
 """
 
 import uuid
@@ -14,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     SmallInteger,
     String,
     UniqueConstraint,
@@ -98,11 +102,15 @@ class Country(Base):
 
 
 class CountryRule(Base):
-    """Appointment rules for one pair «destination × submission country»."""
+    """A workspace's direction: how it gets appointments for one pair «destination ×
+    submission country»."""
 
     __tablename__ = "country_rules"
     __table_args__ = (
-        UniqueConstraint("destination_id", "submission_id", name="uq_country_rules_pair"),
+        UniqueConstraint(
+            "tenant_id", "destination_id", "submission_id", name="uq_country_rules_pair"
+        ),
+        UniqueConstraint("id", "tenant_id", name="uq_country_rules_id_tenant"),
         CheckConstraint("destination_id <> submission_id", name="different_countries"),
         CheckConstraint(
             "(booking_type = 'windowed_application') = (window_days IS NOT NULL)",
@@ -119,6 +127,9 @@ class CountryRule(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
     destination_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("countries.id", ondelete="RESTRICT"), index=True
     )
@@ -141,8 +152,6 @@ class CountryRule(Base):
     # Does the consulate in the submission country accept appeals? NULL: not known yet.
     appeals_accepted: Mapped[bool | None]
     appeal_deadline_days: Mapped[int | None] = mapped_column(SmallInteger)
-    # False for pairs not confirmed by an operator's catalogue or the specialist («?»).
-    is_verified: Mapped[bool] = mapped_column(server_default=text("false"))
     notes: Mapped[str | None] = mapped_column(String(1000))
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
     updated_at: Mapped[datetime] = mapped_column(
@@ -150,20 +159,34 @@ class CountryRule(Base):
     )
 
     visa_centers: Mapped[list["VisaCenter"]] = relationship(
-        order_by="VisaCenter.city_ru", lazy="selectin"
+        order_by="VisaCenter.city_ru",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
 class VisaCenter(Base):
-    """Where applications for a rule are submitted: each city has its own queue."""
+    """Where applications for a direction are submitted: each city has its own queue."""
 
     __tablename__ = "visa_centers"
-    __table_args__ = (UniqueConstraint("rule_id", "city_ru", name="uq_visa_centers_rule_city"),)
+    __table_args__ = (
+        UniqueConstraint("rule_id", "city_ru", name="uq_visa_centers_rule_city"),
+        UniqueConstraint("id", "tenant_id", name="uq_visa_centers_id_tenant"),
+        ForeignKeyConstraint(
+            ["rule_id", "tenant_id"],
+            ["country_rules.id", "country_rules.tenant_id"],
+            ondelete="CASCADE",
+            name="fk_visa_centers_rule_id_same_tenant",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    rule_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("country_rules.id", ondelete="CASCADE"), index=True
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
     )
+    rule_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    # The city as the specialist typed it; the English name is optional (forms fall back).
     city_ru: Mapped[str] = mapped_column(String(100))
-    city_en: Mapped[str] = mapped_column(String(100))
+    city_en: Mapped[str | None] = mapped_column(String(100))
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))

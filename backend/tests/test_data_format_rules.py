@@ -1,4 +1,4 @@
-"""The VisaCRM data format (backlog 1.20, docs/data-format.md): its sheets and columns, and
+"""The VisaCRM data format (backlog 1.21, docs/data-format.md): its sheets and columns, and
 how strictly a cell is read — no guessing, a cell that does not fit is an error."""
 
 import re

@@ -1,4 +1,4 @@
-"""Reading a file in the VisaCRM data format (backlog 1.20): sheets and headers in either
+"""Reading a file in the VisaCRM data format (backlog 1.21): sheets and headers in either
 language, what is passed by, which rows are skipped and why, and the limits of the file."""
 
 import io

@@ -100,6 +100,7 @@ class VisaCase(Base):
         _same_tenant("consultation_id", "consultations", "SET NULL (consultation_id)"),
         _same_tenant("purpose_id", "visa_purposes", "RESTRICT"),
         _same_tenant("registrar_id", "registrars", "RESTRICT"),
+        _same_tenant("visa_center_id", "visa_centers", "RESTRICT"),
         Index("ix_visa_cases_contact_id", "contact_id"),
         Index("ix_visa_cases_group_id", "group_id"),
         Index("ix_visa_cases_tenant_stage", "tenant_id", "stage"),
@@ -145,9 +146,7 @@ class VisaCase(Base):
     submission_country_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("countries.id", ondelete="RESTRICT")
     )
-    visa_center_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("visa_centers.id", ondelete="RESTRICT")
-    )
+    visa_center_id: Mapped[uuid.UUID | None]
     registrar_id: Mapped[uuid.UUID | None]
     hall: Mapped[Hall | None] = mapped_column(_enum(Hall, "visa_center_hall", create=False))
     # The client's number at the visa center; what it is (ID, application number, embassy

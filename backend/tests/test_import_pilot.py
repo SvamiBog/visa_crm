@@ -1,4 +1,4 @@
-"""Перенос таблиц перед пилотом (backlog 1.15, 1.20; docs/pilot.md): the made-up book of the
+"""Перенос таблиц перед пилотом (backlog 1.15, 1.21; docs/pilot.md): the made-up book of the
 first specialist (tests/pilot_book.py), turned into the VisaCRM data format by following the
 prompt (tests/pilot_book_visacrm.py), loads in one go. One person is one card across the
 years, the queues and France find the case of «Подача», old talons are no debt, a case of

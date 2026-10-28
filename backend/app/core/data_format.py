@@ -1,4 +1,4 @@
-"""The VisaCRM data format (backlog 1.20, docs/data-format.md): one XLSX workbook that the
+"""The VisaCRM data format (backlog 1.21, docs/data-format.md): one XLSX workbook that the
 import takes and the export gives. Its sheets and columns in Russian and English, what each
 column holds and which ones are required. The reader (app/core/workbook.py), the import
 (app/core/data_import.py), the template and the prompt's list of columns are built from

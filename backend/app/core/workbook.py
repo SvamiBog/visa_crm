@@ -1,4 +1,4 @@
-"""Reading a file in the VisaCRM data format (backlog 1.20, docs/data-format.md): one XLSX
+"""Reading a file in the VisaCRM data format (backlog 1.21, docs/data-format.md): one XLSX
 workbook, every sheet at once. The file comes from the user, so it is bounded before it is
 read — its size, its unpacked size (an XLSX is a zip), the rows and columns. XML is parsed
 with defusedxml (openpyxl picks it up when installed).

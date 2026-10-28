@@ -1,4 +1,4 @@
-"""Files in the VisaCRM data format the CRM gives (backlog 1.20, docs/data-format.md →
+"""Files in the VisaCRM data format the CRM gives (backlog 1.21, docs/data-format.md →
 «Выгрузка»): the template — every sheet with its headers, the «Справочник» with the values
 the workspace's lists and the format's fixed words allow, drop-downs from it, and «О файле».
 The specialist gives the template to the AI with the prompt (docs/import-prompt.md).

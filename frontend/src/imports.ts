@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiDownload, apiGet } from "./api";
 
-// Импорт в формате VisaCRM (backlog 1.20, docs/data-format.md): the template and the
+// Импорт в формате VisaCRM (backlog 1.21, docs/data-format.md): the template and the
 // prompt for the AI, the check and the import of the workbook it makes, the history.
 
 // docs/data-format.md: one XLSX file up to 10 MB.

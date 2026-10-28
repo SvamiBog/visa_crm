@@ -1,4 +1,4 @@
-"""Cells of a file in the VisaCRM data format (backlog 1.20, docs/data-format.md → «Общие
+"""Cells of a file in the VisaCRM data format (backlog 1.21, docs/data-format.md → «Общие
 правила»): read strictly, without guessing. A date is a date cell or ДД.ММ.ГГГГ, a sum is a
 number, a list value is one of the format's words. Turning the specialist's own spellings
 into these is the AI's job (docs/import-prompt.md). A cell that does not fit raises

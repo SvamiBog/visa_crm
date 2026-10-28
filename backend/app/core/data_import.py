@@ -1,4 +1,4 @@
-"""The import of a file in the VisaCRM data format (backlog 1.20, docs/data-format.md →
+"""The import of a file in the VisaCRM data format (backlog 1.21, docs/data-format.md →
 «Повторная загрузка», docs/decisions.md → «Формат данных VisaCRM»).
 
 The sheets go in the order their records depend on each other: clients, notes,
@@ -315,7 +315,8 @@ class WorkbookImport:
         self.lists[ValueType.COUNTRY] = countries
         self.list_ids = {t: set(index.values()) for t, index in self.lists.items()}
 
-        # Visa centers and windows of the rules «destination × where it is submitted».
+        # Cities and windows of the workspace's directions «destination × where it is
+        # submitted». A switched-off city still names old cases.
         self.centers: dict[tuple[uuid.UUID, uuid.UUID, str], uuid.UUID] = {}
         for center_id, destination, submission, city_ru, city_en in await s.execute(
             select(
@@ -326,7 +327,7 @@ class WorkbookImport:
                 VisaCenter.city_en,
             ).join(CountryRule, VisaCenter.rule_id == CountryRule.id)
         ):
-            for city in (city_ru, city_en):
+            for city in filter(None, (city_ru, city_en)):  # the English name is optional
                 self.centers[(destination, submission, normalize(city))] = center_id
         self.windows: dict[tuple[uuid.UUID, uuid.UUID], int | None] = {
             (destination, submission): window

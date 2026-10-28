@@ -155,7 +155,7 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
   const lists = useCaseLists();
-  const rules = useRules(false, c.submission_country_id);
+  const rules = useRules(c.submission_country_id);
   const refresh = useRefreshCards();
   const finances = useHasModule("finances");
   const packageCheck = useHasModule("package_check");
@@ -406,7 +406,7 @@ function PlaceFields({
   const name = useLocalName();
   const countries = useSortedCountries();
   const lists = useCaseLists();
-  const rules = useRules(false, place.submission || undefined);
+  const rules = useRules(place.submission || undefined);
   const rule = rules.data?.find((r) => r.destination_id === place.destination);
   const centers = rule?.visa_centers ?? [];
   const set = (changes: Partial<Place>) => onChange({ ...place, ...changes });
@@ -470,7 +470,10 @@ function PlaceFields({
           ))}
         </select>
         {place.destination && centers.length === 0 && (
-          <small id={cityHint}>{t(rule ? "cases.noCities" : "cases.noRule")}</small>
+          <small id={cityHint}>
+            {t(rule ? "cases.noCities" : "cases.noRule")}{" "}
+            <Link to="/app/countries">{t("cases.openDirections")}</Link>
+          </small>
         )}
       </label>
       <label className="field">
