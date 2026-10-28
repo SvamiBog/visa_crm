@@ -3,6 +3,10 @@ the template and the prompt, has an AI turn her spreadsheets into one workbook o
 format, checks what loading it would do and loads it. The file is not kept: it is sent
 again for the check and for the import. Only the workspace owner imports.
 
+The check and the import run in the background (app/core/import_jobs.py): the request
+reads the file, starts the run and answers at once; the page asks /imports/jobs/{id} how
+far it is until the report is ready.
+
 The reader is app/core/workbook.py, the engine app/core/data_import.py; the rules are in
 docs/decisions.md → «Формат данных VisaCRM».
 """
@@ -24,13 +28,16 @@ from app.api.deps import (
     require_specialist,
     workspace_today,
 )
+from app.core import import_jobs
 from app.core.audit import record
 from app.core.data_export import Lists, template
 from app.core.data_format import CREATABLE
-from app.core.data_import import NEW, SKIP, WorkbookImport
+from app.core.data_import import NEW, SKIP, Progress, WorkbookImport
+from app.core.db import get_sessionmaker, scope_to_tenant
 from app.core.documents import content_disposition
+from app.core.import_jobs import ImportJob, ImportRunning
 from app.core.import_prompt import import_prompt
-from app.core.workbook import WorkbookError, read_workbook
+from app.core.workbook import Workbook, WorkbookError, read_workbook
 from app.models import (
     AuditAction,
     Country,
@@ -130,6 +137,19 @@ class RunSummary(BaseModel):
     created_at: datetime
 
 
+class JobOut(BaseModel):
+    """A check or an import running in the background, and its report once it is done."""
+
+    id: uuid.UUID
+    kind: Literal["check", "import"]
+    file_name: str
+    status: import_jobs.Status
+    rows_done: int
+    rows_total: int
+    report: ReportOut | None
+    error: str | None
+
+
 class PromptOut(BaseModel):
     text: str
 
@@ -137,13 +157,9 @@ class PromptOut(BaseModel):
 # --- Helpers --------------------------------------------------------------------------
 
 
-async def _import(
-    body: ImportIn, user: CurrentUser, session: AsyncSession, *, save: bool
-) -> tuple[ImportRun, dict[str, Any]]:
-    """Run the import in the session; the caller commits it or lets it roll back."""
-    assert user.tenant_id is not None
+def _read(body: ImportIn) -> Workbook:
     try:
-        book = read_workbook(body.content)
+        return read_workbook(body.content)
     except WorkbookError as error:
         code = (
             status.HTTP_413_CONTENT_TOO_LARGE
@@ -151,6 +167,19 @@ async def _import(
             else status.HTTP_422_UNPROCESSABLE_CONTENT
         )
         raise HTTPException(code, error.code) from error
+
+
+async def _import(
+    book: Workbook,
+    body: ImportIn,
+    user: CurrentUser,
+    session: AsyncSession,
+    *,
+    save: bool,
+    progress: Progress,
+) -> tuple[ImportRun, dict[str, Any]]:
+    """Run the import in the session; the caller commits it or lets it roll back."""
+    assert user.tenant_id is not None
     tenant = await session.get(Tenant, user.tenant_id)
     assert tenant is not None
     run = ImportRun(
@@ -173,6 +202,7 @@ async def _import(
         choices=body.choices,
         today=await workspace_today(session, user.tenant_id),
         run_id=run.id,
+        progress=progress,
     )
     report = (await engine.run(book)).as_json()
     run.report = report
@@ -203,6 +233,46 @@ def _report_out(run: ImportRun, report: dict[str, Any], *, saved: bool) -> Repor
         file_name=run.file_name,
         created_at=run.created_at if saved else None,
         **report,
+    )
+
+
+def _start(body: ImportIn, user: CurrentUser, *, save: bool) -> JobOut:
+    """Read the file now (a file that cannot be read is refused at once), run the rest in
+    the background, in a session of its own: the request's closes when it answers."""
+    assert user.tenant_id is not None
+    tenant_id = user.tenant_id
+    book = _read(body)
+
+    async def work(progress: Progress) -> ReportOut:
+        async with get_sessionmaker()() as session:
+            scope_to_tenant(session, tenant_id)
+            run, report = await _import(book, body, user, session, save=save, progress=progress)
+            if not save:
+                out = _report_out(run, report, saved=False)
+                await session.rollback()
+                return out
+            await session.commit()
+            await session.refresh(run)
+            return _report_out(run, report, saved=True)
+
+    try:
+        job = import_jobs.start(tenant_id, save=save, file_name=body.file_name, work=work)
+    except ImportRunning as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, "import_running") from error
+    return _job_out(job)
+
+
+def _job_out(job: ImportJob) -> JobOut:
+    p = job.progress
+    return JobOut(
+        id=job.id,
+        kind="import" if job.save else "check",
+        file_name=job.file_name,
+        status=job.status,
+        rows_done=p.rows_done,
+        rows_total=p.rows_total,
+        report=job.result,
+        error=job.error,
     )
 
 
@@ -237,21 +307,33 @@ async def _lists(session: AsyncSession, language: Language) -> Lists:
 # --- Endpoints ------------------------------------------------------------------------
 
 
-@router.post("/check")
-async def check(body: ImportIn, user: Specialist, session: TenantSession) -> ReportOut:
-    """What the import would do, without writing anything."""
-    run, report = await _import(body, user, session, save=False)
-    out = _report_out(run, report, saved=False)
-    await session.rollback()
-    return out
+@router.post("/check", status_code=status.HTTP_202_ACCEPTED)
+async def check(body: ImportIn, user: Specialist) -> JobOut:
+    """Start finding what the import would do, without writing anything."""
+    return _start(body, user, save=False)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-async def run_import(body: ImportIn, user: Specialist, session: TenantSession) -> ReportOut:
-    run, report = await _import(body, user, session, save=True)
-    await session.commit()
-    await session.refresh(run)
-    return _report_out(run, report, saved=True)
+@router.post("", status_code=status.HTTP_202_ACCEPTED)
+async def run_import(body: ImportIn, user: Specialist) -> JobOut:
+    return _start(body, user, save=True)
+
+
+@router.get("/jobs")
+async def running_jobs(user: Specialist) -> list[JobOut]:
+    """The workspace's run still going: the page shows it after a reload."""
+    assert user.tenant_id is not None
+    return [_job_out(job) for job in import_jobs.running(user.tenant_id)]
+
+
+@router.get("/jobs/{job_id}")
+async def get_job(job_id: uuid.UUID, user: Specialist) -> JobOut:
+    """How far a run is, with its report once done. Another workspace's run, or one the
+    server lost in a restart, is not found."""
+    assert user.tenant_id is not None
+    job = import_jobs.get(job_id, user.tenant_id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "import_job_not_found")
+    return _job_out(job)
 
 
 @router.get("")

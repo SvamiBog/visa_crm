@@ -21,7 +21,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.finance import Summary, summarize, to_base
 from app.core.money import Amount, Currency, Percent
-from app.core.rates import RateUnavailable, rate_to_base
+from app.core.rates import RateUnavailable, latest, rate_to_base
 from app.models import (
     AuditAction,
     CaseExpense,
@@ -242,13 +242,13 @@ async def _tenant(session: AsyncSession, user: CurrentUser) -> Tenant:
     return await _get(session, Tenant, user.tenant_id)
 
 
-async def _rate(currency: str, base: str, day: date, given: Decimal | None) -> Decimal:
+async def _rate(currency: str, base: str, given: Decimal | None) -> Decimal:
     if currency == base:
         return Decimal("1")
     if given is not None:
         return given
     try:
-        return await rate_to_base(currency, base, day)
+        return await rate_to_base(currency, base)
     except RateUnavailable as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "rate_unavailable") from error
 
@@ -313,7 +313,7 @@ async def _suggestions(
         if price is not None:
             day = await first_queued_on(session, case.id) or today
             try:
-                rate = await rate_to_base(price.currency, tenant.base_currency, day)
+                rate = await rate_to_base(price.currency, tenant.base_currency)
             except RateUnavailable:
                 rate = None
             out.registrar_fee = FeeSuggestion(
@@ -334,7 +334,7 @@ async def _suggestions(
             out.partner_percent = chosen.percent
             if chosen.amount is not None and chosen.currency is not None:
                 try:
-                    rate = await rate_to_base(chosen.currency, tenant.base_currency, today)
+                    rate = await rate_to_base(chosen.currency, tenant.base_currency)
                     out.partner_fixed = to_base(chosen.amount, rate)
                 except RateUnavailable:
                     out.partner_fixed = None
@@ -350,11 +350,7 @@ async def _suggestions(
             and consultation.fee_currency is not None
         ):
             try:
-                rate = await rate_to_base(
-                    consultation.fee_currency,
-                    tenant.base_currency,
-                    consultation.fee_paid_on or consultation.held_on,
-                )
+                rate = await rate_to_base(consultation.fee_currency, tenant.base_currency)
                 out.consultation_credit = to_base(consultation.fee_amount, rate)
             except RateUnavailable:
                 out.consultation_credit = None
@@ -443,16 +439,15 @@ async def exchange_rate(
     user: Member,
     session: TenantSession,
     currency: Annotated[Currency, Query()],
-    on: Annotated[date, Query()],
 ) -> RateOut:
-    """The National Bank's rate for the day, in the specialist's base currency."""
+    """The site's latest National Bank rate, in the specialist's base currency, and its
+    day; the same for a payment of any day (docs/decisions.md, 2026-10-28)."""
     tenant = await _tenant(session, user)
-    return RateOut(
-        currency=currency,
-        base_currency=tenant.base_currency,
-        on=on,
-        rate=await _rate(currency, tenant.base_currency, on, None),
-    )
+    rate = await _rate(currency, tenant.base_currency, None)
+    on = await workspace_today(session, tenant.id)
+    if currency not in (tenant.base_currency, "BYN"):
+        on = (await latest(currency))[0]
+    return RateOut(currency=currency, base_currency=tenant.base_currency, on=on, rate=rate)
 
 
 @router.get("/cases/{case_id}/finance")
@@ -496,10 +491,8 @@ async def update_finance(
         if currency == tenant.base_currency:
             changes["registrar_fee_rate"] = Decimal("1")
         elif currency is not None and "registrar_fee_rate" not in changes:
-            # A new currency without a rate: the bank's rate of the talon's day.
-            day = changes.get("registrar_fee_on") or finance.registrar_fee_on
-            day = day or await workspace_today(session, tenant.id)
-            changes["registrar_fee_rate"] = await _rate(currency, tenant.base_currency, day, None)
+            # A new currency without a rate: the site's latest National Bank rate.
+            changes["registrar_fee_rate"] = await _rate(currency, tenant.base_currency, None)
     changed = [f for f, v in changes.items() if getattr(finance, f) != v]
     for field, value in changes.items():
         setattr(finance, field, value)
@@ -521,7 +514,7 @@ async def add_payment(
 ) -> FinanceOut:
     case = await _get(session, VisaCase, case_id)
     tenant = await _tenant(session, user)
-    rate = await _rate(body.currency, tenant.base_currency, body.paid_on, body.rate)
+    rate = await _rate(body.currency, tenant.base_currency, body.rate)
     payment = CasePayment(
         tenant_id=case.tenant_id,
         case_id=case.id,
@@ -544,7 +537,7 @@ async def _update_money(
     changes: dict[str, Any],
     day_field: str,
 ) -> list[str]:
-    """Apply the changes; a new currency or day takes the bank's rate unless one is given."""
+    """Apply the changes; a new currency takes the site's latest rate unless one is given."""
     tenant = await _tenant(session, user)
     for field in ("amount", "currency", day_field):
         if field in changes and changes[field] is None:
@@ -553,9 +546,8 @@ async def _update_money(
     new_rate = changes.pop("rate", None)
     for field, value in changes.items():
         setattr(item, field, value)
-    if new_rate is not None or "currency" in changed or day_field in changed:
-        day = getattr(item, day_field)
-        item.rate = await _rate(item.currency, tenant.base_currency, day, new_rate)
+    if new_rate is not None or "currency" in changed:
+        item.rate = await _rate(item.currency, tenant.base_currency, new_rate)
     item.amount_base = to_base(item.amount, item.rate)
     return changed
 
@@ -591,7 +583,7 @@ async def add_expense(
 ) -> FinanceOut:
     case = await _get(session, VisaCase, case_id)
     tenant = await _tenant(session, user)
-    rate = await _rate(body.currency, tenant.base_currency, body.spent_on, body.rate)
+    rate = await _rate(body.currency, tenant.base_currency, body.rate)
     expense = CaseExpense(
         tenant_id=case.tenant_id,
         case_id=case.id,

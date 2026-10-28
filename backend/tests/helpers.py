@@ -1,3 +1,5 @@
+import asyncio
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime
@@ -100,3 +102,28 @@ async def give_cases(owner_engine: AsyncEngine, email: str, *case_ids: str) -> N
             ),
             {"email": email, "ids": list(case_ids)},
         )
+
+
+# An import runs in the background (app/core/import_jobs.py): the test waits for it.
+IMPORT_WAIT = 60  # seconds
+
+
+async def finished_import(client: AsyncClient, started: Response) -> dict:
+    """The job an import request started (202), once it is no longer running."""
+    assert started.status_code == 202, started.text
+    job = started.json()
+    deadline = time.monotonic() + IMPORT_WAIT
+    while job["status"] == "running":
+        assert time.monotonic() < deadline, "the import job did not finish"
+        await asyncio.sleep(0.02)
+        polled = await client.get(f"/api/imports/jobs/{job['id']}")
+        assert polled.status_code == 200, polled.text
+        job = polled.json()
+    return job
+
+
+async def import_report(client: AsyncClient, path: str, body: dict) -> dict:
+    """The report of a check (/api/imports/check) or an import (/api/imports) run to the end."""
+    job = await finished_import(client, await client.post(path, json=body))
+    assert job["status"] == "done", job
+    return job["report"]

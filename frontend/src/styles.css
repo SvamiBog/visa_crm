@@ -2515,6 +2515,43 @@ a.kpi:hover {
   margin-bottom: 14px;
 }
 
+.import-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 560px;
+  margin-bottom: 14px;
+}
+
+.import-progress progress {
+  width: 100%;
+  height: 10px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: var(--c-row);
+  overflow: hidden;
+  appearance: none;
+}
+
+.import-progress progress::-webkit-progress-bar {
+  background: var(--c-row);
+}
+
+.import-progress progress::-webkit-progress-value {
+  background: var(--c-primary);
+}
+
+.import-progress progress::-moz-progress-bar {
+  background: var(--c-primary);
+}
+
+.import-running {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
 .import-unknown select {
   min-height: 40px;
   max-width: 100%;

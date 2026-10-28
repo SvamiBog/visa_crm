@@ -18,6 +18,11 @@ is left alone. A password is never cleared by an empty cell.
 The workspace's records are loaded once and looked up in memory. Each row runs in its own
 savepoint: a row the database refuses is skipped and reported, and the records are loaded
 again, since the rollback expired them.
+
+A row in another currency without a rate of its own takes the site's latest National Bank
+rate (app/core/rates.py): the import asks the bank nothing. A run reports how far it is in
+its Progress, which the page shows while the file loads in the background
+(app/core/import_jobs.py), and stops at the next row when asked to.
 """
 
 import hashlib
@@ -118,6 +123,24 @@ PASSPORT = (
 NEW, SKIP = "new", "skip"
 # Sheets whose codes other sheets point to.
 _CODED = {"clients", "consultations", "cases"}
+
+
+class ImportStopped(Exception):
+    """The run was asked to stop (a newer check replaced it); nothing it did is kept."""
+
+
+@dataclass
+class Progress:
+    """How far a run is: the rows of the file gone through."""
+
+    rows_done: int = 0
+    rows_total: int = 0
+    # Set from outside: the run stops before its next row.
+    stop: bool = False
+
+    def check(self) -> None:
+        if self.stop:
+            raise ImportStopped
 
 
 class SkipRow(Exception):
@@ -247,8 +270,10 @@ class WorkbookImport:
         choices: dict[str, dict[str, str]],
         today: date,
         run_id: uuid.UUID,
+        progress: Progress | None = None,
     ) -> None:
         self.session = session
+        self.progress = progress or Progress()
         self.tenant_id = tenant.id
         self.base = tenant.base_currency
         self.zone = ZoneInfo(tenant.timezone)
@@ -427,6 +452,8 @@ class WorkbookImport:
         for issue in book.warnings:
             self.report.warn(issue)
         await self.load()
+        progress = self.progress
+        progress.rows_total = sum(len(sheet.rows) for sheet in book.sheets.values())
         for key in SHEET_ORDER:
             sheet = book.sheets.get(key)
             if sheet is None:
@@ -434,11 +461,14 @@ class WorkbookImport:
             if sheet.spec.module not in self.modules:
                 self.report.rows += len(sheet.rows)
                 self.report.skip(Issue("module_disabled", sheet.title))
+                progress.rows_done += len(sheet.rows)
                 continue
             self._drop_disabled_columns(sheet)
             handler = getattr(self, f"_{key}")
             for row in sheet.rows:
+                progress.check()
                 await self._row(sheet, row, handler)
+                progress.rows_done += 1
             if key == "cases":
                 await self._families(sheet.title)
         return self.report
@@ -619,13 +649,13 @@ class WorkbookImport:
             r.warn(key, "unknown_value")
         return found
 
-    async def _rate(self, r: _Row, currency: str, day: date, given: Decimal | None) -> Decimal:
+    async def _rate(self, r: _Row, currency: str, given: Decimal | None) -> Decimal:
         if currency == self.base:
             return Decimal("1")
         if given is not None:
             return given
         try:
-            return await rate_to_base(currency, self.base, day)
+            return await rate_to_base(currency, self.base)
         except RateUnavailable as error:
             raise SkipRow("rate_unavailable") from error
 
@@ -1186,7 +1216,7 @@ class WorkbookImport:
         day = v.get("registrar_fee_on") or finance.registrar_fee_on or case.submission_on
         day = day or self.today
         try:
-            rate = await self._rate(r, currency, day, v.get("registrar_fee_rate"))
+            rate = await self._rate(r, currency, v.get("registrar_fee_rate"))
         except SkipRow:
             r.warn("registrar_fee", "rate_unavailable")
             return False
@@ -1297,7 +1327,7 @@ class WorkbookImport:
         if amount <= 0:
             raise SkipRow("money", "amount")
         currency = v.get("currency") or self.base
-        rate = await self._rate(r, currency, v["paid_on"], v.get("rate"))
+        rate = await self._rate(r, currency, v.get("rate"))
         if payment is None:
             payment = next(
                 (
@@ -1358,7 +1388,7 @@ class WorkbookImport:
         if amount <= 0:
             raise SkipRow("money", "amount")
         currency = v.get("currency") or self.base
-        rate = await self._rate(r, currency, v["spent_on"], v.get("rate"))
+        rate = await self._rate(r, currency, v.get("rate"))
         description = v["description"]
         if expense is None:
             expense = next(

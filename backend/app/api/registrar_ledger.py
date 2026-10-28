@@ -427,7 +427,7 @@ async def charge_talon(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "no_registrar_price")
     tenant = await _tenant(session, user)
     day = await first_queued_on(session, case.id) or await workspace_today(session, tenant.id)
-    rate = await _rate(price.currency, tenant.base_currency, day, None)
+    rate = await _rate(price.currency, tenant.base_currency, None)
     if finance is None:
         finance = CaseFinance(case_id=case.id, tenant_id=case.tenant_id)
         session.add(finance)

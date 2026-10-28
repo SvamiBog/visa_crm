@@ -15,7 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
+from tests.helpers import MakeUser, import_report, login
 
 API = "/api/imports"
 
@@ -42,11 +42,11 @@ def body(sheets: dict[str, list[list]], **extra) -> dict:
 
 
 async def check(client: AsyncClient, sheets: dict[str, list[list]], **extra) -> dict:
-    return await ok(await client.post(f"{API}/check", json=body(sheets, **extra)))
+    return await import_report(client, f"{API}/check", body(sheets, **extra))
 
 
 async def run(client: AsyncClient, sheets: dict[str, list[list]], **extra) -> dict:
-    return await ok(await client.post(API, json=body(sheets, **extra)))
+    return await import_report(client, API, body(sheets, **extra))
 
 
 async def count(engine: AsyncEngine, table: str, tenant_id: uuid.UUID) -> int:
@@ -772,8 +772,8 @@ async def test_the_template_has_every_sheet_and_loads_back_empty(
     assert "Instagram" in reference and "Польша" in reference and "многократная" in reference
 
     content = base64.b64encode(response.content).decode()
-    report = await ok(
-        await client.post(f"{API}/check", json={"file_name": "t.xlsx", "content": content})
+    report = await import_report(
+        client, f"{API}/check", {"file_name": "t.xlsx", "content": content}
     )
     assert report["rows"] == 0 and report["skipped"] == [] and report["warnings"] == []
 

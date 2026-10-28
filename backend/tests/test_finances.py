@@ -1,12 +1,16 @@
 """Case finances (backlog 1.9): price, payments in currencies with the National Bank's
 rate, balance, talon, partner payout, tax and profit — in the base currency (BYN)."""
 
+from datetime import date
+from decimal import Decimal
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import rates
+from tests.conftest import FAKE_RATES_ON
 from tests.helpers import MakeUser, login
 
 DICT = "/api/dictionaries"
@@ -132,10 +136,8 @@ async def test_a_rate_can_be_corrected_and_a_missing_one_entered(
     switched = await client.patch(f"/api/payments/{payment['id']}", json={"currency": "USD"})
     assert switched.json()["payments"][0]["amount_base"] == "310.00"
 
-    def offline(currency, day):
-        raise rates.RateUnavailable(currency)
-
-    monkeypatch.setattr(rates, "_fetch", offline)
+    # The site has no rate of the currency yet.
+    monkeypatch.delitem(rates._latest, "EUR")
     missing = await client.post(
         url, json={"paid_on": "2030-01-01", "amount": "10", "currency": "EUR"}
     )
@@ -152,55 +154,67 @@ async def test_a_rate_can_be_corrected_and_a_missing_one_entered(
     assert deleted.json()["paid"] == "40.00"
 
 
-async def test_rates_are_asked_once_per_day(
+async def test_a_request_takes_the_sites_latest_rate_and_never_asks_the_bank(
     client: AsyncClient,
     make_user: MakeUser,
     owner_engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
 ):
     await as_specialist(client, make_user, owner_engine)
-    calls = []
-    real = rates._fetch
 
-    def counted(currency, day):
-        calls.append((currency, day))
-        return real(currency, day)
+    def bank(currency, day):
+        raise AssertionError("a request asked the National Bank")
 
-    monkeypatch.setattr(rates, "_fetch", counted)
-    for _ in range(3):
-        response = await client.get("/api/rates?currency=EUR&on=2026-10-15")
+    monkeypatch.setattr(rates, "_fetch", bank)
+    # Any day: the site's latest rate (the owner's decision of 2026-10-28).
+    for day in ("2024-03-01", "2026-10-15"):
+        response = await client.get(f"/api/rates?currency=EUR&on={day}")
         assert response.json() == {
             "currency": "EUR",
             "base_currency": "BYN",
-            "on": "2026-10-15",
+            "on": FAKE_RATES_ON.isoformat(),
             "rate": "3.400000",
         }
-    assert len(calls) == 1
-    assert (await client.get("/api/rates?currency=BYN&on=2026-10-15")).json()["rate"] == "1"
+    assert (await client.get("/api/rates?currency=BYN")).json()["rate"] == "1"
 
 
-async def test_a_missing_rate_is_not_asked_again_at_once(
+async def test_the_site_keeps_todays_rates_from_the_bank(
     client: AsyncClient,
     make_user: MakeUser,
     owner_engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
 ):
     await as_specialist(client, make_user, owner_engine)
+    monkeypatch.setattr(rates, "_latest", {})
     calls = []
 
-    def offline(currency, day):
+    def bank(currency, day):
         calls.append((currency, day))
+        if currency == "PLN":
+            raise rates.RateUnavailable(currency)
+        return Decimal("3.5")
+
+    monkeypatch.setattr(rates, "_fetch", bank)
+    none_yet = await client.get("/api/rates?currency=EUR")
+    assert none_yet.status_code == 422 and none_yet.json()["detail"] == "rate_unavailable"
+
+    assert await rates.refresh(date(2026, 10, 28)) == ["PLN"]
+    assert sorted(calls) == [(c, date(2026, 10, 28)) for c in ("EUR", "PLN", "USD")]
+    eur = (await client.get("/api/rates?currency=EUR")).json()
+    assert (eur["rate"], eur["on"]) == ("3.500000", "2026-10-28")
+    pln = await client.get("/api/rates?currency=PLN")
+    assert pln.status_code == 422 and pln.json()["detail"] == "rate_unavailable"
+
+    # The bank is down the next day: the site keeps the rate it has.
+    def offline(currency, day):
         raise rates.RateUnavailable(currency)
 
     monkeypatch.setattr(rates, "_fetch", offline)
-    for _ in range(3):
-        response = await client.get("/api/rates?currency=EUR&on=2030-01-01")
-        assert response.status_code == 422 and response.json()["detail"] == "rate_unavailable"
-    assert len(calls) == 1
-    # After the pause the bank is asked again.
-    monkeypatch.setattr(rates, "RETRY_AFTER", 0)
-    await client.get("/api/rates?currency=EUR&on=2030-01-01")
-    assert len(calls) == 2
+    await rates.refresh(date(2026, 10, 29))
+    assert (await client.get("/api/rates?currency=EUR")).json()["on"] == "2026-10-28"
+    # After a restart the rate comes from the database.
+    monkeypatch.setattr(rates, "_latest", {})
+    assert (await client.get("/api/rates?currency=USD")).json()["rate"] == "3.500000"
 
 
 async def test_suggestions_from_the_lists_and_the_consultation(

@@ -7,6 +7,7 @@ rotate-master-key      re-encrypt secrets after setting a new VAULT_MASTER_KEY
 reset-two-factor EMAIL turn off 2FA for a user who lost the phone and recovery codes
 seed-demo              fill the staging stand with demo specialists and clients
                        (docs/staging.md; refuses in production)
+wait-db                wait until the database answers (start.sh, before the migrations)
 """
 
 import argparse
@@ -20,7 +21,7 @@ from sqlalchemy import delete, select
 from app.core.audit import record
 from app.core.config import get_settings
 from app.core.crypto import generate_master_key, master_keys
-from app.core.db import get_engine, get_sessionmaker, scope_to_system
+from app.core.db import get_engine, get_sessionmaker, scope_to_system, wait_for_database
 from app.core.demo import DemoRefused, DemoSettings, already_seeded, check_settings, seed
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
 from app.core.two_factor import reset_two_factor
@@ -120,6 +121,9 @@ def main() -> None:
     demo = commands.add_parser("seed-demo", help="fill the staging stand with demo data")
     demo.add_argument("--specialists", type=int, default=5)
     demo.add_argument("--clients", type=int, default=300, help="about this many per specialist")
+    wait = commands.add_parser("wait-db", help="wait until the database answers")
+    # Within Railway's five-minute healthcheck window, with time left for the migrations.
+    wait.add_argument("--timeout", type=float, default=180, help="seconds")
     args = parser.parse_args()
 
     if args.command == "generate-master-key":
@@ -133,6 +137,11 @@ def main() -> None:
             print(asyncio.run(seed_demo(args.specialists, args.clients)))
         except DemoRefused as error:
             sys.exit(f"Demo data refused: {error}")
+    elif args.command == "wait-db":
+        url = get_settings().async_database_url
+        if not asyncio.run(wait_for_database(url, timeout=args.timeout)):
+            sys.exit(f"The database did not answer in {args.timeout:.0f} s")
+        print("The database answers")
     elif args.command == "reset-two-factor":
         email = args.email.strip().lower()
         asyncio.run(reset_user_two_factor(email))

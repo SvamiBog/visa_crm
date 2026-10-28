@@ -1,8 +1,11 @@
+import asyncio
+import time
 import uuid
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
 from sqlalchemy import Connection, MetaData, event, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -10,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, SessionTransaction
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
@@ -21,6 +25,8 @@ APP_ROLE = "visacrm_app"
 _SCOPE_KEY = "rls_scope"
 _EMPLOYEE_KEY = "rls_employee"
 _SYSTEM = "system"
+# Seconds one attempt to reach the database may take (wait_for_database).
+CONNECT_TIMEOUT = 5
 
 
 class Base(DeclarativeBase):
@@ -40,6 +46,27 @@ class Base(DeclarativeBase):
 @lru_cache
 def get_engine() -> AsyncEngine:
     return create_async_engine(get_settings().async_database_url, pool_pre_ping=True)
+
+
+async def wait_for_database(url: str, *, timeout: float, pause: float = 2) -> bool:
+    """Whether the database answers within `timeout` seconds, asked every `pause` seconds.
+    A new stand's app may start before its database: its name does not resolve yet, or the
+    server is still starting (start.sh runs this before the migrations)."""
+    deadline = time.monotonic() + timeout
+    engine = create_async_engine(url, poolclass=NullPool, connect_args={"timeout": CONNECT_TIMEOUT})
+    try:
+        while True:
+            try:
+                async with engine.connect() as conn:
+                    await conn.execute(text("SELECT 1"))
+                return True
+            except (OSError, TimeoutError, SQLAlchemyError):
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return False
+                await asyncio.sleep(min(pause, left))
+    finally:
+        await engine.dispose()
 
 
 @lru_cache

@@ -111,32 +111,31 @@ function usePaymentCurrencies(base: string) {
   return list.includes(base) ? list : [base, ...list];
 }
 
-type Saved = { currency: string; day: string; rate: string } | null;
+type Saved = { currency: string; rate: string } | null;
 
-/** The National Bank's rate for a currency on a day, for a form to fill in; the user may
- * type another. Empty for the base currency or when the bank has none. The rate already
- * saved for this currency and day (maybe corrected by hand) comes back instead. */
+/** The site's latest National Bank rate of a currency, for a form to fill in; the same for
+ * a payment of any day, and the user may type another. Empty for the base currency or when
+ * the site has none yet. The rate already saved for this currency (maybe corrected by
+ * hand) comes back instead. */
 function useBankRate(
   currency: string,
-  day: string,
   base: string,
   onRate: (rate: string) => void,
   saved: Saved,
 ) {
   const rate = useQuery({
-    queryKey: ["rates", currency, day],
-    queryFn: () => apiGet<{ rate: string }>(`/rates?currency=${currency}&on=${day}`),
-    enabled: currency !== base && /^\d{4}-\d{2}-\d{2}$/.test(day),
+    queryKey: ["rates", currency],
+    queryFn: () => apiGet<{ rate: string }>(`/rates?currency=${currency}`),
+    enabled: currency !== base,
     retry: false,
-    staleTime: Infinity,
   });
   useEffect(() => {
     if (currency === base) onRate("");
-    else if (saved && saved.currency === currency && saved.day === day) onRate(saved.rate);
+    else if (saved && saved.currency === currency) onRate(saved.rate);
     // Empty while the rate is on its way, so a form cannot be saved with another one.
     else onRate(rate.data?.rate ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, day, base, rate.data]);
+  }, [currency, base, rate.data]);
   return rate;
 }
 
@@ -447,15 +446,10 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
   const [paidOn, setPaidOn] = useState(f.partner_paid_on ?? "");
   const rate = useBankRate(
     feeCurrency,
-    feeOn,
     base,
     setFeeRate,
-    f.registrar_fee_currency && f.registrar_fee_rate && f.registrar_fee_on
-      ? {
-          currency: f.registrar_fee_currency,
-          day: f.registrar_fee_on,
-          rate: f.registrar_fee_rate,
-        }
+    f.registrar_fee_currency && f.registrar_fee_rate
+      ? { currency: f.registrar_fee_currency, rate: f.registrar_fee_rate }
       : null,
   );
   const save = useSave(f.case_id, onDone, () =>
@@ -632,10 +626,9 @@ function RateField({
   );
 }
 
-/** The amount, its currency and the rate of the day: the base amount is shown as typed. */
+/** The amount, its currency and the rate: the base amount is shown as typed. */
 function MoneyFields({
   base,
-  day,
   amount,
   setAmount,
   currency,
@@ -645,7 +638,6 @@ function MoneyFields({
   saved,
 }: {
   base: string;
-  day: string;
   amount: string;
   setAmount: (value: string) => void;
   currency: string;
@@ -657,7 +649,7 @@ function MoneyFields({
   const { t } = useTranslation();
   const money = useMoney();
   const currencies = usePaymentCurrencies(base);
-  const bank = useBankRate(currency, day, base, setRate, saved);
+  const bank = useBankRate(currency, base, setRate, saved);
   const total = Number(toDecimal(amount)) * (currency === base ? 1 : Number(toDecimal(rate)));
   return (
     <>
@@ -732,7 +724,6 @@ function PaymentForm({
         </label>
         <MoneyFields
           base={base}
-          day={paidOn}
           amount={amount}
           setAmount={setAmount}
           currency={currency}
@@ -742,7 +733,6 @@ function PaymentForm({
           saved={
             payment && {
               currency: payment.currency,
-              day: payment.paid_on,
               rate: payment.rate,
             }
           }
@@ -820,7 +810,6 @@ function ExpenseForm({
         </label>
         <MoneyFields
           base={base}
-          day={spentOn}
           amount={amount}
           setAmount={setAmount}
           currency={currency}
@@ -830,7 +819,6 @@ function ExpenseForm({
           saved={
             expense && {
               currency: expense.currency,
-              day: expense.spent_on,
               rate: expense.rate,
             }
           }
