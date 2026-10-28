@@ -120,6 +120,7 @@ python3 -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"  
 
 1. В окружении PR: приложение → **Settings → Build → Dockerfile Path** — `/Dockerfile`. У стендов, созданных до 2026-10-26, пути нет — задайте его вручную.
 2. Лог сборки. Если там только `All aboard, next stop: builder v4` или `Build Failed: build daemon returned an error`, это сбой Railway, а не кода: проверьте status.railway.com и после сбоя нажмите **Redeploy** (или запушьте в PR).
+3. Сборка прошла, а проверка здоровья — нет («Healthcheck failed»), и в логе выкладки `socket.gaierror: Name or service not known` из `alembic upgrade head`: приложение стартовало раньше, чем поднялась новая база стенда (так упал первый стенд PR #66 28.10.2026). Теперь `start.sh` перед миграциями до 3 минут ждёт базу (`python -m app.cli wait-db`). Если и так не дождался — в окружении PR проверьте, что сервис **Postgres** есть и в статусе Active, затем **Redeploy** приложения.
 
 ## Сброс стенда
 
