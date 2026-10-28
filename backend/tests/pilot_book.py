@@ -1,13 +1,12 @@
 """A made-up copy of the first specialist's book (the owner's description of 18.10.2026):
 every sheet in its own columns, a few people who go from a consultation to a case, a queue,
-France and a booking. The order of PLAN is the one docs/pilot.md gives the specialist.
+France and a booking. What the AI makes of it by the prompt is tests/pilot_book_visacrm.py.
 
-Also written to an .xlsx for a rehearsal on a test stand:
-    uv run python -m tests.pilot_book Репетиция.xlsx
+Also written to an .xlsx, to rehearse the prompt with an AI:
+    uv run python -m tests.pilot_book Книга.xlsx
 """
 
 import sys
-from dataclasses import dataclass, field
 from datetime import datetime
 
 d = datetime
@@ -675,36 +674,6 @@ def book() -> dict[str, list[list]]:
             ],
         ],  # fmt: skip
     }
-
-
-@dataclass(frozen=True)
-class Step:
-    sheet: str
-    kind: str
-    # Set by hand the first time (no header, or a header no one else uses); remembered.
-    by_hand: dict[str, str] = field(default_factory=dict)
-    # The table's country when the sheet's name does not say it.
-    country: str | None = None
-
-
-# docs/pilot.md → «Порядок»: consultations, then «Подача» from the oldest year — a case
-# opens from the consultation before it and gets the next number —, then the queues,
-# France and the bookings, which find the cases. «Почты» is not imported (yet).
-PLAN = (
-    Step("2024 Консультации", "consultations"),
-    Step("Консультации25", "consultations"),
-    Step("Консультации26", "consultations"),
-    Step("2023", "cases"),
-    Step("2024 Подача", "cases"),
-    Step("Подача25", "cases"),
-    Step("Подача26", "cases"),
-    Step("Польша с 08.06", "queue", by_hand={"": "full_name"}),
-    Step("Латвия с 17.08", "queue"),
-    Step("Список Италия ЖО26", "queue"),
-    Step("Список ЖО25", "queue", country="IT"),
-    Step("Список Франция ЖО", "attempts", by_hand={"": "full_name"}),
-    Step("В работе", "bookings", by_hand={"Столбец 1": "full_name", "Столбец 2": "destination"}),
-)
 
 
 def xlsx() -> bytes:

@@ -2456,7 +2456,7 @@ a.kpi:hover {
   color: inherit;
 }
 
-/* Импорт таблиц (backlog 1.14) */
+/* Импорт таблиц в формате VisaCRM (backlog 1.21) */
 .import-step .h2 {
   margin-bottom: 8px;
 }
@@ -2465,35 +2465,35 @@ a.kpi:hover {
   margin: 0 0 14px;
 }
 
-.import-kinds {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
-  margin-bottom: 16px;
+.import-how {
+  margin: 0 0 14px;
+  padding-left: 20px;
 }
 
-.import-file,
-.import-options {
+.import-how li + li {
+  margin-top: 4px;
+}
+
+.import-prompt {
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font-family: var(--font-code);
+  font-size: 13px;
+  color: inherit;
+  resize: vertical;
+}
+
+.import-file {
   margin-bottom: 14px;
 }
 
 .import-file input[type="file"] {
   min-height: 0;
   padding: 10px 12px;
-}
-
-.import-columns select {
-  min-height: 40px;
-  max-width: 100%;
-  padding: 0 8px;
-  border: 1px solid var(--c-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--c-surface);
-  font: inherit;
-  color: inherit;
-}
-
-.import-samples {
-  max-width: 360px;
-  overflow-wrap: anywhere;
 }
 
 .import-report {
@@ -2523,30 +2523,6 @@ a.kpi:hover {
   background: var(--c-surface);
   font: inherit;
   color: inherit;
-}
-
-@media (max-width: 640px) {
-  /* A column per block: its header and examples, the field below at full width. */
-  .import-columns thead {
-    display: none;
-  }
-
-  .import-columns tr {
-    display: grid;
-    gap: 6px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--c-row);
-  }
-
-  .import-columns td {
-    display: block;
-    padding: 0;
-    border: 0;
-  }
-
-  .import-columns select {
-    width: 100%;
-  }
 }
 
 /* Калькулятор 90/180: дни за 180 дней, поездки, проверка поездки */

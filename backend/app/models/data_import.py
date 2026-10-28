@@ -33,6 +33,9 @@ class ImportKind(StrEnum):
     QUEUE = "queue"  # Poland, Latvia, Italy: waiting list entries
     ATTEMPTS = "attempts"  # France: windowed applications
     BOOKINGS = "bookings"  # Booking: hotel bookings of cases
+    # The VisaCRM data format (backlog 1.21): one workbook with every sheet. The kinds
+    # above are the old column-mapping import (1.14, 1.16), kept for its run history.
+    WORKBOOK = "workbook"
 
 
 def _kind_enum() -> Enum:
@@ -40,8 +43,8 @@ def _kind_enum() -> Enum:
 
 
 class ImportMapping(Base):
-    """The last mapping of a kind: column header → field, the file options and how
-    unknown dictionary values were resolved. Offered again on the next upload."""
+    """The last mapping of a kind in the old column-mapping import (1.14, 1.16). No longer
+    used since the VisaCRM data format (1.21); dropped by a later migration."""
 
     __tablename__ = "import_mappings"
     __table_args__ = (UniqueConstraint("tenant_id", "kind", name="uq_import_mappings_kind"),)
