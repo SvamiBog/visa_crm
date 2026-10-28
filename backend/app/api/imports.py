@@ -144,9 +144,6 @@ class JobOut(BaseModel):
     kind: Literal["check", "import"]
     file_name: str
     status: import_jobs.Status
-    stage: Literal["rates", "rows"]
-    rates_done: int
-    rates_total: int
     rows_done: int
     rows_total: int
     report: ReportOut | None
@@ -272,9 +269,6 @@ def _job_out(job: ImportJob) -> JobOut:
         kind="import" if job.save else "check",
         file_name=job.file_name,
         status=job.status,
-        stage=p.stage,
-        rates_done=p.rates_done,
-        rates_total=p.rates_total,
         rows_done=p.rows_done,
         rows_total=p.rows_total,
         report=job.result,

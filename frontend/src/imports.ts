@@ -58,10 +58,6 @@ export type ImportJob = {
   file_name: string;
   // "stopped": a newer check of the workspace replaced it.
   status: "running" | "done" | "failed" | "stopped";
-  // The National Bank rates the file needs are asked for first, then the rows go.
-  stage: "rates" | "rows";
-  rates_done: number;
-  rates_total: number;
   rows_done: number;
   rows_total: number;
   report: ImportReport | null;

@@ -181,4 +181,4 @@ Bookings: Code | Case code* | Client | Kind (hotel / flight) | Status (active / 
 Accounts: Code | Client code | Case code | Client | System* | Login* | Password | Whose email (client's / created by me / my backup / registrar's) | Created by me (yes / no) | Extra ID | Note
 Without a "Client code" — my own account.
 
-Fill the reference columns "Client" and "Country" on the other sheets: the CRM checks them against the codes. An empty rate — the CRM takes the National Bank's rate of the day.
+Fill the reference columns "Client" and "Country" on the other sheets: the CRM checks them against the codes. An empty rate — the CRM takes the latest National Bank rate the site has.

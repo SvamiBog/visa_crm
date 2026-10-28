@@ -3,6 +3,7 @@ import base64
 import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -74,8 +75,10 @@ def stopped_clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     WALL_CLOCK.at = None
 
 
-# BYN for one unit, every day: tests never call the National Bank.
+# BYN for one unit: the site's latest rates in tests, and what the fake bank answers.
+# Tests never call the National Bank.
 FAKE_RATES = {"EUR": "3.400000", "USD": "3.100000", "PLN": "0.800000"}
+FAKE_RATES_ON = date(2026, 10, 1)
 
 
 @pytest.fixture(autouse=True)
@@ -86,7 +89,8 @@ def fake_rates(monkeypatch: pytest.MonkeyPatch) -> None:
         return Decimal(FAKE_RATES[currency])
 
     monkeypatch.setattr(rates, "_fetch", fetch)
-    monkeypatch.setattr(rates, "_misses", {})
+    latest = {currency: (FAKE_RATES_ON, Decimal(rate)) for currency, rate in FAKE_RATES.items()}
+    monkeypatch.setattr(rates, "_latest", latest)
 
 
 @pytest.fixture(autouse=True)

@@ -19,10 +19,10 @@ The workspace's records are loaded once and looked up in memory. Each row runs i
 savepoint: a row the database refuses is skipped and reported, and the records are loaded
 again, since the rollback expired them.
 
-The National Bank rates the file needs are asked for ahead, all at once (app/core/rates.py
-→ prefetch). A run reports how far it is in its Progress, which the page shows while the
-file loads in the background (app/core/import_jobs.py), and stops at the next row when
-asked to.
+A row in another currency without a rate of its own takes the site's latest National Bank
+rate (app/core/rates.py): the import asks the bank nothing. A run reports how far it is in
+its Progress, which the page shows while the file loads in the background
+(app/core/import_jobs.py), and stops at the next row when asked to.
 """
 
 import hashlib
@@ -31,7 +31,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
@@ -44,7 +44,7 @@ from app.core.data_values import normalize
 from app.core.finance import to_base
 from app.core.names import joined, latin_fields, name_fields
 from app.core.queues import deadline
-from app.core.rates import RateUnavailable, prefetch, rate_to_base
+from app.core.rates import RateUnavailable, rate_to_base
 from app.core.vault import decrypt_for_tenant, encrypt_for_tenant, get_tenant_key
 from app.core.workbook import Issue, Row, SheetData, Workbook
 from app.models import (
@@ -131,18 +131,12 @@ class ImportStopped(Exception):
 
 @dataclass
 class Progress:
-    """How far a run is: the bank's rates asked for ahead, then the rows."""
+    """How far a run is: the rows of the file gone through."""
 
-    stage: Literal["rates", "rows"] = "rates"
-    rates_done: int = 0
-    rates_total: int = 0
     rows_done: int = 0
     rows_total: int = 0
     # Set from outside: the run stops before its next row.
     stop: bool = False
-
-    def rate_done(self) -> None:
-        self.rates_done += 1
 
     def check(self) -> None:
         if self.stop:
@@ -459,11 +453,6 @@ class WorkbookImport:
             self.report.warn(issue)
         await self.load()
         progress = self.progress
-        pairs = self._rate_pairs(book)
-        progress.rates_total = len(pairs)
-        await prefetch(pairs, progress.rate_done)
-        progress.check()
-        progress.stage = "rows"
         progress.rows_total = sum(len(sheet.rows) for sheet in book.sheets.values())
         for key in SHEET_ORDER:
             sheet = book.sheets.get(key)
@@ -483,38 +472,6 @@ class WorkbookImport:
             if key == "cases":
                 await self._families(sheet.title)
         return self.report
-
-    def _rate_pairs(self, book: Workbook) -> set[tuple[str, date]]:
-        """The (currency, day) rates the bank is asked for: rows in another currency with
-        no rate of their own. A talon's day may come from the CRM's records; the row asks
-        for it itself if it is not among these."""
-        needed: list[tuple[str, date]] = []
-        for key, day_key, prefix in (
-            ("payments", "paid_on", ""),
-            ("expenses", "spent_on", ""),
-            ("cases", "registrar_fee_on", "registrar_fee_"),
-        ):
-            sheet = book.sheets.get(key)
-            if sheet is None or "finances" not in self.modules:
-                continue
-            for row in sheet.rows:
-                v = row.values
-                if key == "cases" and v.get("registrar_fee") is None:
-                    continue
-                if v.get(f"{prefix}rate") is not None:
-                    continue
-                day = v.get(day_key) or (v.get("submission_on") if key == "cases" else None)
-                needed.append((v.get(f"{prefix}currency") or self.base, day or self.today))
-        pairs: set[tuple[str, date]] = set()
-        for currency, day in needed:
-            if currency == self.base:
-                continue
-            # A rate goes through BYN (rates.rate_to_base): the bank has none for BYN.
-            if currency != "BYN":
-                pairs.add((currency, day))
-            if self.base != "BYN":
-                pairs.add((self.base, day))
-        return pairs
 
     def _drop_disabled_columns(self, sheet: SheetData) -> None:
         """A column of a module the workspace has not is passed by, with a warning."""
@@ -692,13 +649,13 @@ class WorkbookImport:
             r.warn(key, "unknown_value")
         return found
 
-    async def _rate(self, r: _Row, currency: str, day: date, given: Decimal | None) -> Decimal:
+    async def _rate(self, r: _Row, currency: str, given: Decimal | None) -> Decimal:
         if currency == self.base:
             return Decimal("1")
         if given is not None:
             return given
         try:
-            return await rate_to_base(currency, self.base, day)
+            return await rate_to_base(currency, self.base)
         except RateUnavailable as error:
             raise SkipRow("rate_unavailable") from error
 
@@ -1259,7 +1216,7 @@ class WorkbookImport:
         day = v.get("registrar_fee_on") or finance.registrar_fee_on or case.submission_on
         day = day or self.today
         try:
-            rate = await self._rate(r, currency, day, v.get("registrar_fee_rate"))
+            rate = await self._rate(r, currency, v.get("registrar_fee_rate"))
         except SkipRow:
             r.warn("registrar_fee", "rate_unavailable")
             return False
@@ -1370,7 +1327,7 @@ class WorkbookImport:
         if amount <= 0:
             raise SkipRow("money", "amount")
         currency = v.get("currency") or self.base
-        rate = await self._rate(r, currency, v["paid_on"], v.get("rate"))
+        rate = await self._rate(r, currency, v.get("rate"))
         if payment is None:
             payment = next(
                 (
@@ -1431,7 +1388,7 @@ class WorkbookImport:
         if amount <= 0:
             raise SkipRow("money", "amount")
         currency = v.get("currency") or self.base
-        rate = await self._rate(r, currency, v["spent_on"], v.get("rate"))
+        rate = await self._rate(r, currency, v.get("rate"))
         description = v["description"]
         if expense is None:
             expense = next(

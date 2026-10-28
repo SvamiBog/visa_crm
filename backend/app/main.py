@@ -1,3 +1,7 @@
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
+
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,10 +42,23 @@ from app.core.audit import client_ip
 from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
 from app.core.http_headers import add_security_headers
+from app.core.rates import keep_fresh
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # The site keeps the National Bank's rates itself: requests never ask the bank.
+    rates = asyncio.create_task(keep_fresh())
+    yield
+    rates.cancel()
+    with suppress(asyncio.CancelledError):
+        await rates
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="VisaCRM", docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app = FastAPI(
+        title="VisaCRM", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan
+    )
 
     @app.middleware("http")
     async def remember_client_ip(request: Request, call_next) -> Response:

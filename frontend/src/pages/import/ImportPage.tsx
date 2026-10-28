@@ -254,18 +254,15 @@ function JobState({ job, error }: { job: ImportJob | undefined; error: unknown }
 
 function JobProgress({ job }: { job: ImportJob }) {
   const { t } = useTranslation();
-  const rates = job.stage === "rates";
-  const done = rates ? job.rates_done : job.rows_done;
-  const total = rates ? job.rates_total : job.rows_total;
+  const done = job.rows_done;
+  const total = job.rows_total;
   const label =
     total === 0
       ? t("import.preparing")
-      : rates
-        ? t("import.progressRates", { done, total })
-        : t(job.kind === "check" ? "import.progressChecked" : "import.progressLoaded", {
-            done,
-            total,
-          });
+      : t(job.kind === "check" ? "import.progressChecked" : "import.progressLoaded", {
+          done,
+          total,
+        });
   return (
     <div className="import-progress" role="status">
       <span>{label}</span>
