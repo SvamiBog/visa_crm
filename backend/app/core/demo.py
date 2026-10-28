@@ -65,6 +65,8 @@ from app.models import (
     Trip,
     User,
     UserRole,
+    VacIdentifierType,
+    VacOperator,
     VaultEntry,
     VaultSystem,
     VaultSystemKind,
@@ -84,6 +86,65 @@ ALLOWED_ENVS = ("local", "staging", "test")
 # Where the demo clients go, most often first.
 DESTINATIONS = ("PL", "PL", "PL", "FR", "IT", "LV", "LT", "ES", "DE", "GR", "HU")
 CITIES = {"PL": ("Минск", "Гродно", "Брест"), "IT": ("Минск",), "LV": ("Минск",)}
+
+
+@dataclass(frozen=True)
+class Direction:
+    """A workspace's rule «destination × Belarus» (the demo and the tests start with these)."""
+
+    destination: str
+    booking_type: BookingType
+    operator: str | None = None
+    represented_by: str | None = None
+    identifier_type: VacIdentifierType | None = None
+    window_days: int | None = None
+    notes: str | None = None
+
+
+_WL, _SLOT = BookingType.WAITING_LIST, BookingType.DIRECT_SLOT
+_APPLICATION, _VIA_GERMANY = VacIdentifierType.APPLICATION_NUMBER, "Через посольство Германии"
+# Applying from Belarus as the pilot specialist does it (decisions.md → «Как идёт запись
+# в Беларуси»). A real workspace starts empty and sets up its own (backlog 1.20).
+BELARUS_DIRECTIONS = (
+    Direction("AT", _WL, "vfs", identifier_type=_APPLICATION),
+    Direction("BE", _WL, None, "DE", _APPLICATION, notes=_VIA_GERMANY),
+    Direction("BG", _SLOT, "vfs"),
+    Direction("GB", _SLOT, "vfs"),
+    Direction("HU", _SLOT, "vfs"),
+    Direction("DE", _WL, identifier_type=_APPLICATION, notes="Лист ожидания посольства"),
+    Direction("GR", _SLOT, "gvc_world", identifier_type=VacIdentifierType.USERNAME),
+    Direction("DK", _SLOT, "vfs"),
+    Direction("IE", _SLOT, "vfs"),
+    Direction("ES", _SLOT, "bls"),
+    Direction("IT", _WL, "vfs", identifier_type=VacIdentifierType.VAC_ID),
+    Direction("CY", _SLOT, "bls"),
+    Direction("LV", _WL, "vfs", identifier_type=VacIdentifierType.VAC_ID),
+    Direction("LT", _SLOT, "vfs"),
+    Direction("LU", _WL, None, "DE", _APPLICATION, notes=_VIA_GERMANY),
+    Direction("MT", _SLOT, "vfs", notes="Через VFS — только национальные визы (D)"),
+    Direction("NL", _WL, None, "DE", _APPLICATION, notes=_VIA_GERMANY),
+    Direction("PL", _WL, "vfs", identifier_type=VacIdentifierType.VAC_ID),
+    Direction("PT", _SLOT, "vfs", "SK", notes="И через BLS"),
+    Direction(
+        "RO",
+        BookingType.EMBASSY,
+        notes="Весь пакет с переводами — в кабинет посольства, дату назначает посольство",
+    ),
+    Direction("SK", _SLOT, "vfs", notes="Подача и через BLS, и через VFS"),
+    Direction("SI", _WL, None, "DE", _APPLICATION, notes=_VIA_GERMANY),
+    Direction("FI", _SLOT, "vfs"),
+    Direction(
+        "FR",
+        BookingType.WINDOWED_APPLICATION,
+        "tlscontact",
+        identifier_type=VacIdentifierType.FORM_NUMBER,
+        window_days=60,
+    ),
+    Direction("HR", _SLOT, "vfs"),
+    Direction("CZ", _SLOT, "vfs"),
+    Direction("SE", _SLOT, "vfs", "HU", notes="Через центр Венгрии"),
+    Direction("EE", _SLOT, "vfs"),
+)
 
 MALE = (
     "Александр",
@@ -329,19 +390,42 @@ async def already_seeded(session: AsyncSession) -> bool:
     return await session.scalar(select(User.id).where(User.email == ADMIN_EMAIL)) is not None
 
 
-async def _ensure_visa_centers(session: AsyncSession, rules: dict[str, CountryRule]) -> None:
-    """Demo cases name a city of submission; on a fresh stand the reference has none."""
-    for code, cities in CITIES.items():
-        rule = rules.get(code)
-        if rule is None:
-            continue
-        have = set(
-            await session.scalars(select(VisaCenter.city_ru).where(VisaCenter.rule_id == rule.id))
+async def _directions(
+    session: AsyncSession, tenant_id: uuid.UUID, countries: dict[str, Country]
+) -> tuple[dict[str, CountryRule], dict[str, list[VisaCenter]]]:
+    """The demo workspace's directions from Belarus and the cities its cases name."""
+    operators = {o.code: o.id for o in await session.scalars(select(VacOperator))}
+    rules: dict[str, CountryRule] = {}
+    centers: dict[str, list[VisaCenter]] = {}
+    for d in BELARUS_DIRECTIONS:
+        rule = CountryRule(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            destination_id=countries[d.destination].id,
+            submission_id=countries["BY"].id,
+            booking_type=d.booking_type,
+            window_days=d.window_days,
+            vac_operator_id=operators.get(d.operator) if d.operator else None,
+            represented_by_id=countries[d.represented_by].id if d.represented_by else None,
+            identifier_type=d.identifier_type,
+            notes=d.notes,
         )
-        for city in cities:
-            if city not in have:
-                session.add(VisaCenter(rule_id=rule.id, city_ru=city, city_en=latin(city).title()))
+        rules[d.destination] = rule
+        centers[d.destination] = [
+            VisaCenter(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                rule_id=rule.id,
+                city_ru=city,
+                city_en=latin(city).title(),
+            )
+            for city in CITIES.get(d.destination, ())
+        ]
+    session.add_all(rules.values())
     await session.flush()
+    session.add_all([c for cities in centers.values() for c in cities])
+    await session.flush()
+    return rules, centers
 
 
 async def _shared_checklist(session: AsyncSession, country: Country) -> None:
@@ -355,32 +439,14 @@ async def seed(session: AsyncSession, settings: DemoSettings) -> dict[str, int]:
     """Create the demo admin and specialists. The session must be in the system scope."""
     now = datetime.now(UTC)
     countries = {c.code: c for c in await session.scalars(select(Country))}
-    code_of = {c.id: c.code for c in countries.values()}
-    # The demo clients apply from Belarus.
-    rules = {
-        code_of[rule.destination_id]: rule
-        for rule in await session.scalars(
-            select(CountryRule).where(CountryRule.submission_id == countries["BY"].id)
-        )
-    }
-    await _ensure_visa_centers(session, rules)
     await _shared_checklist(session, countries["PL"])
-    centers: dict[str, list[VisaCenter]] = {}
-    for code, rule in rules.items():
-        centers[code] = list(
-            await session.scalars(
-                select(VisaCenter).where(VisaCenter.rule_id == rule.id, VisaCenter.is_active)
-            )
-        )
 
     session.add(_user(ADMIN_EMAIL, UserRole.ADMIN, settings, None, now))
     totals = {"specialists": 0, "clients": 0, "cases": 0}
     for index in range(1, settings.specialists + 1):
         rng = random.Random(index)
         clients = int(settings.clients * rng.uniform(0.8, 1.25))
-        counts = await _workspace(
-            session, settings, index, clients, rng, countries, rules, centers, now
-        )
+        counts = await _workspace(session, settings, index, clients, rng, countries, now)
         totals["specialists"] += 1
         totals["clients"] += counts["clients"]
         totals["cases"] += counts["cases"]
@@ -395,8 +461,6 @@ async def _workspace(
     clients: int,
     rng: random.Random,
     countries: dict[str, Country],
-    rules: dict[str, CountryRule],
-    centers: dict[str, list[VisaCenter]],
     now: datetime,
 ) -> dict[str, int]:
     today = now.date()
@@ -404,6 +468,8 @@ async def _workspace(
     tenant = Tenant(id=uuid.uuid4(), name=f"{name} (демо {index})", modules=list(DEMO_MODULES))
     session.add(tenant)
     await session.flush()
+    # The demo clients apply from Belarus.
+    rules, centers = await _directions(session, tenant.id, countries)
     owner = _user(specialist_email(index), UserRole.SPECIALIST, settings, tenant.id, now)
     staff = _user(
         f"visa{index}.staff@{DOMAIN}",

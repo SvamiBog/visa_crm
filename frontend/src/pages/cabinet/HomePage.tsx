@@ -248,7 +248,7 @@ function UpcomingSubmissions({
   const packageCheck = useHasModule("package_check");
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
-  const rules = useRules(false);
+  const rules = useRules();
   const operators = useOperators(false);
   const centers = useMemo(() => {
     const operatorById = byId(operators.data);

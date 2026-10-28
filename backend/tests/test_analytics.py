@@ -56,16 +56,25 @@ async def price(client: AsyncClient, case: dict, amount: str, **terms) -> None:
     await ok(await client.patch(f"/api/cases/{case['id']}/finance", json={"price": amount} | terms))
 
 
-async def center(owner_engine: AsyncEngine, codes: dict, country: str, city: str) -> str:
+async def center(
+    owner_engine: AsyncEngine, tenant_id: uuid.UUID, codes: dict, country: str, city: str
+) -> str:
+    """A city of the workspace's direction «country × Belarus»."""
     center_id = uuid.uuid4()
     async with owner_engine.begin() as conn:
         await conn.execute(
             text(
-                "INSERT INTO visa_centers (id, rule_id, city_ru, city_en) "
-                "SELECT :id, id, :city, :city FROM country_rules "
-                "WHERE destination_id = :dest AND submission_id = :by"
+                "INSERT INTO visa_centers (id, tenant_id, rule_id, city_ru) "
+                "SELECT :id, tenant_id, id, :city FROM country_rules "
+                "WHERE tenant_id = :tenant AND destination_id = :dest AND submission_id = :by"
             ),
-            {"id": center_id, "city": city, "dest": codes[country], "by": codes["BY"]},
+            {
+                "id": center_id,
+                "tenant": tenant_id,
+                "city": city,
+                "dest": codes[country],
+                "by": codes["BY"],
+            },
         )
     return str(center_id)
 
@@ -79,7 +88,7 @@ async def workspace(client: AsyncClient, make_user: MakeUser, owner_engine: Asyn
     insta = await ok(await client.post(f"{DICT}/channels", json={"name": "Instagram"}))
     word = await ok(await client.post(f"{DICT}/channels", json={"name": "Сарафан"}))
     peter = await ok(await client.post(f"{DICT}/partners", json={"name": "Пётр"}))
-    minsk = await center(owner_engine, codes, "PL", "Минск")
+    minsk = await center(owner_engine, tenant_id, codes, "PL", "Минск")
 
     anna = await contact(client, "Анна", lead_channel_id=insta["id"])
     talk = await consult(client, anna, "2026-05-10", decision="yes", destination_ids=[codes["PL"]])

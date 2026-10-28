@@ -90,6 +90,13 @@ const FORMS: Form[] = [
     },
   },
   { name: "stay calculator", open: async (page) => void (await page.goto("/app/stay-calculator")) },
+  {
+    name: "new direction",
+    open: async (page, t) => {
+      await page.goto("/app/countries");
+      await page.getByRole("button", { name: t("directions.add"), exact: true }).click();
+    },
+  },
 ];
 
 /** Fields of a form grid whose control is not on the line of the row's other controls. */
