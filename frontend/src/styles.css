@@ -572,6 +572,59 @@ h1 {
   margin-left: auto;
 }
 
+/* Directions builder: how a destination is booked, one card per way (backlog 1.20) */
+.booking-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.booking-options legend {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--c-muted);
+}
+
+.booking-option {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.booking-option:has(input:checked) {
+  border-color: var(--c-primary);
+  background: var(--c-primary-soft);
+}
+
+.booking-option input {
+  margin-top: 3px;
+}
+
+.booking-option > span > span {
+  display: block;
+}
+
+.booking-option-title {
+  font-weight: 600;
+}
+
+/* Cities of a direction: chips in a row, not pushed apart like the module stages */
+.module-block .chips .chip {
+  margin-left: 0;
+}
+
+/* «Изменить» and «Копировать» side by side: rows stay one line high */
+.tbl .actions.actions-row {
+  flex-wrap: nowrap;
+}
+
 /* Two-factor login */
 .code-input {
   font-family: var(--font-num);

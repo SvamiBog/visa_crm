@@ -3,8 +3,9 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet } from "./api";
 
-// Shared reference: countries, visa center operators and appointment rules
-// (backend/app/api/reference.py). The admin edits it; workspaces read it.
+// Countries and visa center operators (shared: the admin edits them) and the workspace's
+// directions — appointment rules with their cities, set up by the specialist (backlog 1.20,
+// backend/app/api/reference.py).
 
 export const BOOKING_TYPES = [
   "waiting_list",
@@ -32,7 +33,8 @@ export type Country = {
 
 export type Operator = { id: string; code: string; name: string; is_active: boolean };
 
-export type VisaCenter = { id: string; city_ru: string; city_en: string; is_active: boolean };
+// city_ru is the city as typed; the English name is optional.
+export type VisaCenter = { id: string; city_ru: string; city_en: string | null; is_active: boolean };
 
 export type Rule = {
   id: string;
@@ -45,7 +47,6 @@ export type Rule = {
   identifier_type: IdentifierType | null;
   appeals_accepted: boolean | null;
   appeal_deadline_days: number | null;
-  is_verified: boolean;
   notes: string | null;
   is_active: boolean;
   updated_at: string;
@@ -55,7 +56,8 @@ export type Rule = {
 /** Where clients of this platform submit applications by default. */
 export const DEFAULT_SUBMISSION_CODE = "BY";
 
-/** Admin panel: every entry, switched-off ones included. Workspace: active ones only. */
+/** Admin panel: every country and operator, switched-off ones included. Workspace: active
+ * ones only. */
 export function referenceBase(admin: boolean) {
   return admin ? "/admin/reference" : "/reference";
 }
@@ -74,13 +76,22 @@ export function useOperators(admin = false) {
   });
 }
 
-export function useRules(admin: boolean, submissionId?: string) {
+export const RULES_KEY = ["reference", "workspace", "rules"] as const;
+
+/** The workspace's directions that are on, with their cities that are on: for forms. */
+export function useRules(submissionId?: string) {
   return useQuery({
-    queryKey: ["reference", admin ? "admin" : "workspace", "rules", submissionId ?? "all"],
+    queryKey: [...RULES_KEY, submissionId ?? "all"],
     queryFn: () =>
-      apiGet<Rule[]>(
-        `${referenceBase(admin)}/rules${submissionId ? `?submission=${submissionId}` : ""}`,
-      ),
+      apiGet<Rule[]>(`/reference/rules${submissionId ? `?submission=${submissionId}` : ""}`),
+  });
+}
+
+/** Every direction and city, switched-off ones included: for the builder. */
+export function useAllRules() {
+  return useQuery({
+    queryKey: [...RULES_KEY, "builder"],
+    queryFn: () => apiGet<Rule[]>("/reference/rules?include_inactive=true"),
   });
 }
 
@@ -91,7 +102,7 @@ export function useLocalName() {
   return useMemo(
     () => ({
       country: (c: Country | undefined) => (c ? (en ? c.name_en : c.name_ru) : ""),
-      city: (v: VisaCenter) => (en ? v.city_en : v.city_ru),
+      city: (v: VisaCenter) => (en ? (v.city_en ?? v.city_ru) : v.city_ru),
     }),
     [en],
   );

@@ -231,7 +231,7 @@ export function AnalyticsPage() {
   const money = useMoney();
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
-  const rules = useRules(false);
+  const rules = useRules();
   const operators = useOperators(false);
   const lists = useCaseLists();
   const purposeById = useMemo(() => byId(lists.purposes), [lists.purposes]);
