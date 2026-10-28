@@ -92,6 +92,8 @@ class AuditAction(StrEnum):
     # Reference data; target_type names the reference (country, vac_operator, …).
     REFERENCE_CREATED = "reference.created"
     REFERENCE_UPDATED = "reference.updated"
+    # Only a workspace's own direction or city no case uses (backlog 1.20).
+    REFERENCE_DELETED = "reference.deleted"
     TEMPLATE_UPLOADED = "templates.uploaded"
     TEMPLATE_UPDATED = "templates.updated"
     TEMPLATE_DELETED = "templates.deleted"

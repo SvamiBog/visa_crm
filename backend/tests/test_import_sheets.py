@@ -414,6 +414,16 @@ async def test_polish_queue_saved_as_text(
     tenant_id = await make_user("anna@example.com")
     await login(client, "anna@example.com")
     await system(client, "email", "Почта")
+    # She has set up Minsk for Poland (no English name), not Grodno.
+    countries = {c["code"]: c["id"] for c in (await client.get("/api/reference/countries")).json()}
+    [poland] = [
+        r
+        for r in (await client.get("/api/reference/rules")).json()
+        if r["destination_id"] == countries["PL"]
+    ]
+    await client.post(
+        f"/api/reference/rules/{poland['id']}/visa-centers", json={"cities": ["минск"]}
+    )
     # Dates as Excel's days, numbers with «.0»: how a sheet saved as text looks.
     content = tsv_file(
         [
@@ -447,20 +457,20 @@ async def test_polish_queue_saved_as_text(
     report = await ok(await client.post(API, json=request))
     assert report["rows"] == 3 and report["imported"] == 3
     assert report["created"]["registrar"] == 1  # «я помогала», «самостоятельно» are no one
-    # The visa centers of Poland are not in the reference list yet: the city is not kept.
+    # A city she has not set up for Poland is not kept.
     assert {(w["row"], w["column"], w["reason"]) for w in report["warnings"]} == {
-        (2, "Город", "unknown_value"),
         (3, "Город", "unknown_value"),
         (4, "Присвоенный номер", "email_not_number"),
     }
     anna = await one(
         owner_engine,
-        "SELECT c.id, c.vac_number, c.submission_on, q.queued_on, q.letter_on, "
+        "SELECT c.id, c.vac_number, c.submission_on, q.queued_on, q.letter_on, v.city_ru, "
         "f.registrar_fee_amount, f.registrar_fee_settled FROM visa_cases c "
         "JOIN contacts p ON p.id = c.contact_id JOIN waiting_list_entries q ON q.case_id = c.id "
+        "JOIN visa_centers v ON v.id = c.visa_center_id "
         "JOIN case_finances f ON f.case_id = c.id WHERE p.full_name = 'Иванова Анна'",
     )
-    assert anna["vac_number"] == "PLB1234567890"
+    assert anna["vac_number"] == "PLB1234567890" and anna["city_ru"] == "минск"
     assert [str(anna[k]) for k in ("queued_on", "letter_on", "submission_on")] == [
         "2026-03-01",
         "2026-05-20",

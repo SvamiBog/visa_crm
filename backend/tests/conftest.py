@@ -13,6 +13,7 @@ from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -22,6 +23,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core import clock, db, rates, storage, two_factor
 from app.core.config import get_settings
+from app.core.demo import BELARUS_DIRECTIONS
 from app.core.modules import DEFAULT_MODULES
 from app.core.security import hash_password
 from app.core.two_factor import seal_secret
@@ -143,6 +145,8 @@ WORKSPACE_TABLES = (
     "bookings",
     "reminder_dismissals",
     "visa_center_notes",
+    "visa_centers",
+    "country_rules",
     "registrar_payments",
     "case_payments",
     "case_expenses",
@@ -175,8 +179,6 @@ WORKSPACE_TABLES = (
 REFERENCE_TABLES = (
     "countries",
     "vac_operators",
-    "country_rules",
-    "visa_centers",
     "checklist_items",
 )
 
@@ -226,11 +228,40 @@ async def client(owner_engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
     db.get_engine.cache_clear()
 
 
+async def _add_directions(conn: AsyncConnection, tenant_id: uuid.UUID) -> None:
+    for d in BELARUS_DIRECTIONS:
+        await conn.execute(
+            text(
+                "INSERT INTO country_rules (id, tenant_id, destination_id, submission_id, "
+                "booking_type, window_days, vac_operator_id, represented_by_id, "
+                "identifier_type, notes) VALUES (gen_random_uuid(), :tenant, "
+                "(SELECT id FROM countries WHERE code = :destination), "
+                "(SELECT id FROM countries WHERE code = 'BY'), "
+                "CAST(:booking AS booking_type), :window, "
+                "(SELECT id FROM vac_operators WHERE code = :operator), "
+                "(SELECT id FROM countries WHERE code = :represented), "
+                "CAST(:identifier AS vac_identifier_type), :notes)"
+            ),
+            {
+                "tenant": tenant_id,
+                "destination": d.destination,
+                "booking": d.booking_type.value,
+                "window": d.window_days,
+                "operator": d.operator,
+                "represented": d.represented_by,
+                "identifier": d.identifier_type.value if d.identifier_type else None,
+                "notes": d.notes,
+            },
+        )
+
+
 @pytest.fixture
 def make_user(owner_engine: AsyncEngine) -> MakeUser:
     """Create a user (and a tenant for non-admins). Returns the tenant id.
 
-    Workspaces get the default (core) modules, like ones the admin creates.
+    Workspaces get the default (core) modules, like ones the admin creates, and the
+    standard directions from Belarus (a real workspace starts without them) unless
+    `directions=False`.
     Admins and specialists get two-factor login on with the test secret (helpers.login
     passes the second step), unless they still have a temporary password.
     """
@@ -242,6 +273,7 @@ def make_user(owner_engine: AsyncEngine) -> MakeUser:
         must_change_password: bool = False,
         tenant_id: uuid.UUID | None = None,
         two_factor: bool | None = None,
+        directions: bool = True,
     ) -> uuid.UUID | None:
         if two_factor is None:
             two_factor = role != "employee" and not must_change_password
@@ -253,6 +285,8 @@ def make_user(owner_engine: AsyncEngine) -> MakeUser:
                     text("INSERT INTO tenants (id, name, modules) VALUES (:id, :name, :modules)"),
                     {"id": tenant_id, "name": f"Workspace of {email}", "modules": DEFAULT_MODULES},
                 )
+                if directions:
+                    await _add_directions(conn, tenant_id)
             await conn.execute(
                 text(
                     "INSERT INTO users (id, tenant_id, email, password_hash, role, "

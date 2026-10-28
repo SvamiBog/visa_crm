@@ -319,17 +319,18 @@ class Importer:
         self.lists[ValueType.COUNTRY] = countries
         self.list_ids = {t: set(index.values()) for t, index in self.lists.items()}
 
-        # Visa centers and windows of the rules «destination × where it is submitted».
+        # Cities and windows of the workspace's directions «destination × where it is
+        # submitted». A switched-off city still names old cases.
         self.centers: dict[tuple[uuid.UUID, str], uuid.UUID] = {}
-        for center_id, destination_id, city_ru, city_en in await s.execute(
+        for center_id, destination_id, *names in await s.execute(
             select(
                 VisaCenter.id, CountryRule.destination_id, VisaCenter.city_ru, VisaCenter.city_en
             )
             .join(CountryRule, VisaCenter.rule_id == CountryRule.id)
             .where(CountryRule.submission_id == self.options.submission_country_id)
         ):
-            self.centers[(destination_id, normalize(city_ru))] = center_id
-            self.centers[(destination_id, normalize(city_en))] = center_id
+            for name in filter(None, names):  # the English name is optional
+                self.centers[(destination_id, normalize(name))] = center_id
         self.windows: dict[uuid.UUID, int | None] = {}
         self.booking_types: dict[uuid.UUID, BookingType] = {}
         for destination_id, window, booking_type in await s.execute(
