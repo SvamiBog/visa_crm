@@ -1,9 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
 import { IssuedPasswordCard, type IssuedPassword } from "../../components/IssuedPasswordCard";
 import { ModulePicker, useModules } from "../../components/ModulePicker";
+import { SubscriptionChip } from "../../components/Subscription";
+import { formatDate } from "../../contacts";
+import { useDueSubscriptions } from "../../subscriptions";
 
 type Specialist = {
   tenant_id: string;
@@ -76,6 +80,8 @@ export function SpecialistsPage() {
       </header>
 
       {issued && <IssuedPasswordCard issued={issued} onClose={() => setIssued(null)} />}
+
+      <DuePayments />
 
       {formOpen && (
         <NewSpecialistForm
@@ -175,6 +181,59 @@ export function SpecialistsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+/** Overdue and coming-up subscription payments (roadmap 3.8); hidden when there are none. */
+function DuePayments() {
+  const { t, i18n } = useTranslation();
+  const due = useDueSubscriptions();
+  if (!due.data?.length) return null;
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2 className="h2">{t("subscription.dueTitle")}</h2>
+        <div className="actions">
+          <Link to="/admin/subscriptions" className="btn btn-sm">
+            {t("subscription.allSubscriptions")}
+          </Link>
+        </div>
+      </div>
+      <p className="muted small">{t("subscription.dueHint")}</p>
+      <div className="table-wrap">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>{t("subscription.colSpecialist")}</th>
+              <th>{t("subscription.colTariff")}</th>
+              <th>{t("subscription.colStatus")}</th>
+              <th>{t("subscription.colNextDue")}</th>
+              <th aria-label={t("admin.colActions")} />
+            </tr>
+          </thead>
+          <tbody>
+            {due.data.map((s) => (
+              <tr key={s.tenant_id}>
+                <td>{s.name}</td>
+                <td>{s.tariff}</td>
+                <td>
+                  <SubscriptionChip state={s} />
+                </td>
+                <td className="nowrap">{formatDate(s.next_due_on, i18n.language)}</td>
+                <td>
+                  <Link
+                    to={`/admin/subscriptions?specialist=${s.tenant_id}`}
+                    className="btn btn-sm"
+                  >
+                    {t("subscription.open")}
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

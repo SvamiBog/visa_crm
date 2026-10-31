@@ -47,6 +47,7 @@ from app.models.reference import (
 )
 from app.models.reminder import ReminderDismissal
 from app.models.session import UserSession
+from app.models.subscription import SubscriptionPayment, Tariff
 from app.models.template import ContactTemplate, DocumentTemplate
 from app.models.tenant import Tenant
 from app.models.trip import Trip
@@ -115,6 +116,8 @@ __all__ = [
     "ReminderDismissal",
     "SubmissionGroup",
     "RecoveryCode",
+    "SubscriptionPayment",
+    "Tariff",
     "Tenant",
     "Trip",
     "UiTheme",

@@ -33,6 +33,8 @@ from app.api.reference import router as reference_router
 from app.api.registrar_ledger import router as registrar_ledger_router
 from app.api.reminders import router as reminders_router
 from app.api.stay import router as stay_router
+from app.api.subscriptions import admin_router as admin_subscriptions_router
+from app.api.subscriptions import router as subscriptions_router
 from app.api.templates import contact_router as contact_templates_router
 from app.api.templates import router as templates_router
 from app.api.two_factor import router as two_factor_router
@@ -83,7 +85,9 @@ def create_app() -> FastAPI:
         email_change_router,
         two_factor_router,
         admin_router,
+        admin_subscriptions_router,
         workspace_router,
+        subscriptions_router,
         home_router,
         audit_router,
         employees_router,

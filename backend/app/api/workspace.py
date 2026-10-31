@@ -12,9 +12,10 @@ from app.api.deps import (
     effective_modules,
     require_tenant_user,
 )
+from app.api.subscriptions import SubscriptionState, subscription_state
 from app.core import storage
 from app.core.modules import MODULES
-from app.models import Tenant
+from app.models import Tenant, UserRole
 
 router = APIRouter(tags=["workspace"])
 
@@ -28,6 +29,8 @@ class WorkspaceOut(BaseModel):
     modules: list[str]
     # Files (consents, contracts) can be attached: a file storage is set (app/core/storage.py).
     file_storage: bool
+    # The CRM subscription's state, for the specialist only (a notice when overdue).
+    subscription: SubscriptionState | None
 
 
 class ModuleOut(BaseModel):
@@ -50,6 +53,9 @@ async def workspace(
         timezone=tenant.timezone,
         modules=await effective_modules(session, user),
         file_storage=storage.is_configured(),
+        subscription=await subscription_state(session, tenant)
+        if user.role == UserRole.SPECIALIST
+        else None,
     )
 
 
