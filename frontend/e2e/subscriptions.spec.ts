@@ -105,6 +105,9 @@ for (const lang of ["ru", "en"] as const) {
       await expect(notice).toBeVisible();
       await notice.getByRole("link", { name: t("subscription.overdueLink") }).click();
       await expect(page).toHaveURL(/\/settings$/);
+      // «Настройки» fetch the workspace again; the test may end while that request is still
+      // in the handler, and closing the page then disposes the response it is reading.
+      await page.unrouteAll({ behavior: "ignoreErrors" });
     });
   });
 }
