@@ -1,9 +1,20 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ARRAY, DateTime, LargeBinary, Numeric, String, func, text
+from sqlalchemy import (
+    ARRAY,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    LargeBinary,
+    Numeric,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +25,16 @@ class Tenant(Base):
     """A specialist's workspace (визовик = арендатор). All business data belongs to one tenant."""
 
     __tablename__ = "tenants"
+    __table_args__ = (
+        CheckConstraint(
+            "(tariff_id IS NULL) = (subscription_starts_on IS NULL)",
+            name="subscription_starts_with_tariff",
+        ),
+        CheckConstraint(
+            "trial_until IS NULL OR trial_until > subscription_starts_on",
+            name="trial_after_start",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
@@ -34,4 +55,11 @@ class Tenant(Base):
     reminder_settings: Mapped[dict[str, Any]] = mapped_column(
         JSONB, server_default=text("'{}'::jsonb")
     )
+    # The CRM subscription (app/core/subscription.py); no tariff — no subscription.
+    # Only the admin changes these three.
+    tariff_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tariffs.id", ondelete="RESTRICT")
+    )
+    subscription_starts_on: Mapped[date | None] = mapped_column(Date)
+    trial_until: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

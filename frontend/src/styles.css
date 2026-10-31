@@ -2025,6 +2025,12 @@ a.nav-a:hover {
   text-align: center;
 }
 
+/* The cabinet's notice of an overdue CRM subscription, above the page */
+.subscription-notice {
+  max-width: 1240px;
+  margin: 0 auto 20px;
+}
+
 /* Case finances: the money table of a case, in the base currency */
 .finance {
   margin-top: 16px;

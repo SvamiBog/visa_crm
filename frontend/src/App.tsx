@@ -7,6 +7,7 @@ import { homePath, useMe, type Role } from "./auth";
 import { Shell } from "./components/Shell";
 import { ReferencePage } from "./pages/admin/ReferencePage";
 import { SpecialistsPage } from "./pages/admin/SpecialistsPage";
+import { SubscriptionsPage } from "./pages/admin/SubscriptionsPage";
 import { AnalyticsPage } from "./pages/analytics/AnalyticsPage";
 import { ImportPage } from "./pages/import/ImportPage";
 import { AuditPage } from "./pages/AuditPage";
@@ -126,6 +127,16 @@ export default function App() {
             <RequireUser roles={["admin"]}>
               <Shell area="admin">
                 <SpecialistsPage />
+              </Shell>
+            </RequireUser>
+          }
+        />
+        <Route
+          path="/admin/subscriptions"
+          element={
+            <RequireUser roles={["admin"]}>
+              <Shell area="admin">
+                <SubscriptionsPage />
               </Shell>
             </RequireUser>
           }

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api";
 import { ME_KEY, useMe, type Role } from "../auth";
+import type { SubscriptionState } from "../subscriptions";
 import { Logo } from "./Logo";
 
 type Area = "admin" | "cabinet";
@@ -15,6 +16,7 @@ type MenuItem = { key: string; to?: string; roles?: Role[]; module?: string };
 const MENU: Record<Area, MenuItem[]> = {
   admin: [
     { key: "nav.specialists", to: "/admin" },
+    { key: "nav.subscriptions", to: "/admin/subscriptions" },
     { key: "nav.reference", to: "/admin/reference" },
     { key: "nav.audit", to: "/admin/audit" },
   ],
@@ -51,9 +53,13 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const workspace = useQuery({
     queryKey: ["workspace"],
-    queryFn: () => apiGet<{ modules: string[] }>("/workspace"),
+    queryFn: () =>
+      apiGet<{ modules: string[]; subscription: SubscriptionState | null }>("/workspace"),
     enabled: area === "cabinet",
   });
+  // Only the specialist gets the state (the API leaves it out for employees).
+  const subscription = workspace.data?.subscription;
+  const overdue = subscription?.status === "overdue" ? subscription : null;
   // The items show once the modules are known, so the menu does not grow under the cursor.
   const ready = area === "admin" || !workspace.isPending;
   const visible = (item: MenuItem) =>
@@ -155,6 +161,12 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
         </div>
       </nav>
       <main id="content" ref={mainRef} tabIndex={-1} className="content">
+        {overdue && (
+          <div className="alert alert-warn subscription-notice" role="status">
+            {t("subscription.overdueBanner", { days: overdue.overdue_days })}{" "}
+            <Link to="/settings">{t("subscription.overdueLink")}</Link>
+          </div>
+        )}
         {children}
       </main>
     </div>
