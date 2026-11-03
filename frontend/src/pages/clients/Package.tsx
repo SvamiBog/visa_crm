@@ -53,7 +53,7 @@ export function CasePackage({ visaCase: c }: { visaCase: VisaCase }) {
       </div>
       {p.items.length === 0 ? (
         <p className="muted small">
-          {t("package.noChecklist")} <Link to="/app/checklists">{t("nav.checklists")}</Link>
+          {t("package.noChecklist")} <Link to="/app/checklists">{t("checklists.title")}</Link>
         </p>
       ) : (
         <>
