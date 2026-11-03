@@ -1,9 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-// What hides behind a button opens with it (backlog 1.17): the phone's menu, the empty
-// fields of a passport and the employees who see a case. Each button says whether its
-// part is open (aria-expanded) and which part it opens (aria-controls). Both languages.
+// What hides behind a button opens with it (backlog 1.17): the empty fields of a passport
+// and the employees who see a case (the phone's menu — menu.spec.ts). Each button says
+// whether its part is open (aria-expanded) and which part it opens (aria-controls). Both
+// languages.
 
 type Lang = "ru" | "en";
 
@@ -94,36 +95,6 @@ for (const lang of ["ru", "en"] as const) {
         data: { email: EMAIL, password: PASSWORD },
       });
       expect(login.ok(), await login.text()).toBe(true);
-    });
-
-    test("on a phone the menu opens with «Меню» and closes on a link or Escape", async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto("/app");
-      const menu = page.getByRole("navigation", { name: t("nav.label") });
-      const toggle = menu.getByRole("button", { name: t("nav.menu"), exact: true });
-      const clients = menu.getByRole("link", { name: t("nav.clients"), exact: true });
-
-      await expect(toggle).toHaveAttribute("aria-expanded", "false");
-      await expect(clients, "the menu is closed on the first screen").toBeHidden();
-
-      await toggle.click();
-      await expect(toggle).toHaveAttribute("aria-expanded", "true");
-      await expect(clients).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(toggle).toHaveAttribute("aria-expanded", "false");
-      await expect(toggle, "Escape gives the focus back to «Меню»").toBeFocused();
-
-      await toggle.click();
-      await clients.click();
-      await expect(page).toHaveURL(/\/app\/clients$/);
-      await expect(toggle, "a link closes the menu").toHaveAttribute("aria-expanded", "false");
-      await expect(clients).toBeHidden();
-
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await expect(toggle, "on a computer the menu is always open").toBeHidden();
-      await expect(clients).toBeVisible();
     });
 
     test("a passport shows its filled fields, the empty ones on «Показать все поля»", async ({
