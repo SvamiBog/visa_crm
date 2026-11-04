@@ -85,7 +85,7 @@ async def test_two_factor_is_optional_and_set_up_on_wish(client: AsyncClient, ma
     assert me["two_factor_enabled"] is False and "must_set_up_two_factor" not in me
     assert (await client.get("/api/workspace")).status_code == 200
 
-    setup = (await client.post("/api/auth/two-factor/setup")).json()
+    setup = (await client.post("/api/auth/two-factor/setup", json={"password": PASSWORD})).json()
     assert setup["qr_code"].startswith("data:image/svg+xml")
     assert setup["otpauth_uri"].startswith("otpauth://totp/VisaCRM:anna%40example.com?")
     wrong = await client.post("/api/auth/two-factor/enable", json={"code": "000000"})
@@ -96,8 +96,45 @@ async def test_two_factor_is_optional_and_set_up_on_wish(client: AsyncClient, ma
     codes = enabled.json()["recovery_codes"]
     assert len(codes) == 10 and len(set(codes)) == 10
     assert (await client.get("/api/workspace")).status_code == 200
-    again = await client.post("/api/auth/two-factor/setup")
+    again = await client.post("/api/auth/two-factor/setup", json={"password": PASSWORD})
     assert again.json() == {"detail": "two_factor_already_enabled"}
+
+
+async def test_turning_two_factor_on_needs_the_password(client: AsyncClient, make_user: MakeUser):
+    # Otherwise a stolen session could put the thief's own authenticator on the account
+    # and keep its recovery codes.
+    await make_user("anna@example.com", two_factor=False)
+    await login(client, "anna@example.com")
+    url = "/api/auth/two-factor/setup"
+    assert (await client.post(url)).status_code == 422
+    wrong = await client.post(url, json={"password": "nope-nope"})
+    assert wrong.status_code == 400 and wrong.json() == {"detail": "invalid_current_password"}
+    # No secret was made for a wrong password: there is nothing to confirm.
+    enable = await client.post("/api/auth/two-factor/enable", json={"code": "000000"})
+    assert enable.json() == {"detail": "two_factor_setup_not_started"}
+
+    right = await client.post(url, json={"password": PASSWORD})
+    assert right.status_code == 200 and right.json()["secret"]
+    events = (await client.get("/api/audit")).json()["events"]
+    failed = [e for e in events if e["action"] == "auth.login_failed"]
+    assert [e["details"] for e in failed] == [{"reason": "two_factor_setup_password"}]
+
+
+async def test_wrong_codes_when_turning_two_factor_off_lock_the_account_and_sign_out(
+    client: AsyncClient, make_user: MakeUser
+):
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    url = "/api/auth/two-factor/disable"
+    misses = [
+        await client.post(url, json={"password": PASSWORD, "code": "000000"})
+        for _ in range(MAX_FAILED_LOGINS)
+    ]
+    assert [r.json()["detail"] for r in misses] == ["invalid_code"] * (MAX_FAILED_LOGINS - 1) + [
+        "account_locked"
+    ]
+    assert (await client.get("/api/auth/me")).status_code == 401
+    assert (await login(client, "anna@example.com")).status_code == 423
 
 
 async def test_admin_may_work_without_two_factor(client: AsyncClient, make_user: MakeUser):
