@@ -145,6 +145,20 @@ async def test_pages_newest_first(client: AsyncClient, make_user: MakeUser):
     assert [e["id"] for e in oldest["events"] + rest["events"]] == sorted(ids)
 
 
+async def test_cursor_past_64_bits_is_refused(client: AsyncClient, make_user: MakeUser):
+    """The database driver cannot send a larger number: the query string is refused, not
+    answered with a server error."""
+    await make_user("root@example.com", role="admin")
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    assert (await client.get(f"/api/audit?cursor={2**63}")).status_code == 422
+    assert (await client.get(f"/api/audit?cursor={2**63 - 1}")).status_code == 200
+    client.cookies.clear()
+    await login(client, "root@example.com")
+    assert (await client.get(f"/api/admin/audit?cursor={2**63}")).status_code == 422
+    assert (await client.get(f"/api/admin/audit?cursor={2**63 - 1}")).status_code == 200
+
+
 async def test_admin_filters_the_whole_log(client: AsyncClient, make_user: MakeUser):
     await make_user("root@example.com", role="admin")
     anna = await make_user("anna@example.com")

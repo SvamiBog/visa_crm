@@ -22,6 +22,7 @@ from app.api.deps import (
     require_admin,
     require_specialist,
 )
+from app.core.db import BIGINT_MAX
 from app.models import AuditAction, AuditEvent, User, UserRole
 
 router = APIRouter(tags=["audit"])
@@ -59,7 +60,7 @@ class Filters:
     def __init__(
         self,
         order: Annotated[Literal["desc", "asc"], Query()] = "desc",
-        cursor: Annotated[int | None, Query()] = None,
+        cursor: Annotated[int | None, Query(ge=0, le=BIGINT_MAX)] = None,
         limit: Annotated[int, Query(ge=1, le=200)] = PAGE_SIZE,
         actor_id: Annotated[uuid.UUID | None, Query()] = None,
         category: Annotated[str | None, Query(pattern=r"^[a-z_]+$")] = None,
