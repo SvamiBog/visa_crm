@@ -45,6 +45,8 @@ class AuditAction(StrEnum):
     # Opens by an employee, once a card a day (app/core/employee_limits.py).
     CONTACT_VIEWED = "contacts.viewed"
     CONTACT_UPDATED = "contacts.updated"
+    # An empty duplicate card removed by the specialist; the id stays in the log.
+    CONTACT_DELETED = "contacts.deleted"
     CONTACT_NOTE_ADDED = "contacts.note_added"
     CONTACT_NOTE_EDITED = "contacts.note_edited"
     CONTACT_NOTE_DELETED = "contacts.note_deleted"

@@ -99,25 +99,30 @@ export function ContactForm({
     setDocument((current) => ({ ...current, [key]: value }));
   const named = Boolean(fields.last_name.trim() || fields.first_name.trim());
 
+  // A nick another card has is only a warning: the specialist may save anyway.
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: (allowSharedTelegram: boolean) => {
       const body = { ...nullable(fields), passport: nullable(document) };
+      const query = allowSharedTelegram ? "?allow_shared_telegram=true" : "";
       return contact
-        ? apiPatch<Contact>(`/contacts/${contact.id}`, body)
-        : apiPost<Contact>("/contacts", body);
+        ? apiPatch<Contact>(`/contacts/${contact.id}${query}`, body)
+        : apiPost<Contact>(`/contacts${query}`, body);
     },
     onSuccess: onSaved,
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    save.mutate();
+    save.mutate(false);
   };
 
-  const duplicate =
-    save.error instanceof ApiError && save.error.code === "phone_taken"
-      ? String(save.error.data.contact_id ?? "")
+  const taken =
+    save.error instanceof ApiError &&
+    (save.error.code === "phone_taken" || save.error.code === "telegram_taken")
+      ? save.error
       : null;
+  // An employee is told the phone is taken without a link to a card they do not see.
+  const duplicate = taken ? String(taken.data.contact_id ?? "") : null;
   const activeOr = <T extends { id: string; is_active: boolean }>(items: T[], current: string) =>
     items.filter((item) => item.is_active || item.id === current);
 
@@ -217,10 +222,23 @@ export function ContactForm({
 
       {save.isError && (
         <div className="alert alert-error" role="alert">
-          {duplicate ? (
+          {taken && duplicate ? (
             <>
-              {t("errors.phone_taken")}{" "}
+              {t(`errors.${taken.code}`)}{" "}
               <Link to={`/app/clients/${duplicate}`}>{t("contacts.openExisting")}</Link>
+              {taken.code === "telegram_taken" && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={save.isPending}
+                    onClick={() => save.mutate(true)}
+                  >
+                    {t("contacts.saveAnyway")}
+                  </button>
+                </>
+              )}
             </>
           ) : (
             t(`errors.${errorCode(save.error)}`, { defaultValue: t("errors.unknown") })
