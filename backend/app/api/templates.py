@@ -31,6 +31,7 @@ from app.api.deps import (
 from app.core.audit import record
 from app.core.documents import content_disposition
 from app.core.docx_fill import CODE, DocxError, codes_in, fill, read_docx
+from app.core.employee_limits import LimitKind, watch
 from app.core.questionnaire import Questionnaire
 from app.core.storage import (
     StorageFailed,
@@ -620,6 +621,8 @@ async def download_filled(
     Always a download; every call is written to the audit log."""
     contact = await _contact(session, contact_id)
     given = await _given(session, contact_id, given_id)
+    # Filled with the card's data, so it opens the card for an employee's limit (Т.14).
+    await watch(session, user, LimitKind.CARDS, "contact", contact.id, AuditAction.CONTACT_VIEWED)
     template = await _template(session, given.template_id)
     values = await client_data(session, user, contact, await _case_of(session, contact_id, given))
     blank = await _load(session, user, template)

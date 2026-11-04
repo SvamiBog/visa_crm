@@ -227,6 +227,14 @@ async def _case(session: AsyncSession, case_id: uuid.UUID) -> VisaCase:
     return case
 
 
+async def _open_card_of(session: AsyncSession, user: CurrentUser, case: VisaCase) -> None:
+    """An answer with the case opens its client's card for an employee's daily limit
+    (Т.14): the card lists the case, so from the card it costs nothing more."""
+    await watch(
+        session, user, LimitKind.CARDS, "contact", case.contact_id, AuditAction.CONTACT_VIEWED
+    )
+
+
 async def _check_refs(session: AsyncSession, fields: dict[str, Any]) -> None:
     """Purposes and registrars must be this workspace's (RLS), countries must exist."""
     for field, model in (
@@ -625,6 +633,7 @@ async def update_case(
     case_id: uuid.UUID, body: CaseUpdate, user: Member, session: TenantSession
 ) -> CaseOut:
     case = await _case(session, case_id)
+    await _open_card_of(session, user, case)
     changes = body.model_dump(exclude_unset=True)
     for required in ("destination_id", "submission_country_id", "stage", "after_appeal"):
         if changes.get(required, ...) is None:
@@ -706,6 +715,7 @@ async def join_group(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "self_link")
     case = await _case(session, case_id)
     other = await _case(session, body.case_id)
+    await _open_card_of(session, user, case)
     if case.group_id is not None and case.group_id == other.group_id:
         return await _one_out(session, case)
     if case.group_id is not None and other.group_id is not None:
