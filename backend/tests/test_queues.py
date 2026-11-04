@@ -254,3 +254,72 @@ async def test_log_has_no_numbers_or_emails(client: AsyncClient, make_user: Make
     actions = [e["action"] for e in events[:3]]
     assert actions == ["cases.queue_updated", "cases.queued", "cases.updated"]
     assert "PL-77777" not in str(events) and "secret@" not in str(events)
+
+
+async def test_a_typo_in_the_sent_date_is_corrected_in_place(
+    client: AsyncClient, make_user: MakeUser
+):
+    """Specialist run before the pilot (2026-11-04): a wrong sent date was ignored, and
+    cancelling to send again turned the typo into attempt №1. Now the date is corrected
+    in the same attempt, its deadline moves with it by the window it was sent with."""
+    await as_specialist(client, make_user)
+    anna = await contact(client)
+    [france] = await open_cases(client, anna, destination="FR")
+    today = workspace_today()
+    sent = (
+        await client.post(
+            f"/api/cases/{france['id']}/attempts",
+            json={"sent_on": (today - timedelta(days=10)).isoformat()},
+        )
+    ).json()
+    url = f"/api/attempts/{sent['id']}"
+
+    fixed = await client.patch(url, json={"sent_on": (today - timedelta(days=14)).isoformat()})
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["number"] == 1
+    assert fixed.json()["sent_on"] == (today - timedelta(days=14)).isoformat()
+    assert fixed.json()["deadline_on"] == (today + timedelta(days=46)).isoformat()
+    assert fixed.json()["days_left"] == 46
+    shown = (await client.get(f"/api/cases/{france['id']}")).json()
+    assert [a["number"] for a in shown["attempts"]] == [1]
+
+    # null leaves the date as it is.
+    kept = await client.patch(url, json={"sent_on": None})
+    assert kept.json()["sent_on"] == (today - timedelta(days=14)).isoformat()
+
+    events = (await client.get("/api/audit")).json()["events"]
+    updated = [e for e in events if e["action"] == "cases.attempt_updated"]
+    assert updated[0]["details"]["attempt"] == sent["id"]
+    assert updated[0]["details"]["fields"] == "deadline_on,sent_on"
+
+    # A closed attempt cannot be dated after it was closed.
+    await client.patch(url, json={"outcome": "cancelled"})
+    late = await client.patch(url, json={"sent_on": (today + timedelta(days=1)).isoformat()})
+    assert late.status_code == 422
+
+
+async def test_a_letter_entered_after_the_deadline_is_recorded(
+    client: AsyncClient, make_user: MakeUser
+):
+    """The letter came on the 60th day, the specialist enters it on the 61st: the attempt
+    is past its deadline but has no outcome yet, so the date can still be recorded."""
+    await as_specialist(client, make_user)
+    anna = await contact(client)
+    [france] = await open_cases(client, anna, destination="FR")
+    today = workspace_today()
+    sent = (
+        await client.post(
+            f"/api/cases/{france['id']}/attempts",
+            json={"sent_on": (today - timedelta(days=61)).isoformat()},
+        )
+    ).json()
+    assert sent["status"] == "expired" and sent["outcome"] is None
+
+    came = await client.patch(
+        f"/api/attempts/{sent['id']}",
+        json={"outcome": "date_received", "appointment_on": "2026-12-15"},
+    )
+    assert came.status_code == 200, came.text
+    assert came.json()["status"] == "date_received"
+    shown = (await client.get(f"/api/cases/{france['id']}")).json()
+    assert shown["submission_on"] == "2026-12-15"

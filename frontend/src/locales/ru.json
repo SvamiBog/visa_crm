@@ -843,6 +843,8 @@
   "queues.sentOn": "Дата отправки",
   "queues.deadline": "Дедлайн",
   "queues.cancelAttempt": "Отменить заявку",
+  "queues.fixSentOn": "Исправить дату отправки",
+  "queues.newAccountHint": "Для попытки №{{number}} визовый центр открывает новый кабинет — добавьте его учётку в сейф клиента.",
   "queues.confirmCancel": "Отменить эту заявку?",
   "errors.already_queued": "Этот кейс уже стоит в очереди.",
   "errors.attempt_open": "Предыдущая заявка ещё открыта: дождитесь даты, отмените её или дождитесь конца срока.",
