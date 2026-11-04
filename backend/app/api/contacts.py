@@ -22,6 +22,7 @@ from app.api.consultations import ConsultationOut, HintOut, consultations_of, hi
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
+from app.core.db import BIGINT_MAX
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
 from app.core.phone import normalize_phone, phone_digits
@@ -66,7 +67,7 @@ class ContactFields(BaseModel):
     last_name_latin: NamePart | None = None
     first_name_latin: NamePart | None = None
     phone: Annotated[str, Field(max_length=40)] | None = None
-    telegram: Annotated[str, Field(max_length=65)] | None = None
+    telegram: Annotated[str, Field(max_length=64)] | None = None
     messenger: Messenger | None = None
     messenger_contact: Annotated[str, Field(max_length=64)] | None = None
     email: Annotated[str, Field(max_length=320, pattern=EMAIL)] | None = None
@@ -88,13 +89,13 @@ class ContactFields(BaseModel):
             return None
         return normalize_phone(value)
 
-    @field_validator("telegram")
+    @field_validator("telegram", mode="before")
     @classmethod
-    def telegram_without_at(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip().removeprefix("@").strip()
-        return value or None
+    def telegram_without_at(cls, value: Any) -> Any:
+        # Before the length check: the «@» in front is not kept, so it does not count.
+        if not isinstance(value, str):
+            return value
+        return value.strip().removeprefix("@").strip() or None
 
     @field_validator("messenger_contact", "email", "contract_number")
     @classmethod
@@ -158,7 +159,7 @@ class ContactListItem(BaseModel):
 
 class SearchIn(BaseModel):
     query: Annotated[str, Field(max_length=100)] = ""
-    offset: int = Field(default=0, ge=0)
+    offset: int = Field(default=0, ge=0, le=BIGINT_MAX)
     # Client index (backlog 1.5): the tab and the filters.
     tab: Tab = Tab.ALL
     country_id: uuid.UUID | None = None
@@ -517,11 +518,14 @@ async def create_contact(body: ContactIn, user: Member, session: TenantSession) 
     session.add(contact)
     try:
         await session.flush()
-    except IntegrityError:  # the same number saved a moment earlier by someone else
+    except IntegrityError:
+        # Changed by someone else a moment after the checks: the same number saved, or the
+        # channel or the partner removed.
         await session.rollback()
-        if (conflict := await _phone_conflict(session, body.phone)) is None:
-            raise
-        return conflict
+        if (conflict := await _phone_conflict(session, body.phone)) is not None:
+            return conflict
+        await _check_refs(session, fields)
+        raise
     _audit(session, AuditAction.CONTACT_CREATED, user, contact.id)
     await session.commit()
     await session.refresh(contact)

@@ -45,6 +45,7 @@ from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
 from app.core.http_headers import add_security_headers
 from app.core.rates import keep_fresh
+from app.core.server_errors import UnexpectedErrors
 
 
 @asynccontextmanager
@@ -61,6 +62,8 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="VisaCRM", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan
     )
+    # An unexpected error is logged without its text (it may quote clients' data).
+    app.add_middleware(UnexpectedErrors)
 
     @app.middleware("http")
     async def remember_client_ip(request: Request, call_next) -> Response:

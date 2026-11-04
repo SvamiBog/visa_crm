@@ -1,8 +1,11 @@
+from uuid import uuid4
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.api import contacts
 from tests.helpers import MakeUser, give_cases, login
 from tests.test_cases import open_case
 
@@ -192,6 +195,16 @@ async def test_search_terms_never_go_into_urls(client: AsyncClient, make_user: M
     assert response.status_code in (404, 405)  # no GET search exists
 
 
+async def test_search_offset_past_64_bits_is_refused(client: AsyncClient, make_user: MakeUser):
+    """The database driver cannot send a larger number: the schema stops it, not the
+    database with a server error."""
+    await as_specialist(client, make_user)
+    response = await client.post(f"{BASE}/search", json={"query": "x", "offset": 2**63})
+    assert response.status_code == 422
+    response = await client.post(f"{BASE}/search", json={"query": "x", "offset": 2**63 - 1})
+    assert response.status_code == 200 and response.json()["items"] == []
+
+
 async def test_workspaces_do_not_see_each_other(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     anna = await create(client, phone="+375290001234")
@@ -218,6 +231,36 @@ async def test_channel_and_partner_must_be_own(client: AsyncClient, make_user: M
     assert response.status_code == 404
     response = await client.post(BASE, json={"first_name": "X", "partner_id": partner["id"]})
     assert response.status_code == 404
+
+
+async def test_a_channel_removed_while_the_card_is_saved_is_not_found(
+    client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+):
+    """The channel was there when checked and gone when the card was saved: the database
+    refuses the row, and the answer is the check's, not a server error."""
+    await as_specialist(client, make_user)
+    check_refs = contacts._check_refs
+    checks = []
+
+    async def channel_there_at_first(session, fields) -> None:
+        checks.append(fields)
+        if len(checks) > 1:
+            await check_refs(session, fields)
+
+    monkeypatch.setattr(contacts, "_check_refs", channel_there_at_first)
+    response = await client.post(BASE, json={"first_name": "X", "lead_channel_id": str(uuid4())})
+    assert response.status_code == 404 and response.json()["detail"] == "not_found"
+
+
+async def test_telegram_longer_than_its_column_is_refused(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    response = await client.post(BASE, json={"first_name": "X", "telegram": "t" * 65})
+    assert response.status_code == 422
+    # The «@» in front is not kept, so it does not count.
+    contact = await create(client, telegram="@" + "t" * 64)
+    assert contact["telegram"] == "t" * 64
+    response = await client.patch(f"{BASE}/{contact['id']}", json={"telegram": "t" * 65})
+    assert response.status_code == 422
 
 
 async def test_notes_timeline(client: AsyncClient, make_user: MakeUser):
