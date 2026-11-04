@@ -128,6 +128,9 @@ class CaseUpdate(BaseModel):
     vac_number: Annotated[str, Field(max_length=64)] | None = None
     application_email: Annotated[str, Field(max_length=320, pattern=EMAIL)] | None = None
     application_email_owner: EmailOwner | None = None
+    # Fill the number and the email in for the rest of the submission group where they
+    # are empty (owner's decision 2026-11-04); a member's own value is kept.
+    fill_group: bool = False
 
     @field_validator("vac_number", "application_email", mode="before")
     @classmethod
@@ -634,7 +637,7 @@ async def update_case(
 ) -> CaseOut:
     case = await _case(session, case_id)
     await _open_card_of(session, user, case)
-    changes = body.model_dump(exclude_unset=True)
+    changes = body.model_dump(exclude_unset=True, exclude={"fill_group"})
     for required in ("destination_id", "submission_country_id", "stage", "after_appeal"):
         if changes.get(required, ...) is None:
             changes.pop(required)  # null means «leave as is» for required fields
@@ -669,8 +672,29 @@ async def update_case(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
     if changed:
         _audit(session, AuditAction.CASE_UPDATED, user, case, {"fields": ",".join(changed)})
+    if body.fill_group and case.group_id is not None:
+        await _fill_group(session, user, case)
     await session.commit()
     return await _one_out(session, case)
+
+
+async def _fill_group(session: AsyncSession, user: CurrentUser, case: VisaCase) -> None:
+    """The visa-centre number and the application email (with whose it is) go to the
+    other members of the group that have none yet."""
+    members = await session.scalars(
+        select(VisaCase).where(VisaCase.group_id == case.group_id, VisaCase.id != case.id)
+    )
+    for member in members:
+        changed = []
+        if case.vac_number is not None and member.vac_number is None:
+            member.vac_number = case.vac_number
+            changed.append("vac_number")
+        if case.application_email is not None and member.application_email is None:
+            member.application_email = case.application_email
+            member.application_email_owner = case.application_email_owner
+            changed += ["application_email", "application_email_owner"]
+        if changed:
+            _audit(session, AuditAction.CASE_UPDATED, user, member, {"fields": ",".join(changed)})
 
 
 # --- Submission groups ---------------------------------------------------------------

@@ -381,3 +381,32 @@ async def test_what_the_specialist_reminded_clients_of_by_hand(
         e["action"] == "cases.updated" and "questionnaire_received_on" in str(e["details"])
         for e in events
     )
+
+
+async def test_a_familys_reminders_name_their_group(client: AsyncClient, make_user: MakeUser):
+    """So the list can show one family as one line (specialist run, 2026-11-04): each
+    case reminder carries its submission group; a case alone has none."""
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+    anna = await contact(client, "Анна")
+    response = await client.post(
+        f"/api/contacts/{anna['id']}/cases",
+        json={
+            "destination_id": codes["PL"],
+            "submission_country_id": codes["BY"],
+            "applicants": [{"contact_id": anna["id"]}, {"first_name": "Сергей"}],
+        },
+    )
+    family = response.json()
+    alone = await open_case(client, codes, await contact(client, "Борис"), "PL")
+    for case in (*family, alone):
+        await patch_case(client, case, submission_on=day(1))
+
+    submissions = [
+        r for r in (await client.get("/api/reminders")).json() if r["kind"] == "submission"
+    ]
+    groups = {r["case_id"]: r["group_id"] for r in submissions}
+    assert groups[family[0]["id"]] == groups[family[1]["id"]] == family[0]["group_id"]
+    assert family[0]["group_id"] is not None
+    assert groups[alone["id"]] is None

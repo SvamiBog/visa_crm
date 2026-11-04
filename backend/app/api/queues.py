@@ -23,7 +23,7 @@ from app.api.appointments import (
     entry_out,
 )
 from app.api.cases import Member, _audit, _case
-from app.api.deps import TenantSession, require_module, workspace_today
+from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.cases import advance
 from app.core.queues import SUBMITTED_STAGES, QueueStatus, deadline
 from app.models import (
@@ -45,6 +45,9 @@ router = APIRouter(
     dependencies=[Depends(require_module("clients")), Depends(require_module("cases"))],
 )
 
+# The largest family a letter is entered for at once.
+GROUP_LIMIT = 20
+
 
 # --- Schemas -------------------------------------------------------------------------
 
@@ -57,13 +60,16 @@ class QueueIn(BaseModel):
 
 class QueueUpdate(BaseModel):
     """Only the fields sent are changed. `appointment_on` — the date in the letter — is
-    saved as the case's submission date."""
+    saved as the case's submission date. `group_cases`: other cases of the submission
+    group the same letter came for (owner's decision 2026-11-04); they get its date and
+    appointment too."""
 
     queued_on: date | None = None
     letter_on: date | None = None
     appointment_on: date | None = None
     removed_on: date | None = None
     removed_reason: Annotated[str, Field(max_length=500)] | None = None
+    group_cases: list[uuid.UUID] = Field(default_factory=list, max_length=GROUP_LIMIT)
 
     @field_validator("removed_reason")
     @classmethod
@@ -215,8 +221,11 @@ async def update_queue_entry(
 ) -> QueueEntryOut:
     entry = await _entry(session, entry_id)
     case = await _case(session, entry.case_id)
-    changes = body.model_dump(exclude_unset=True)
+    changes = body.model_dump(exclude_unset=True, exclude={"group_cases"})
     appointment_on = changes.pop("appointment_on", None)
+    members = [await _case(session, member_id) for member_id in set(body.group_cases)]
+    if any(m.id == case.id or m.group_id is None or m.group_id != case.group_id for m in members):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "not_in_group")
     if changes.get("queued_on", ...) is None:
         changes.pop("queued_on", None)  # required: null means «leave as is»
     if "removed_on" in changes and changes["removed_on"] is None:
@@ -243,10 +252,40 @@ async def update_queue_entry(
             case,
             {"entry": str(entry.id), "fields": ",".join(changed)},
         )
+    for member in members:
+        await _same_letter(session, user, member, changes.get("letter_on"), appointment_on)
     await session.commit()
     await session.refresh(entry)
     await session.refresh(case)
     return entry_out(entry, case.stage, await workspace_today(session, user.tenant_id))
+
+
+async def _same_letter(
+    session: AsyncSession,
+    user: CurrentUser,
+    case: VisaCase,
+    letter_on: date | None,
+    appointment_on: date | None,
+) -> None:
+    """The letter that came for the family: its date on the member's open entry (if they
+    are still in the queue) and the appointment as their submission date."""
+    entry = await session.scalar(
+        select(WaitingListEntry).where(
+            WaitingListEntry.case_id == case.id, WaitingListEntry.removed_on.is_(None)
+        )
+    )
+    changed = []
+    if entry is not None and letter_on is not None and letter_on != entry.letter_on:
+        if letter_on < entry.queued_on:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
+        entry.letter_on = letter_on
+        changed.append("letter_on")
+    if appointment_on is not None and appointment_on != case.submission_on:
+        _set_appointment(case, appointment_on)
+        changed.append("appointment_on")
+    if changed:
+        details = {"fields": ",".join(changed)} | ({"entry": str(entry.id)} if entry else {})
+        _audit(session, AuditAction.CASE_QUEUE_UPDATED, user, case, details)
 
 
 # --- Application attempts (windowed) -------------------------------------------------
