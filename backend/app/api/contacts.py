@@ -541,6 +541,8 @@ async def update_contact(
     contact_id: uuid.UUID, body: ContactUpdate, user: Member, session: TenantSession
 ) -> Any:
     contact = await _contact(session, contact_id)
+    # The answer is the card, so an edit opens it too (Т.14).
+    await watch(session, user, LimitKind.CARDS, "contact", contact.id, AuditAction.CONTACT_VIEWED)
     changes = body.model_dump(exclude_unset=True, exclude={"passport"})
     if changes.keys() & set(NAME_PARTS):
         name = {f: changes.get(f, getattr(contact, f)) for f in NAME_PARTS}

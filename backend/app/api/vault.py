@@ -196,8 +196,12 @@ def _no_store(response: Response) -> None:
 
 
 @router.get("/contacts/{contact_id}/vault")
-async def contact_vault(contact_id: uuid.UUID, session: TenantSession) -> list[EntryOut]:
+async def contact_vault(
+    contact_id: uuid.UUID, user: Member, session: TenantSession
+) -> list[EntryOut]:
     await _get(session, Contact, contact_id)
+    # The client's logins are on the card, so they open it for an employee's limit (Т.14).
+    await watch(session, user, LimitKind.CARDS, "contact", contact_id, AuditAction.CONTACT_VIEWED)
     rows = await session.scalars(
         select(VaultEntry)
         .join(VaultSystem, VaultSystem.id == VaultEntry.system_id)
