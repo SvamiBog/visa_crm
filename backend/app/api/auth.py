@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -18,11 +18,11 @@ from app.core.config import get_settings
 from app.core.security import (
     MAX_PASSWORD_LENGTH,
     MIN_PASSWORD_LENGTH,
+    check_password,
     hash_password,
     hash_session_token,
     new_session_token,
     password_needs_rehash,
-    verify_password,
 )
 from app.core.two_factor import (
     hash_recovery_code,
@@ -105,13 +105,48 @@ def _is_locked(user: User, now: datetime) -> bool:
 
 
 def _register_failure(session: SystemSession, user: User, now: datetime, reason: str) -> None:
-    """Wrong passwords and wrong second-factor codes share one counter and one lockout."""
+    """Wrong passwords and wrong second-factor codes share one counter and one lockout.
+    The caller holds the user's row locked (FOR UPDATE): misses sent at once must not
+    read the same count and lose each other."""
     user.failed_login_count += 1
     record(session, AuditAction.LOGIN_FAILED, actor=user, details={"reason": reason})
     if user.failed_login_count >= MAX_FAILED_LOGINS:
         user.locked_until = now + LOCKOUT
         user.failed_login_count = 0
         record(session, AuditAction.ACCOUNT_LOCKED, actor=user)
+
+
+async def _sign_out_locked(session: SystemSession, user: User) -> NoReturn:
+    """A locked account loses every session, the asking one too: whoever guesses the
+    password through a stolen session has to go back to the login, which is locked."""
+    await session.execute(delete(UserSession).where(UserSession.user_id == user.id))
+    await session.commit()
+    raise HTTPException(status.HTTP_423_LOCKED, "account_locked")
+
+
+async def reject_wrong_secret(
+    session: SystemSession, user: User, reason: str, detail: str
+) -> NoReturn:
+    """A wrong password or code given in the settings counts with wrong logins; the miss
+    that locks the account ends its sessions."""
+    now = datetime.now(UTC)
+    _register_failure(session, user, now, reason)
+    if _is_locked(user, now):
+        await _sign_out_locked(session, user)
+    await session.commit()
+    raise HTTPException(status.HTTP_400_BAD_REQUEST, detail)
+
+
+async def check_current_password(
+    session: SystemSession, user: User, password: str, reason: str
+) -> None:
+    """The current password asked again by a form of the settings, with the user's row
+    locked (FOR UPDATE). A stolen session must not guess it without limit: misses count
+    with wrong logins, and a locked account checks nothing more."""
+    if _is_locked(user, datetime.now(UTC)):
+        await _sign_out_locked(session, user)
+    if not await check_password(user.password_hash, password):
+        await reject_wrong_secret(session, user, reason, "invalid_current_password")
 
 
 async def _can_sign_in(session: SystemSession, user: User) -> bool:
@@ -143,13 +178,20 @@ def _complete_login(user: User, now: datetime) -> None:
 async def login(
     body: LoginIn, response: Response, session: SystemSession
 ) -> MeOut | MfaRequiredOut:
+    # The row stays locked to the end of the attempt, as in the second step: attempts sent
+    # at once take turns, and none of them misses the lockout another one set.
+    user = await session.scalar(
+        select(User).where(User.email == body.email.strip().lower()).with_for_update()
+    )
     now = datetime.now(UTC)
-    user = await session.scalar(select(User).where(User.email == body.email.strip().lower()))
 
     if user is not None and _is_locked(user, now):
         raise HTTPException(status.HTTP_423_LOCKED, "account_locked")
 
-    if user is None or not verify_password(user.password_hash, body.password):
+    # An unknown email is checked against a stand-in hash: it answers no faster than a
+    # wrong password, so the timing does not tell which addresses have an account.
+    password_ok = await check_password(user.password_hash if user else None, body.password)
+    if user is None or not password_ok:
         if user is not None:
             _register_failure(session, user, now, "password")
             await session.commit()
@@ -298,9 +340,8 @@ async def change_password(
     current: Annotated[CurrentUser, Depends(current_user_any)],
     session: SystemSession,
 ) -> MeOut:
-    user = await session.get_one(User, current.id)
-    if not verify_password(user.password_hash, body.current_password):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_current_password")
+    user = await session.get_one(User, current.id, with_for_update=True)
+    await check_current_password(session, user, body.current_password, "password_change_password")
     if body.new_password == body.current_password:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "password_unchanged")
 

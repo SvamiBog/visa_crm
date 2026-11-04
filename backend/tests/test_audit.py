@@ -54,7 +54,7 @@ async def test_account_events_are_recorded(client: AsyncClient, make_user: MakeU
         "/api/auth/change-password",
         json={"current_password": "correct-horse-battery", "new_password": "new-password-123"},
     )
-    await enable_two_factor(client)
+    await enable_two_factor(client, "new-password-123")
     assert await actions(client) == [
         "auth.two_factor_enabled",
         "auth.password_changed",

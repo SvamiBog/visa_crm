@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
@@ -8,7 +8,8 @@ import { Logo } from "../components/Logo";
 
 type Setup = { secret: string; otpauth_uri: string; qr_code: string };
 
-/** Connect an authenticator app (QR code), confirm with one code, save recovery codes. */
+/** Enter the password, connect an authenticator app (QR code), confirm with one code,
+ * save recovery codes. */
 export function TwoFactorSetupPage() {
   const { t } = useTranslation();
   const me = useMe();
@@ -39,20 +40,64 @@ export function TwoFactorSetupPage() {
 function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
   const { t } = useTranslation();
   const me = useMe();
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  // A query (not an effect) so a double render in development does not start setup twice.
-  const setup = useQuery({
-    queryKey: ["two-factor-setup"],
-    queryFn: () => apiPost<Setup>("/auth/two-factor/setup"),
-    staleTime: Infinity,
-    gcTime: 0,
-    retry: false,
+  // The password first: a session left open on someone else's computer must not be
+  // enough to put another authenticator on the account.
+  const setup = useMutation({
+    mutationFn: () => apiPost<Setup>("/auth/two-factor/setup", { password }),
+    onError: () => setPassword(""),
   });
   const enable = useMutation({
     mutationFn: () => apiPost<{ recovery_codes: string[] }>("/auth/two-factor/enable", { code }),
     onSuccess: (result) => onEnabled(result.recovery_codes),
     onError: () => setCode(""),
   });
+
+  // Optional: the user may leave and turn it on later in Settings.
+  const notNow = me.data && (
+    <Link to={homePath(me.data)} className="btn btn-block">
+      {t("twoFactor.notNow")}
+    </Link>
+  );
+
+  if (!setup.data) {
+    const start = (event: FormEvent) => {
+      event.preventDefault();
+      setup.mutate();
+    };
+    return (
+      <form className="card auth-card setup-card" onSubmit={start} noValidate>
+        <Logo />
+        <h1 className="auth-title">{t("twoFactor.setupTitle")}</h1>
+        <p className="muted">{t("twoFactor.setupIntro")}</p>
+        <p>{t("twoFactor.passwordHint")}</p>
+        <label className="field">
+          <span>{t("auth.currentPassword")}</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        {setup.isError && (
+          <div className="alert alert-error" role="alert">
+            {t(`errors.${errorCode(setup.error)}`, { defaultValue: t("errors.unknown") })}
+          </div>
+        )}
+        <button
+          type="submit"
+          className="btn btn-p btn-block"
+          disabled={setup.isPending || password === ""}
+        >
+          {t("twoFactor.continue")}
+        </button>
+        {notNow}
+      </form>
+    );
+  }
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -63,26 +108,17 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
     <form className="card auth-card setup-card" onSubmit={submit} noValidate>
       <Logo />
       <h1 className="auth-title">{t("twoFactor.setupTitle")}</h1>
-      <p className="muted">{t("twoFactor.setupIntro")}</p>
 
       <ol className="steps">
         <li>{t("twoFactor.stepInstall")}</li>
         <li>{t("twoFactor.stepScan")}</li>
       </ol>
 
-      {setup.isPending && <p className="muted">{t("common.loading")}</p>}
-      {setup.isError && (
-        <div className="alert alert-error" role="alert">
-          {t(`errors.${errorCode(setup.error)}`, { defaultValue: t("errors.unknown") })}
-        </div>
-      )}
-      {setup.data && (
-        <div className="qr-block">
-          <img src={setup.data.qr_code} alt={t("twoFactor.qrAlt")} width={200} height={200} />
-          <div className="small muted">{t("twoFactor.manualKey")}</div>
-          <code className="secret">{setup.data.secret.match(/.{1,4}/g)?.join(" ")}</code>
-        </div>
-      )}
+      <div className="qr-block">
+        <img src={setup.data.qr_code} alt={t("twoFactor.qrAlt")} width={200} height={200} />
+        <div className="small muted">{t("twoFactor.manualKey")}</div>
+        <code className="secret">{setup.data.secret.match(/.{1,4}/g)?.join(" ")}</code>
+      </div>
 
       <label className="field">
         <span>{t("twoFactor.stepCode")}</span>
@@ -107,16 +143,11 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
       <button
         type="submit"
         className="btn btn-p btn-block"
-        disabled={!setup.data || enable.isPending || code.length !== 6}
+        disabled={enable.isPending || code.length !== 6}
       >
         {t("twoFactor.enable")}
       </button>
-      {/* Optional: the user may leave and turn it on later in Settings. */}
-      {me.data && (
-        <Link to={homePath(me.data)} className="btn btn-block">
-          {t("twoFactor.notNow")}
-        </Link>
-      )}
+      {notNow}
     </form>
   );
 }
