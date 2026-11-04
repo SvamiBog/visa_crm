@@ -95,6 +95,9 @@ class ApplicantIn(BaseModel):
 
 class CaseCreate(BaseModel):
     consultation_id: uuid.UUID | None = None
+    # Filing again: the case this one repeats. It belongs to one of the applicants, whose
+    # new case is linked to it.
+    previous_case_id: uuid.UUID | None = None
     destination_id: uuid.UUID
     submission_country_id: uuid.UUID
     purpose_id: uuid.UUID | None = None
@@ -155,6 +158,7 @@ class CaseOut(BaseModel):
     contact_id: uuid.UUID
     group_id: uuid.UUID | None
     consultation_id: uuid.UUID | None
+    previous_case_id: uuid.UUID | None
     destination_id: uuid.UUID
     purpose_id: uuid.UUID | None
     submission_country_id: uuid.UUID
@@ -424,7 +428,7 @@ async def create_cases(
         consultation = await session.get(Consultation, body.consultation_id)
         if consultation is None or consultation.contact_id != anchor.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
-    fields = body.model_dump(exclude={"applicants", "consultation_id"})
+    fields = body.model_dump(exclude={"applicants", "consultation_id", "previous_case_id"})
     await _check_refs(session, fields)
     await _check_place(
         session, body.destination_id, body.submission_country_id, body.visa_center_id
@@ -432,6 +436,13 @@ async def create_cases(
     existing = [a.contact_id for a in body.applicants if a.contact_id is not None]
     if len(existing) != len(set(existing)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "duplicate_applicant")
+    previous: VisaCase | None = None
+    if body.previous_case_id is not None:
+        previous = await session.get(VisaCase, body.previous_case_id)
+        if previous is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+        if previous.contact_id not in existing:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
     if existing:
         found = set(await session.scalars(select(Contact.id).where(Contact.id.in_(existing))))
         if set(existing) - found:
@@ -457,6 +468,9 @@ async def create_cases(
             contact_id=applicant_id,
             group_id=group.id if group else None,
             consultation_id=consultation.id if consultation else None,
+            previous_case_id=(
+                previous.id if previous and previous.contact_id == applicant_id else None
+            ),
             stage=stage,
             created_by=user.id,
             **fields,
@@ -466,7 +480,8 @@ async def create_cases(
     session.add_all(cases)
     await session.flush()
     for case in cases:
-        _audit(session, AuditAction.CASE_CREATED, user, case)
+        linked = {"previous": str(case.previous_case_id)} if case.previous_case_id else None
+        _audit(session, AuditAction.CASE_CREATED, user, case, linked)
     if consultation is not None and consultation.decision != Decision.YES:
         consultation.decision = Decision.YES
         record(
