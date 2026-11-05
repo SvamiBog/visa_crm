@@ -2855,8 +2855,12 @@ a.kpi:hover {
   margin: 6px 0;
 }
 
+/* A group name sits in the first column with the code names: the same size as
+   they are, not the small column-heading size of `.tbl th`; bold marks the group. */
 .template-codes tbody th {
   padding-top: 16px;
+  font-size: inherit;
+  font-weight: 600;
   color: var(--c-text);
 }
 
