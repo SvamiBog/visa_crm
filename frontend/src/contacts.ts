@@ -266,6 +266,8 @@ export type ContactCard = {
   cases: VisaCase[] | null;
   /** Newest first. */
   documents: ContactDocument[];
+  /** The specialist may delete a card without client history: a duplicate. */
+  can_delete: boolean;
 };
 
 // Client index (backend/app/api/client_status.py): every contact is in one tab.
