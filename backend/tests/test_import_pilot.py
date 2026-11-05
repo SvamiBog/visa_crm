@@ -2,7 +2,8 @@
 first specialist (tests/pilot_book.py), turned into the VisaCRM data format by following the
 prompt (tests/pilot_book_visacrm.py), loads in one go. One person is one card across the
 years, the queues and France find the case of «Подача», old talons are no debt, a case of
-2023 stays in 2023, and loading the file again changes nothing."""
+2023 stays in 2023, and loading the file again changes nothing. Before it loads, the check
+shows a card for every person of the book."""
 
 import base64
 
@@ -10,7 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, import_report, login
+from tests.helpers import MakeUser, finished_import, import_report, login, uploaded
 from tests.pilot_book_visacrm import SYSTEMS, xlsx
 
 API = "/api/imports"
@@ -52,7 +53,22 @@ async def test_the_pilot_book_in_the_format_loads_whole_and_once(
         )
     request = {"file_name": "VisaCRM-импорт.xlsx", "content": content()}
 
-    report = await import_report(client, API, request)
+    # The file waits on the server: a few sample cards, the check with every card, and
+    # only then the import (backlog 1.22).
+    path = f"{API}/uploads/{(await uploaded(client, request))['id']}"
+    job = await finished_import(client, await client.post(f"{path}/sample"))
+    assert job["status"] == "done", job
+    sample = await ok(await client.get(f"{path}/sample"))
+    job = await finished_import(client, await client.post(f"{path}/check", json={}))
+    assert job["status"] == "done", job
+    every = await ok(await client.get(f"{path}/cards"))
+    people = [c for c in every if c["name"] is not None]
+    assert len(people) == TABLES["contacts"] and {c["status"] for c in every} == {"new"}
+    assert [c["name"] for c in sample] == [c["name"] for c in people[:5]]
+    assert sum(c["cases"] for c in people) == TABLES["visa_cases"]
+    job = await finished_import(client, await client.post(f"{path}/import", json={}))
+    assert job["status"] == "done", job
+    report = job["report"]
 
     assert report["skipped"] == []
     # The test workspace has no visa centers in Belarus: the cities are not found.
@@ -105,5 +121,5 @@ async def test_the_pilot_book_in_the_format_loads_whole_and_once(
         ("Агентство Виза", "0.00", 0),
     }
 
-    again = await import_report(client, API, request)
+    again = await import_report(client, request)
     assert (again["created"], again["updated"], again["skipped"]) == ({}, {}, [])

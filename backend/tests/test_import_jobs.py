@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import rates
 from app.core.data_import import WorkbookImport
-from tests.helpers import MakeUser, finished_import, login
+from tests.helpers import MakeUser, finished_import, import_report, login, uploaded
 from tests.test_data_import import body
 
 API = "/api/imports"
@@ -63,15 +63,17 @@ async def test_a_check_answers_at_once_and_runs_in_the_background(
 ):
     await make_user("spec@example.com")
     await login(client, "spec@example.com")
+    upload = await uploaded(client, body(book(date(2025, 3, 1), 3)))
 
-    started = await client.post(f"{API}/check", json=body(book(date(2025, 3, 1), 3)))
+    started = await client.post(f"{API}/uploads/{upload['id']}/check", json={})
 
     assert started.status_code == 202
     job = started.json()
-    assert (job["kind"], job["status"], job["file_name"]) == (
+    assert (job["kind"], job["status"], job["file_name"], job["upload_id"]) == (
         "check",
         "running",
         "VisaCRM-импорт.xlsx",
+        upload["id"],
     )
     assert job["report"] is None
     [running] = (await client.get(f"{API}/jobs")).json()
@@ -102,10 +104,9 @@ async def test_the_import_asks_the_bank_nothing_and_takes_the_sites_latest_rate(
     # A payment with its own rate keeps it; a talon in euro takes the latest rate too.
     sheets["Платежи"].append(["C-1", "Петрова Анна", date(2025, 6, 1), 100, "EUR", 3.5])
 
-    done = await finished_import(client, await client.post(API, json=body(sheets)))
+    report = await import_report(client, body(sheets))
 
-    assert done["status"] == "done", done
-    assert done["report"]["created"]["payments"] == 21 and done["report"]["skipped"] == []
+    assert report["created"]["payments"] == 21 and report["skipped"] == []
     async with owner_engine.connect() as conn:
         paid = (
             await conn.execute(
@@ -128,17 +129,30 @@ async def test_one_import_at_a_time_and_a_new_check_replaces_a_running_one(
     await make_user("spec@example.com")
     await login(client, "spec@example.com")
 
-    first = await client.post(API, json=body(book(date(2025, 1, 1), 2)))
+    path = f"{API}/uploads/{(await uploaded(client, body(book(date(2025, 1, 1), 2))))['id']}"
+    held_import.set()
+    assert (await finished_import(client, await client.post(f"{path}/check", json={})))[
+        "status"
+    ] == "done"
+
+    held_import.clear()
+    first = await client.post(f"{path}/import", json={})
     assert first.status_code == 202
-    for path in (f"{API}/check", API):
-        busy = await client.post(path, json=body(book(date(2025, 2, 1), 2)))
+    # While the file loads, nothing else starts and the file is not taken away.
+    other = await client.post(f"{API}/uploads", json=body(book(date(2025, 2, 1), 2)))
+    assert other.status_code == 409 and other.json()["detail"] == "import_running"
+    for step in ("sample", "check", "import"):
+        busy = await client.post(f"{path}/{step}", json={})
         assert busy.status_code == 409 and busy.json()["detail"] == "import_running"
+    cancelled = await client.delete(path)
+    assert cancelled.status_code == 409 and cancelled.json()["detail"] == "import_running"
     held_import.set()
     assert (await finished_import(client, first))["status"] == "done"
 
     held_import.clear()
-    older = await client.post(f"{API}/check", json=body(book(date(2025, 3, 1), 2)))
-    newer = await client.post(f"{API}/check", json=body(book(date(2025, 3, 1), 2)))
+    path = f"{API}/uploads/{(await uploaded(client, body(book(date(2025, 3, 1), 2))))['id']}"
+    older = await client.post(f"{path}/check", json={})
+    newer = await client.post(f"{path}/check", json={})
     assert newer.status_code == 202
     held_import.set()
     assert (await finished_import(client, older))["status"] == "stopped"
@@ -149,8 +163,9 @@ async def test_the_job_of_another_workspace_is_not_found(client: AsyncClient, ma
     await make_user("spec@example.com")
     await make_user("other@example.com")
     await login(client, "spec@example.com")
+    upload = await uploaded(client, body({"Клиенты": CLIENTS}))
     job = await finished_import(
-        client, await client.post(f"{API}/check", json=body({"Клиенты": CLIENTS}))
+        client, await client.post(f"{API}/uploads/{upload['id']}/check", json={})
     )
 
     client.cookies.clear()
@@ -178,8 +193,9 @@ async def test_a_failed_run_says_so_and_logs_no_client_data(
     # The migrations of the test database run in this process, and Alembic's logging
     # config switches off the loggers made before it.
     monkeypatch.setattr(logging.getLogger("app.core.import_jobs"), "disabled", False)
+    path = f"{API}/uploads/{(await uploaded(client, body({'Клиенты': CLIENTS})))['id']}"
     with caplog.at_level(logging.ERROR):
-        job = await finished_import(client, await client.post(API, json=body({"Клиенты": CLIENTS})))
+        job = await finished_import(client, await client.post(f"{path}/check", json={}))
 
     assert (job["status"], job["error"], job["report"]) == ("failed", "import_failed", None)
     assert "RuntimeError" in caplog.text and "Петрова" not in caplog.text

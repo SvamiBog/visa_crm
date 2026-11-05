@@ -122,8 +122,23 @@ async def finished_import(client: AsyncClient, started: Response) -> dict:
     return job
 
 
-async def import_report(client: AsyncClient, path: str, body: dict) -> dict:
-    """The report of a check (/api/imports/check) or an import (/api/imports) run to the end."""
-    job = await finished_import(client, await client.post(path, json=body))
+async def uploaded(client: AsyncClient, body: dict) -> dict:
+    """A workbook sent to wait on the server for its check and import (/api/imports/uploads)."""
+    file = {"file_name": body["file_name"], "content": body["content"]}
+    response = await client.post("/api/imports/uploads", json=file)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def import_report(client: AsyncClient, body: dict, *, save: bool = True) -> dict:
+    """The report of the check of a file or, after the check, of its import, run to the end.
+    The body is the file and the choices for its unknown values."""
+    path = f"/api/imports/uploads/{(await uploaded(client, body))['id']}"
+    choices = {"choices": body.get("choices", {})}
+    job = await finished_import(client, await client.post(f"{path}/check", json=choices))
+    assert job["status"] == "done", job
+    if not save:
+        return job["report"]
+    job = await finished_import(client, await client.post(f"{path}/import", json=choices))
     assert job["status"] == "done", job
     return job["report"]

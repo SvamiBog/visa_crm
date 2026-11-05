@@ -1,16 +1,19 @@
-"""Импорт в формате VisaCRM (backlog 1.21, docs/data-format.md): the specialist downloads
-the template and the prompt, has an AI turn her spreadsheets into one workbook of the
-format, checks what loading it would do and loads it. The file is not kept: it is sent
-again for the check and for the import. Only the workspace owner imports.
+"""Импорт в формате VisaCRM (backlog 1.21, 1.22, docs/data-format.md): the specialist downloads
+the template and the prompt, has an AI turn her spreadsheets into one workbook of the format
+and uploads it. The file waits on the server (app/core/import_uploads.py): first a few sample
+cards, then the check of the whole file with every card it will make, and only once she has
+looked through them and confirmed it is the file loaded into the CRM. Only the workspace
+owner imports.
 
-The check and the import run in the background (app/core/import_jobs.py): the request
-reads the file, starts the run and answers at once; the page asks /imports/jobs/{id} how
-far it is until the report is ready.
+The sample, the check and the import run in the background (app/core/import_jobs.py): the
+request starts the run and answers at once; the page asks /imports/jobs/{id} how far it is.
 
-The reader is app/core/workbook.py, the engine app/core/data_import.py; the rules are in
-docs/decisions.md → «Формат данных VisaCRM».
+The reader is app/core/workbook.py, the engine app/core/data_import.py, the cards
+app/core/import_cards.py; the rules are in docs/decisions.md → «Формат данных VisaCRM» and
+«Карточки до загрузки».
 """
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
@@ -28,16 +31,18 @@ from app.api.deps import (
     require_specialist,
     workspace_today,
 )
-from app.core import import_jobs
+from app.core import import_jobs, import_uploads
 from app.core.audit import record
 from app.core.data_export import Lists, template
 from app.core.data_format import CREATABLE
 from app.core.data_import import NEW, SKIP, Progress, WorkbookImport
 from app.core.db import get_sessionmaker, scope_to_tenant
 from app.core.documents import content_disposition
+from app.core.import_cards import cards, render, summary
 from app.core.import_jobs import ImportJob, ImportRunning
 from app.core.import_prompt import import_prompt
-from app.core.workbook import Workbook, WorkbookError, read_workbook
+from app.core.import_uploads import Upload
+from app.core.workbook import Workbook, WorkbookError, first_clients, read_workbook
 from app.models import (
     AuditAction,
     Country,
@@ -62,13 +67,18 @@ Specialist = Annotated[CurrentUser, Depends(require_specialist)]
 # Values a file may leave unknown in one list, each with the specialist's choice.
 MAX_CHOICES = 1000
 HISTORY_LIMIT = 50
+# The clients whose cards are shown before the whole file is gone through.
+SAMPLE_CLIENTS = 5
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 Language = Literal["ru", "en"]
 
 
-class ImportIn(BaseModel):
+class UploadIn(BaseModel):
     file_name: Annotated[str, Field(min_length=1, max_length=200)]
     content: Base64Bytes
+
+
+class ChoicesIn(BaseModel):
     # An unknown list value: type → normalized value → "new", "skip" or an entry's id.
     choices: Annotated[dict[str, dict[str, str]], Field(max_length=len(CREATABLE))] = {}
 
@@ -138,16 +148,82 @@ class RunSummary(BaseModel):
 
 
 class JobOut(BaseModel):
-    """A check or an import running in the background, and its report once it is done."""
+    """A sample, a check or an import running in the background, and the report of a
+    check or an import once it is done."""
 
     id: uuid.UUID
-    kind: Literal["check", "import"]
+    kind: import_jobs.Kind
     file_name: str
+    upload_id: uuid.UUID | None
     status: import_jobs.Status
     rows_done: int
     rows_total: int
     report: ReportOut | None
     error: str | None
+
+
+class SheetOut(BaseModel):
+    title: str
+    rows: int
+
+
+class UploadOut(BaseModel):
+    """The file waiting on the server, and how far the specialist has come with it."""
+
+    id: uuid.UUID
+    file_name: str
+    size: int
+    sheets: list[SheetOut]
+    clients: int
+    sampled: bool
+    checked: bool
+    report: ReportOut | None
+
+
+class FieldOut(BaseModel):
+    key: str
+    # The format's header in the language.
+    label: str
+    type: Literal["text", "date", "money", "number", "bool", "secret"]
+    value: str | bool
+
+
+class RecordOut(BaseModel):
+    change: Literal["new", "updated"] | None
+    fields: list[FieldOut]
+    # A case's payments, expenses, queue, applications, bookings and accounts.
+    sections: list["SectionOut"]
+
+
+class SectionOut(BaseModel):
+    sheet: str
+    title: str
+    records: list[RecordOut]
+
+
+RecordOut.model_rebuild()
+
+
+class CardOut(BaseModel):
+    """A client as the CRM will have them once the file is loaded."""
+
+    n: int
+    status: Literal["new", "updated", "same"]
+    # None: the specialist's own accounts.
+    name: str | None
+    phone: str | None
+    sections: list[SectionOut]
+    issues: list[IssueOut]
+
+
+class CardSummaryOut(BaseModel):
+    n: int
+    status: Literal["new", "updated", "same"]
+    name: str | None
+    phone: str | None
+    consultations: int
+    cases: int
+    issues: int
 
 
 class PromptOut(BaseModel):
@@ -157,9 +233,9 @@ class PromptOut(BaseModel):
 # --- Helpers --------------------------------------------------------------------------
 
 
-def _read(body: ImportIn) -> Workbook:
+def _read(content: bytes) -> Workbook:
     try:
-        return read_workbook(body.content)
+        return read_workbook(content)
     except WorkbookError as error:
         code = (
             status.HTTP_413_CONTENT_TOO_LARGE
@@ -169,15 +245,32 @@ def _read(body: ImportIn) -> Workbook:
         raise HTTPException(code, error.code) from error
 
 
+def _upload(upload_id: uuid.UUID, user: CurrentUser) -> Upload:
+    """The workspace's file waiting on the server; another workspace's, or one the server
+    lost in a restart or forgot, is not found."""
+    assert user.tenant_id is not None
+    upload = import_uploads.get(upload_id, user.tenant_id)
+    if upload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "import_upload_not_found")
+    return upload
+
+
+def _checked(upload: Upload) -> list[Any]:
+    if upload.cards is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "import_not_checked")
+    return upload.cards
+
+
 async def _import(
     book: Workbook,
-    body: ImportIn,
+    file_name: str,
+    choices: dict[str, dict[str, str]],
     user: CurrentUser,
     session: AsyncSession,
     *,
     save: bool,
     progress: Progress,
-) -> tuple[ImportRun, dict[str, Any]]:
+) -> tuple[ImportRun, dict[str, Any], WorkbookImport]:
     """Run the import in the session; the caller commits it or lets it roll back."""
     assert user.tenant_id is not None
     tenant = await session.get(Tenant, user.tenant_id)
@@ -186,7 +279,7 @@ async def _import(
         id=uuid.uuid4(),
         tenant_id=user.tenant_id,
         kind=ImportKind.WORKBOOK,
-        file_name=body.file_name,
+        file_name=file_name,
         sheet=None,
         rows=0,
         report={},
@@ -199,7 +292,7 @@ async def _import(
         tenant=tenant,
         user_id=user.id,
         modules=await effective_modules(session, user),
-        choices=body.choices,
+        choices=choices,
         today=await workspace_today(session, user.tenant_id),
         run_id=run.id,
         progress=progress,
@@ -223,7 +316,7 @@ async def _import(
                 "updated": report["updated"],
             },
         )
-    return run, report
+    return run, report, engine
 
 
 def _report_out(run: ImportRun, report: dict[str, Any], *, saved: bool) -> ReportOut:
@@ -236,29 +329,56 @@ def _report_out(run: ImportRun, report: dict[str, Any], *, saved: bool) -> Repor
     )
 
 
-def _start(body: ImportIn, user: CurrentUser, *, save: bool) -> JobOut:
-    """Read the file now (a file that cannot be read is refused at once), run the rest in
-    the background, in a session of its own: the request's closes when it answers."""
+def _start(
+    upload: Upload,
+    user: CurrentUser,
+    kind: import_jobs.Kind,
+    choices: dict[str, dict[str, str]],
+) -> JobOut:
+    """Run the sample, the check or the import of the file in the background, in a session
+    of its own: the request's closes when it answers. The sample and the check keep their
+    cards with the file and roll back; the import commits and forgets the file."""
     assert user.tenant_id is not None
     tenant_id = user.tenant_id
-    book = _read(body)
 
-    async def work(progress: Progress) -> ReportOut:
+    async def work(progress: Progress) -> ReportOut | None:
+        book = await asyncio.to_thread(read_workbook, upload.content)
+        if kind == "sample":
+            book = first_clients(book, SAMPLE_CLIENTS)
         async with get_sessionmaker()() as session:
             scope_to_tenant(session, tenant_id)
-            run, report = await _import(book, body, user, session, save=save, progress=progress)
-            if not save:
-                out = _report_out(run, report, saved=False)
-                await session.rollback()
-                return out
-            await session.commit()
-            await session.refresh(run)
-            return _report_out(run, report, saved=True)
+            run, report, engine = await _import(
+                book,
+                upload.file_name,
+                choices,
+                user,
+                session,
+                save=kind == "import",
+                progress=progress,
+            )
+            if kind == "import":
+                await session.commit()
+                await session.refresh(run)
+                import_uploads.drop(upload)
+                return _report_out(run, report, saved=True)
+            found = await cards(engine)
+            out = _report_out(run, report, saved=False)
+            await session.rollback()
+        if kind == "sample":
+            upload.sample = found
+            return None
+        upload.cards, upload.report = found, out
+        return out
 
     try:
-        job = import_jobs.start(tenant_id, save=save, file_name=body.file_name, work=work)
+        job = import_jobs.start(
+            tenant_id, kind=kind, file_name=upload.file_name, work=work, upload_id=upload.id
+        )
     except ImportRunning as error:
         raise HTTPException(status.HTTP_409_CONFLICT, "import_running") from error
+    if kind == "check":
+        # The cards of an older check no longer hold until this one is done.
+        upload.cards = upload.report = None
     return _job_out(job)
 
 
@@ -266,13 +386,27 @@ def _job_out(job: ImportJob) -> JobOut:
     p = job.progress
     return JobOut(
         id=job.id,
-        kind="import" if job.save else "check",
+        kind=job.kind,
         file_name=job.file_name,
+        upload_id=job.upload_id,
         status=job.status,
         rows_done=p.rows_done,
         rows_total=p.rows_total,
         report=job.result,
         error=job.error,
+    )
+
+
+def _upload_out(upload: Upload) -> UploadOut:
+    return UploadOut(
+        id=upload.id,
+        file_name=upload.file_name,
+        size=len(upload.content),
+        sheets=[SheetOut(title=title, rows=rows) for title, rows in upload.sheets],
+        clients=upload.clients,
+        sampled=upload.sample is not None,
+        checked=upload.cards is not None,
+        report=upload.report,
     )
 
 
@@ -307,15 +441,99 @@ async def _lists(session: AsyncSession, language: Language) -> Lists:
 # --- Endpoints ------------------------------------------------------------------------
 
 
-@router.post("/check", status_code=status.HTTP_202_ACCEPTED)
-async def check(body: ImportIn, user: Specialist) -> JobOut:
-    """Start finding what the import would do, without writing anything."""
-    return _start(body, user, save=False)
+@router.post("/uploads", status_code=status.HTTP_201_CREATED)
+async def upload_file(body: UploadIn, user: Specialist) -> UploadOut:
+    """Take the workbook to wait on the server in place of the one waiting; nothing goes
+    into the CRM yet. A file that cannot be read is refused at once."""
+    assert user.tenant_id is not None
+    try:
+        import_jobs.stop(user.tenant_id)
+    except ImportRunning as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, "import_running") from error
+    book = await asyncio.to_thread(_read, body.content)
+    clients = book.sheets.get("clients")
+    upload = import_uploads.put(
+        user.tenant_id,
+        file_name=body.file_name,
+        content=body.content,
+        sheets=[(sheet.title, len(sheet.rows)) for sheet in book.sheets.values()],
+        clients=len(clients.rows) if clients else 0,
+    )
+    return _upload_out(upload)
 
 
-@router.post("", status_code=status.HTTP_202_ACCEPTED)
-async def run_import(body: ImportIn, user: Specialist) -> JobOut:
-    return _start(body, user, save=True)
+@router.get("/uploads/current")
+async def current_upload(user: Specialist) -> UploadOut | None:
+    """The file waiting: the page opened again goes on where it was."""
+    assert user.tenant_id is not None
+    upload = import_uploads.current(user.tenant_id)
+    return _upload_out(upload) if upload else None
+
+
+@router.delete("/uploads/{upload_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_upload(upload_id: uuid.UUID, user: Specialist) -> Response:
+    """«Отменить»: the file and its cards are forgotten, the CRM is as it was."""
+    assert user.tenant_id is not None
+    upload = _upload(upload_id, user)
+    try:
+        import_jobs.stop(user.tenant_id)
+    except ImportRunning as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, "import_running") from error
+    import_uploads.drop(upload)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/uploads/{upload_id}/sample", status_code=status.HTTP_202_ACCEPTED)
+async def start_sample(upload_id: uuid.UUID, user: Specialist) -> JobOut:
+    """Start making the cards of the file's first clients, without writing anything."""
+    return _start(_upload(upload_id, user), user, "sample", {})
+
+
+@router.get("/uploads/{upload_id}/sample")
+async def sample_cards(
+    upload_id: uuid.UUID, user: Specialist, language: Annotated[Language, Query()] = "ru"
+) -> list[CardOut]:
+    upload = _upload(upload_id, user)
+    if upload.sample is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    return [CardOut(n=n, **render(card, language)) for n, card in enumerate(upload.sample)]
+
+
+@router.post("/uploads/{upload_id}/check", status_code=status.HTTP_202_ACCEPTED)
+async def start_check(upload_id: uuid.UUID, body: ChoicesIn, user: Specialist) -> JobOut:
+    """Start finding what loading the whole file would do, and every card it would make,
+    without writing anything."""
+    return _start(_upload(upload_id, user), user, "check", body.choices)
+
+
+@router.get("/uploads/{upload_id}/cards")
+async def list_cards(upload_id: uuid.UUID, user: Specialist) -> list[CardSummaryOut]:
+    """The cards of the check, a line each: the specialist opens any of them."""
+    found = _checked(_upload(upload_id, user))
+    return [CardSummaryOut(**summary(card, n)) for n, card in enumerate(found)]
+
+
+@router.get("/uploads/{upload_id}/cards/{n}")
+async def get_card(
+    upload_id: uuid.UUID,
+    n: int,
+    user: Specialist,
+    language: Annotated[Language, Query()] = "ru",
+) -> CardOut:
+    """One card of the check by its place in the list: no client's data in the address."""
+    found = _checked(_upload(upload_id, user))
+    if not 0 <= n < len(found):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    return CardOut(n=n, **render(found[n], language))
+
+
+@router.post("/uploads/{upload_id}/import", status_code=status.HTTP_202_ACCEPTED)
+async def start_import(upload_id: uuid.UUID, body: ChoicesIn, user: Specialist) -> JobOut:
+    """Load the checked file into the CRM: the specialist has looked through its cards."""
+    upload = _upload(upload_id, user)
+    if upload.cards is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "import_not_checked")
+    return _start(upload, user, "import", body.choices)
 
 
 @router.get("/jobs")

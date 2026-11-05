@@ -94,6 +94,7 @@ DEMO_PASSWORD=… npx playwright test      # браузерные тесты ф�
 | тип цели (общий для платформы) | purpose_kind (`PurposeKind`) |
 | шаблон документа / шаблон у клиента | document_template / contact_template (коды — `app/core/templates.py`, подстановка — `app/core/docx_fill.py`) |
 | кейс, выданный сотруднику | employee_case (`app/api/case_access.py`, политика `employee_scope`) |
+| файл импорта, ждущий подтверждения / карточки до загрузки | upload (`app/core/import_uploads.py`) / import card (`app/core/import_cards.py`) |
 
 ## Как работать
 

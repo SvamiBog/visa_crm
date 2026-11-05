@@ -110,6 +110,41 @@ class Workbook:
     warnings: list[Issue] = field(default_factory=list)
 
 
+def first_clients(book: Workbook, count: int) -> Workbook:
+    """The rows of a workbook about its first clients: theirs on every sheet and those of
+    their cases (backlog 1.22) — a sample to show before the whole file is gone through.
+    The clients are those of «Клиенты» in its order, else the ones the other sheets name
+    first. The file's own issues are left out: the check of the whole file reports them."""
+    chosen: list[str] = []
+    for spec in SHEETS:
+        if (sheet := book.sheets.get(spec.key)) is None:
+            continue
+        key = "code" if spec.key == "clients" else "client"
+        for row in sheet.rows:
+            code = row.values.get(key)
+            if len(chosen) < count and code is not None and code not in chosen:
+                chosen.append(code)
+    clients = set(chosen)
+    cases_sheet = book.sheets.get("cases")
+    cases = {
+        row.values["code"]
+        for row in (cases_sheet.rows if cases_sheet else [])
+        if row.values.get("client") in clients and "code" in row.values
+    }
+
+    def theirs(key: str, row: Row) -> bool:
+        if key == "clients":
+            return row.values.get("code") in clients
+        return row.values.get("client") in clients or row.values.get("case") in cases
+
+    part = Workbook(exported_at=book.exported_at)
+    for key, sheet in book.sheets.items():
+        rows = [row for row in sheet.rows if theirs(key, row)]
+        if rows:
+            part.sheets[key] = SheetData(sheet.spec, sheet.title, dict(sheet.headers), rows)
+    return part
+
+
 _BY_NAME = {normalize(name): sheet for sheet in SHEETS for name in (sheet.ru, sheet.en)}
 _RUSSIAN = {normalize(sheet.ru) for sheet in SHEETS}
 _PASSED_BY = {normalize(name) for name in REFERENCE_SHEET}

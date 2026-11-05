@@ -2562,6 +2562,121 @@ a.kpi:hover {
   color: inherit;
 }
 
+/* Карточки до загрузки (backlog 1.22): пробные и все карточки файла */
+.import-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.import-card {
+  padding: 12px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  min-width: 0;
+}
+
+.import-card-head,
+.import-card-line-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.import-card-head {
+  margin-bottom: 8px;
+}
+
+.import-card-section {
+  margin-top: 10px;
+}
+
+.import-card-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-muted);
+}
+
+.import-record {
+  padding: 8px 10px;
+  border-left: 3px solid var(--c-border);
+  background: var(--c-row);
+  border-radius: var(--radius-sm);
+}
+
+.import-record + .import-record {
+  margin-top: 8px;
+}
+
+.import-record-new {
+  border-left-color: var(--c-green);
+}
+
+.import-record-updated {
+  border-left-color: var(--c-orange);
+}
+
+.import-record > .chip {
+  margin-bottom: 6px;
+}
+
+.import-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.import-field {
+  min-width: 0;
+}
+
+.import-field dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.import-record .import-record {
+  background: var(--c-surface);
+}
+
+.import-card-issues {
+  margin-top: 10px;
+}
+
+.import-card-filters {
+  margin-bottom: 10px;
+}
+
+.import-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.import-card-list > .import-card-line {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.import-card-line .link-button {
+  padding: 4px 0;
+  text-align: left;
+}
+
+.import-confirm {
+  margin-top: 14px;
+}
+
 /* Калькулятор 90/180: дни за 180 дней, поездки, проверка поездки */
 .stay-block {
   display: flex;
