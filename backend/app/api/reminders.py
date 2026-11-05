@@ -89,6 +89,8 @@ class ReminderOut(BaseModel):
     contact_name: str | None = None
     case_id: uuid.UUID | None = None
     case_number: int | None = None
+    # The case's submission group: the list shows one family as one line.
+    group_id: uuid.UUID | None = None
     destination_id: uuid.UUID | None = None
     booking_kind: BookingKind | None = None
     registrar_id: uuid.UUID | None = None
@@ -179,6 +181,7 @@ def _case_fields(case: VisaCase, name: str) -> dict[str, Any]:
         "contact_name": name,
         "case_id": case.id,
         "case_number": case.number,
+        "group_id": case.group_id,
         "destination_id": case.destination_id,
     }
 

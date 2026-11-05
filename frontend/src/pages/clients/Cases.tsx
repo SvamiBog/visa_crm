@@ -75,10 +75,16 @@ function useSortedCountries(): Country[] {
   );
 }
 
-/** Every card that shows a case: the applicants' and their family's. */
+/** Every card that shows a case: the applicants' and their family's, and the reminders
+ * a new date or result adds or removes. */
 function useRefreshCards() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: ["contacts"] });
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+    void queryClient.invalidateQueries({ queryKey: ["queues"] });
+    void queryClient.invalidateQueries({ queryKey: ["reminders"] });
+    void queryClient.invalidateQueries({ queryKey: ["home"] });
+  };
 }
 
 const OUTCOME_CHIP: Record<Outcome, string> = {
@@ -789,6 +795,8 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
   const [vacNumber, setVacNumber] = useState(c.vac_number ?? "");
   const [email, setEmail] = useState(c.application_email ?? "");
   const [emailOwner, setEmailOwner] = useState<EmailOwner | "">(c.application_email_owner ?? "");
+  // The family's number and email are usually the same: filled in where still empty.
+  const [fillGroup, setFillGroup] = useState(c.group.length > 0);
   const [questionnaireDue, setQuestionnaireDue] = useState(c.questionnaire_due_on ?? "");
   const [questionnaireReceived, setQuestionnaireReceived] = useState(
     c.questionnaire_received_on ?? "",
@@ -811,6 +819,7 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
         vac_number: vacNumber.trim() || null,
         application_email: email.trim() || null,
         application_email_owner: email.trim() ? emailOwner || null : null,
+        fill_group: c.group.length > 0 && fillGroup,
         questionnaire_due_on: questionnaireDue || null,
         questionnaire_received_on: questionnaireReceived || null,
       }),
@@ -859,6 +868,16 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
               ))}
             </select>
           </label>
+          {c.group.length > 0 && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={fillGroup}
+                onChange={(e) => setFillGroup(e.target.checked)}
+              />
+              <span>{t("queues.fillGroup")}</span>
+            </label>
+          )}
         </div>
       </fieldset>
       <fieldset className="module-block">

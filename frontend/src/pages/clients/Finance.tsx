@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
@@ -372,7 +372,10 @@ function ItemActions({
   const queryClient = useQueryClient();
   const remove = useMutation({
     mutationFn: () => apiDelete<Finance>(deleteUrl),
-    onSuccess: (data) => queryClient.setQueryData(financeKey(caseId), data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(financeKey(caseId), data);
+      refreshBalances(queryClient);
+    },
   });
   return (
     <span className="finance-actions">
@@ -393,6 +396,12 @@ function ItemActions({
   );
 }
 
+/** A payment changes the balance: its reminders and the home screen's debt. */
+function refreshBalances(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: ["reminders"] });
+  void queryClient.invalidateQueries({ queryKey: ["home"] });
+}
+
 /** Saves a form; the API answers with the case's finance counted again. */
 function useSave(caseId: string, onDone: () => void, request: () => Promise<Finance>) {
   const queryClient = useQueryClient();
@@ -400,6 +409,7 @@ function useSave(caseId: string, onDone: () => void, request: () => Promise<Fina
     mutationFn: request,
     onSuccess: (data: Finance) => {
       queryClient.setQueryData(financeKey(caseId), data);
+      refreshBalances(queryClient);
       onDone();
     },
   });

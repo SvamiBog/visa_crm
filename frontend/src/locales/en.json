@@ -830,6 +830,8 @@
   "queues.putInQueue": "Put in the queue",
   "queues.queuedOn": "Queued on",
   "queues.withGroup": "The whole submission group",
+  "queues.sameLetterFor": "The same date and appointment for group members",
+  "queues.fillGroup": "Fill in the number and email for group members who have none",
   "queues.letterDate": "Letter date",
   "queues.dateCame": "Date came",
   "queues.remove": "Take off the queue",
