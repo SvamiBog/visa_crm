@@ -82,6 +82,10 @@ class AttemptIn(BaseModel):
 
 
 class AttemptUpdate(BaseModel):
+    """Only the fields sent are changed. A corrected `sent_on` moves the deadline by the
+    window the attempt was sent with; null leaves it as it is."""
+
+    sent_on: date | None = None
     outcome: AttemptOutcome | None = None
     closed_on: date | None = None
     appointment_on: date | None = None
@@ -343,12 +347,17 @@ async def update_attempt(
     attempt_id: uuid.UUID, body: AttemptUpdate, user: Member, session: TenantSession
 ) -> AttemptOut:
     """Close an attempt: a date came (with the appointment), it expired or was cancelled.
-    Clearing the outcome reopens it."""
+    Clearing the outcome reopens it. A typo in the sent date is corrected here rather than
+    by cancelling and sending again, which would count a false attempt."""
     attempt = await _attempt(session, attempt_id)
     case = await _case(session, attempt.case_id)
     today = await workspace_today(session, user.tenant_id)
     changes: dict[str, Any] = body.model_dump(exclude_unset=True)
     appointment_on = changes.pop("appointment_on", None)
+    if (sent_on := changes.pop("sent_on", None)) is not None:
+        # The window of the country rule at the time of sending (decisions.md, 2026-10-16).
+        window = (attempt.deadline_on - attempt.sent_on).days
+        changes |= {"sent_on": sent_on, "deadline_on": deadline(sent_on, window)}
     if "outcome" in changes:
         if changes["outcome"] is None:
             changes["closed_on"] = None
@@ -357,7 +366,9 @@ async def update_attempt(
     changed = sorted(f for f, v in changes.items() if getattr(attempt, f) != v)
     for field, value in changes.items():
         setattr(attempt, field, value)
-    if attempt.closed_on is not None and attempt.outcome is None:
+    if (attempt.closed_on is not None and attempt.outcome is None) or (
+        attempt.closed_on is not None and attempt.closed_on < attempt.sent_on
+    ):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
     if appointment_on is not None:
         if appointment_on != case.submission_on:

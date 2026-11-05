@@ -296,16 +296,21 @@ function WaitingList({ visaCase: c }: { visaCase: VisaCase }) {
 
 // --- Applications with a window ------------------------------------------------------
 
-type AttemptAction = "send" | "came" | null;
+type AttemptAction = "send" | "came" | "fix" | null;
 
 function Attempts({ visaCase: c }: { visaCase: VisaCase }) {
   const { t, i18n } = useTranslation();
   const refresh = useRefreshCards();
   const date = (value: string | null) => formatDate(value, i18n.language);
   const open = c.attempts.find((a) => a.status === "open");
+  // Open, or past its deadline without an outcome: a letter that came on the 60th day
+  // may be entered on the 61st, and a typo in the sent date is corrected in place.
+  const pending = c.attempts.find((a) => a.outcome === null);
   const [action, setAction] = useState<AttemptAction>(null);
   const [day, setDay] = useState(todayIso());
   const [appointment, setAppointment] = useState("");
+  // Each new attempt has a new visa-centre account (docs/clients-module.md).
+  const [resent, setResent] = useState<number | null>(null);
 
   const done = () => {
     setAction(null);
@@ -313,10 +318,13 @@ function Attempts({ visaCase: c }: { visaCase: VisaCase }) {
   };
   const send = useMutation({
     mutationFn: () => apiPost<Attempt>(`/cases/${c.id}/attempts`, { sent_on: day }),
-    onSuccess: done,
+    onSuccess: (attempt) => {
+      setResent(attempt.number > 1 ? attempt.number : null);
+      done();
+    },
   });
   const update = useMutation({
-    mutationFn: (body: object) => apiPatch<Attempt>(`/attempts/${open?.id}`, body),
+    mutationFn: (body: object) => apiPatch<Attempt>(`/attempts/${pending?.id}`, body),
     onSuccess: done,
   });
 
@@ -366,9 +374,23 @@ function Attempts({ visaCase: c }: { visaCase: VisaCase }) {
           <DateField label={t("cases.submissionOn")} value={appointment} onChange={setAppointment} />
         </InlineForm>
       )}
+      {action === "fix" && (
+        <InlineForm
+          onSubmit={() => update.mutate({ sent_on: day })}
+          onCancel={() => setAction(null)}
+          pending={update.isPending}
+          error={update.error}
+          submitLabel={t("common.save")}
+        >
+          <DateField label={t("queues.sentOn")} value={day} onChange={setDay} required />
+        </InlineForm>
+      )}
+      {resent !== null && action === null && (
+        <p className="muted small">{t("queues.newAccountHint", { number: resent })}</p>
+      )}
       {action === null && (
         <div className="note-actions">
-          {open ? (
+          {pending && (
             <>
               <button
                 type="button"
@@ -383,14 +405,26 @@ function Attempts({ visaCase: c }: { visaCase: VisaCase }) {
               <button
                 type="button"
                 className="link-button"
-                disabled={update.isPending}
                 onClick={() => {
-                  if (window.confirm(t("queues.confirmCancel"))) update.mutate({ outcome: "cancelled" });
+                  setDay(pending.sent_on);
+                  setAction("fix");
                 }}
               >
-                {t("queues.cancelAttempt")}
+                {t("queues.fixSentOn")}
               </button>
             </>
+          )}
+          {open ? (
+            <button
+              type="button"
+              className="link-button"
+              disabled={update.isPending}
+              onClick={() => {
+                if (window.confirm(t("queues.confirmCancel"))) update.mutate({ outcome: "cancelled" });
+              }}
+            >
+              {t("queues.cancelAttempt")}
+            </button>
           ) : (
             <button
               type="button"
