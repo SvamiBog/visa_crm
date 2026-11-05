@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-// «Импорт таблиц» (backlog 1.21): the template and the prompt for the AI, then the check of
-// the file it makes. The downloaded template itself is checked: nothing would change and
-// nothing is written, so the demo data stays as it is. Both languages, a wide screen and a
-// phone, where the page must not scroll sideways.
+// «Импорт таблиц» (backlog 1.21, 1.22): the template and the prompt for the AI, then the file
+// it makes — uploaded once, its sample cards, the check of the whole file, and «Отменить».
+// The downloaded template itself is uploaded: it has no clients, nothing would change, and
+// the file is cancelled, never confirmed, so the demo data stays as it is. Both languages, a
+// wide screen and a phone, where the page must not scroll sideways.
 
 type Lang = "ru" | "en";
 
@@ -61,13 +62,25 @@ for (const lang of ["ru", "en"] as const) {
         expect(download.suggestedFilename()).toBe(t("import.templateFile"));
 
         await page.getByLabel(t("import.file")).setInputFiles(await download.path());
+        // The file waits on the server; its sample comes first.
+        await expect(page.getByRole("heading", { name: t("import.stepSample") })).toBeVisible();
+        await expect(page.getByText(t("import.sampleEmpty"))).toBeVisible();
+
+        await page.getByRole("button", { name: t("import.checkWhole"), exact: true }).click();
         await expect(page.getByRole("heading", { name: t("import.stepCheck") })).toBeVisible();
         await expect(page.getByText(t("import.nothingChanges"))).toBeVisible();
+        await expect(page.getByRole("heading", { name: t("import.cardsTitle") })).toBeVisible();
+        await expect(page.getByText(t("import.card.nothingFound"))).toBeVisible();
 
         const sideways = await page.evaluate(
           () => document.documentElement.scrollWidth - window.innerWidth,
         );
         expect(sideways, "the page scrolls sideways").toBeLessThanOrEqual(0);
+
+        // «Отменить»: the file is forgotten, nothing was added.
+        await page.getByRole("button", { name: t("import.cancel"), exact: true }).click();
+        await expect(page.getByRole("heading", { name: t("import.stepCheck") })).toBeHidden();
+        await expect(page.getByText(t("import.confirm"))).toBeHidden();
       });
     }
   });

@@ -155,7 +155,7 @@ STORED_IN: list[tuple[type[BaseModel], type[db.Base]]] = [
     (finances.ExpenseUpdate, CaseExpense),
     (finances.PaymentIn, CasePayment),
     (finances.PaymentUpdate, CasePayment),
-    (imports.ImportIn, ImportRun),
+    (imports.UploadIn, ImportRun),
     (queues.QueueUpdate, WaitingListEntry),
     (reference.CountryIn, Country),
     (reference.CountryUpdate, Country),

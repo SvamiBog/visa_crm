@@ -7,14 +7,18 @@ import { formatSize, readBase64 } from "../../files";
 import {
   CREATABLE,
   MAX_IMPORT_BYTES,
+  cancelImportUpload,
   downloadImportTemplate,
   fetchImportPrompt,
   promptLanguage,
   startImportJob,
+  uploadImportFile,
   useImportJob,
   useImportReport,
   useImportRuns,
+  useImportUpload,
   useRunningImportJobs,
+  useSampleCards,
   type ImportChoices,
   type ImportIssue,
   type ImportJob,
@@ -23,11 +27,14 @@ import {
   type ImportUpload,
 } from "../../imports";
 import { ErrorAlert } from "../clients/ui";
+import { CardList, CardView, useIssueText } from "./ImportCard";
 
-// «Импорт таблиц» (backlog 1.21, docs/data-format.md): the template and the prompt for
-// the AI, then the workbook it makes — checked first, loaded after. The file stays in the
-// browser and is sent again for the check and the import. Both run on the server in the
-// background; the page shows how far they are.
+// «Импорт таблиц» (backlog 1.21, 1.22, docs/data-format.md): the template and the prompt for
+// the AI, then the workbook it makes. The file is uploaded once and waits on the server: a
+// few sample cards first, then the check of the whole file with every card it will make,
+// and only when the specialist confirms is it loaded into the CRM. The runs go on on the
+// server in the background; the page shows how far they are and, opened again, goes on
+// where it was.
 
 // The order counts come in: people first, then what hangs on them.
 const COUNT_ORDER = [
@@ -50,60 +57,117 @@ const COUNT_ORDER = [
   "registrar",
 ];
 const SHOWN_ISSUES = 30;
-type Upload = ImportUpload & { size: number };
+type Kind = ImportJob["kind"];
 
 export function ImportPage() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const [upload, setUpload] = useState<Upload | null>(null);
+  const upload = useImportUpload();
+  const current = upload.data ?? null;
   const [fileError, setFileError] = useState<string | null>(null);
   const [choices, setChoices] = useState<ImportChoices>({});
-  const [checkId, setCheckId] = useState<string | null>(null);
-  const [importId, setImportId] = useState<string | null>(null);
+  // The runs of the file this page follows, by kind.
+  const [jobs, setJobs] = useState<Partial<Record<Kind, string>>>({});
   // A new key clears the file input for the next file.
   const [inputKey, setInputKey] = useState(0);
   const runs = useImportRuns();
-  const checkJob = useImportJob(checkId);
-  const importJob = useImportJob(importId);
+  const running = useRunningImportJobs();
+  const sampleJob = useImportJob(jobs.sample ?? null);
+  const checkJob = useImportJob(jobs.check ?? null);
+  const importJob = useImportJob(jobs.import ?? null);
 
-  const checking = useStartJob("check", setCheckId);
-  const importing = useStartJob("import", setImportId);
-
-  const checked = checkJob.data?.status === "done" ? checkJob.data.report : null;
-  const result = importJob.data?.status === "done" ? importJob.data.report : null;
-  const importRunning = importing.isPending || importJob.data?.status === "running";
-
-  const imported = result !== null;
+  // A run of the file started before the page was opened again: followed here.
   useEffect(() => {
-    // Cards, cases, queues, lists and the history all may have changed.
-    if (imported) {
-      void queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "import-jobs" });
+    const mine = (running.data ?? []).filter((job) => job.upload_id === current?.id);
+    if (mine.some((job) => jobs[job.kind] !== job.id)) {
+      setJobs((followed) => ({
+        ...followed,
+        ...Object.fromEntries(mine.map((job) => [job.kind, job.id])),
+      }));
     }
-  }, [imported, queryClient]);
+  }, [running.data, current?.id, jobs]);
+
+  const result = importJob.data?.status === "done" ? importJob.data.report : null;
+  const imported = result !== null;
+  // A run that ends changes the file's state: its sample, its check, or the file is gone.
+  const statuses = [sampleJob.data?.status, checkJob.data?.status, importJob.data?.status].join();
+  useEffect(() => {
+    if (imported) {
+      // The server forgot the loaded file with its cards: they are not asked for again.
+      queryClient.setQueryData(["import-upload"], null);
+      queryClient.removeQueries({ queryKey: ["import-sample"] });
+      queryClient.removeQueries({ queryKey: ["import-cards"] });
+      // Cards, cases, queues, lists and the history all may have changed.
+      void queryClient.invalidateQueries({
+        predicate: (q) => !["import-jobs", "import-upload"].includes(String(q.queryKey[0])),
+      });
+      return;
+    }
+    for (const key of ["import-upload", "import-sample", "import-cards"]) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  }, [statuses, imported, queryClient]);
+
+  const starting = useMutation({
+    mutationFn: (request: { kind: Kind; uploadId: string }) =>
+      startImportJob(request.kind, request.uploadId, choices),
+    onSuccess: (job) => {
+      queryClient.setQueryData(["import-jobs", job.id], job);
+      setJobs((followed) => ({ ...followed, [job.kind]: job.id }));
+    },
+  });
+  const start = (kind: Kind) => current && starting.mutate({ kind, uploadId: current.id });
+
+  const uploading = useMutation({
+    mutationFn: (file: { name: string; content: string }) =>
+      uploadImportFile(file.name, file.content),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["import-upload"], next);
+      setJobs({});
+      setChoices({});
+      // The sample cards come first: nothing goes into the CRM yet.
+      starting.mutate({ kind: "sample", uploadId: next.id });
+    },
+  });
+  const cancelling = useMutation({
+    mutationFn: (id: string) => cancelImportUpload(id),
+    onSuccess: () => {
+      queryClient.setQueryData(["import-upload"], null);
+      setJobs({});
+      setChoices({});
+      setInputKey((key) => key + 1);
+    },
+  });
 
   const chooseFile = async (picked: File | undefined) => {
-    setCheckId(null);
-    setImportId(null);
-    setChoices({});
-    setUpload(null);
     setFileError(null);
     if (!picked) return;
     if (picked.size > MAX_IMPORT_BYTES) {
       setFileError("file_too_large");
       return;
     }
-    const next = {
-      name: picked.name.slice(-200),
-      size: picked.size,
-      content: await readBase64(picked),
-    };
-    setUpload(next);
-    checking.mutate({ file: next, choices: {} });
+    setJobs({});
+    uploading.mutate({ name: picked.name.slice(-200), content: await readBase64(picked) });
   };
 
   const choose = (type: string, key: string, value: string) => {
     setChoices({ ...choices, [type]: { ...(choices[type] ?? {}), [key]: value } });
   };
+
+  const isRunning = (job: ImportJob | undefined) => job?.status === "running";
+  const importRunning =
+    isRunning(importJob.data) || (starting.isPending && starting.variables?.kind === "import");
+  const checkRunning = isRunning(checkJob.data);
+  const cancel = current && !importRunning && (
+    <button
+      type="button"
+      className="btn"
+      disabled={cancelling.isPending}
+      onClick={() => cancelling.mutate(current.id)}
+    >
+      {t("import.cancel")}
+    </button>
+  );
 
   return (
     <div className="page">
@@ -125,6 +189,7 @@ export function ImportPage() {
               key={inputKey}
               type="file"
               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              disabled={importRunning}
               onChange={(e) => void chooseFile(e.target.files?.[0])}
             />
             <small className="muted">{t("import.fileHint")}</small>
@@ -135,51 +200,88 @@ export function ImportPage() {
             {t(`errors.${fileError}`)}
           </div>
         )}
-        {upload && checkJob.data && (
-          <p className="muted import-note">
-            {t("import.fileAccepted", {
-              name: upload.name,
-              size: formatSize(upload.size, i18n.language),
-            })}
-          </p>
-        )}
-        {checking.isPending && <p className="muted">{t("import.sending")}</p>}
-        {checking.isError && <ErrorAlert error={checking.error} />}
-        <JobState job={checkJob.data} error={checkJob.error} />
+        {uploading.isPending && <p className="muted">{t("import.sending")}</p>}
+        {uploading.isError && <ErrorAlert error={uploading.error} />}
+        {cancelling.isError && <ErrorAlert error={cancelling.error} />}
+        {current && <Accepted upload={current} language={i18n.language} />}
       </section>
 
-      {checked && upload && !result && (
+      {current && !current.checked && !checkRunning && (
         <section className="card import-step">
-          <h2 className="h2">{t("import.stepCheck")}</h2>
-          <p className="muted import-note">{t("import.checkNote")}</p>
-          <ReportView report={checked} dryRun />
-          <UnknownValues report={checked} choices={choices} onChange={choose} />
-          {importJob.data?.status !== "running" && (
+          <h2 className="h2">{t("import.stepSample")}</h2>
+          <p className="muted import-note">{t("import.sampleNote")}</p>
+          <JobState job={sampleJob.data} error={sampleJob.error} />
+          {current.sampled && <Sample uploadId={current.id} />}
+          {!isRunning(sampleJob.data) && (
             <div className="form-actions">
               <button
                 type="button"
                 className="btn btn-p"
-                disabled={importRunning || checked.imported === 0}
-                onClick={() => importing.mutate({ file: upload, choices })}
+                disabled={starting.isPending}
+                onClick={() => start("check")}
               >
-                {importing.isPending
-                  ? t("import.sending")
-                  : t("import.run", { count: checked.imported })}
+                {t(
+                  current.sampled && current.clients > 0
+                    ? "import.sampleRight"
+                    : "import.checkWhole",
+                )}
               </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={checking.isPending || importRunning}
-                onClick={() => {
-                  setImportId(null);
-                  checking.mutate({ file: upload, choices });
-                }}
-              >
-                {t("import.checkAgain")}
-              </button>
+              {!current.sampled && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={starting.isPending}
+                  onClick={() => start("sample")}
+                >
+                  {t("import.showSample")}
+                </button>
+              )}
+              {cancel}
             </div>
           )}
-          {importing.isError && <ErrorAlert error={importing.error} />}
+          {starting.isError && <ErrorAlert error={starting.error} />}
+        </section>
+      )}
+
+      {current && (current.checked || checkRunning) && (
+        <section className="card import-step">
+          <h2 className="h2">{t("import.stepCheck")}</h2>
+          <JobState job={checkJob.data} error={checkJob.error} />
+          {current.checked && current.report && (
+            <>
+              <p className="muted import-note">{t("import.checkNote")}</p>
+              <ReportView report={current.report} dryRun />
+              <UnknownValues report={current.report} choices={choices} onChange={choose} />
+              <h3 className="h3">{t("import.cardsTitle")}</h3>
+              <p className="muted small">{t("import.cardsNote")}</p>
+              <CardList uploadId={current.id} />
+              {!importRunning && (
+                <>
+                  <div className="form-actions import-confirm">
+                    <button
+                      type="button"
+                      className="btn btn-p"
+                      disabled={starting.isPending || current.report.imported === 0}
+                      onClick={() => start("import")}
+                    >
+                      {t("import.confirm")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={starting.isPending}
+                      onClick={() => start("check")}
+                    >
+                      {t("import.checkAgain")}
+                    </button>
+                    {cancel}
+                  </div>
+                  <p className="muted small">{t("import.confirmHint")}</p>
+                </>
+              )}
+            </>
+          )}
+          {starting.isError && <ErrorAlert error={starting.error} />}
           <JobState job={importJob.data} error={importJob.error} />
         </section>
       )}
@@ -201,9 +303,7 @@ export function ImportPage() {
               type="button"
               className="btn"
               onClick={() => {
-                setCheckId(null);
-                setImportId(null);
-                setUpload(null);
+                setJobs({});
                 setInputKey(inputKey + 1);
               }}
             >
@@ -216,27 +316,43 @@ export function ImportPage() {
       <History
         runs={runs.data}
         error={runs.isError ? runs.error : null}
-        shown={[checkId, importId]}
+        shown={[jobs.sample, jobs.check, jobs.import]}
       />
     </div>
   );
 }
 
-/** Start a check or an import; the job the request started is shown at once and then
- * asked about while it runs. */
-function useStartJob(kind: ImportJob["kind"], onStarted: (id: string) => void) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (request: { file: Upload; choices: ImportChoices }) =>
-      startImportJob(kind, request.file, request.choices),
-    onSuccess: (job) => {
-      queryClient.setQueryData(["import-jobs", job.id], job);
-      onStarted(job.id);
-    },
-  });
+/** «Файл принят»: it waits on the server, nothing is in the CRM yet. */
+function Accepted({ upload, language }: { upload: ImportUpload; language: string }) {
+  const { t } = useTranslation();
+  return (
+    <p className="muted import-note">
+      {t("import.fileAccepted", {
+        name: upload.file_name,
+        size: formatSize(upload.size, language),
+      })}{" "}
+      {t("import.fileHolds", { sheets: upload.sheets.length, clients: upload.clients })}
+    </p>
+  );
 }
 
-/** A running job's progress, or why it did not finish. A done job shows its report. */
+/** The cards of the file's first clients, as the CRM will have them. */
+function Sample({ uploadId }: { uploadId: string }) {
+  const { t, i18n } = useTranslation();
+  const cards = useSampleCards(uploadId, promptLanguage(i18n.resolvedLanguage));
+  if (cards.isError) return <ErrorAlert error={cards.error} />;
+  if (!cards.data) return <p className="muted">{t("common.loading")}</p>;
+  if (cards.data.length === 0) return <p className="muted">{t("import.sampleEmpty")}</p>;
+  return (
+    <div className="import-sample">
+      {cards.data.map((card) => (
+        <CardView key={card.n} card={card} />
+      ))}
+    </div>
+  );
+}
+
+/** A running job's progress, or why it did not finish. A done job shows nothing here. */
 function JobState({ job, error }: { job: ImportJob | undefined; error: unknown }) {
   const { t } = useTranslation();
   // A poll lost to a weak connection is asked again; only an answer of the server counts.
@@ -259,7 +375,7 @@ function JobProgress({ job }: { job: ImportJob }) {
   const label =
     total === 0
       ? t("import.preparing")
-      : t(job.kind === "check" ? "import.progressChecked" : "import.progressLoaded", {
+      : t(job.kind === "import" ? "import.progressLoaded" : "import.progressChecked", {
           done,
           total,
         });
@@ -408,20 +524,6 @@ function Kpi({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** «Лист «Кейсы», строка 7, колонка «Дата подачи»» — never the cell's value. */
-function useIssueText() {
-  const { t } = useTranslation();
-  return (issue: ImportIssue) => {
-    const where = [
-      issue.sheet ? t("import.whereSheet", { sheet: issue.sheet }) : null,
-      issue.row !== null ? t("import.whereRow", { row: issue.row }) : null,
-      issue.column ? t("import.whereColumn", { column: issue.column }) : null,
-    ].filter(Boolean);
-    const reason = t(`import.reason.${issue.reason}`, { defaultValue: t("import.reason.other") });
-    return where.length ? `${where.join(", ")}: ${reason}` : reason;
-  };
-}
-
 function Issues({ title, issues, total }: { title: string; issues: ImportIssue[]; total: number }) {
   const { t } = useTranslation();
   const text = useIssueText();
@@ -557,7 +659,7 @@ function History({
 }: {
   runs: ImportRunSummary[] | undefined;
   error: unknown;
-  shown: (string | null)[];
+  shown: (string | undefined)[];
 }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -577,16 +679,17 @@ function History({
     new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(
       new Date(value),
     );
+  const runningText: Record<Kind, string> = {
+    sample: "import.runningSample",
+    check: "import.runningCheck",
+    import: "import.runningImport",
+  };
   return (
     <section className="card">
       <h2 className="h2">{t("import.history")}</h2>
       {running.map((job) => (
         <div key={job.id} className="import-running">
-          <strong>
-            {t(job.kind === "check" ? "import.runningCheck" : "import.runningImport", {
-              file: job.file_name,
-            })}
-          </strong>
+          <strong>{t(runningText[job.kind], { file: job.file_name })}</strong>
           <JobProgress job={job} />
         </div>
       ))}

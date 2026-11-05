@@ -215,6 +215,10 @@ class _Row:
     new_entries: list[tuple[ValueType, str, Any]] = field(default_factory=list)
     # Something was written: a failure after it reloads the records.
     wrote: bool = False
+    # Whose card the row is about (app/core/import_cards.py): a client, or the
+    # specialist's own accounts.
+    client: uuid.UUID | None = None
+    own: bool = False
 
     @property
     def values(self) -> dict[str, Any]:
@@ -290,6 +294,11 @@ class WorkbookImport:
         self.codes: defaultdict[str, dict[str, uuid.UUID]] = defaultdict(dict)
         # Records made in this run: their changes later in the run are not «updated».
         self.made: set[uuid.UUID] = set()
+        # Records of the CRM the run changed; a case's id stands for its finances too.
+        self.changed: set[uuid.UUID] = set()
+        # The clients the rows were about, in the file's order, with the report's lines of
+        # their rows; None — the specialist's own accounts. The cards of a check.
+        self.touched: dict[uuid.UUID | None, list[dict[str, Any]]] = {}
         # Cases a row of the file became: not adopted by another row.
         self.claimed: set[uuid.UUID] = set()
         # Cases made in this run without «Дата открытия»: they start at their earliest date.
@@ -495,13 +504,17 @@ class WorkbookImport:
                 await self.session.flush()
         except SkipRow as skip:
             column = r.header(skip.column) if skip.column else None
-            self.report.skip(Issue(skip.reason, sheet.title, row.number, column))
+            issue = Issue(skip.reason, sheet.title, row.number, column)
+            self.report.skip(issue)
+            self._touch(r, [issue])
             if r.wrote:
                 await self.load()
             return
         except SQLAlchemyError:
             # The database refused the row (a rule the checks here do not know).
-            self.report.skip(Issue("row_error", sheet.title, row.number))
+            issue = Issue("row_error", sheet.title, row.number)
+            self.report.skip(issue)
+            self._touch(r, [issue])
             await self.load()
             return
         for t, key, entry in r.new_entries:
@@ -513,8 +526,15 @@ class WorkbookImport:
         self.report.updated.update(r.updated)
         for issue in r.warnings:
             self.report.warn(issue)
+        self._touch(r, r.warnings)
         if (code := row.values.get("code")) is not None and r.sheet.spec.key in _CODED:
             self.codes[r.sheet.spec.key][code] = self._made_id
+
+    def _touch(self, r: _Row, issues: list[Issue]) -> None:
+        """The row's card: a check shows it with the lines of its rows."""
+        if r.client is None and not r.own:
+            return
+        self.touched.setdefault(r.client, []).extend(_issue(issue) for issue in issues)
 
     # --- Shared steps -------------------------------------------------------------------
 
@@ -528,6 +548,7 @@ class WorkbookImport:
     def _changed(self, r: _Row, obj: Any, counter: str, changed: bool) -> None:
         if changed and obj.id not in self.made:
             r.updated[counter] += 1
+            self.changed.add(obj.id)
 
     def _own(self, r: _Row, records: dict[uuid.UUID, Any]) -> Any:
         """The record of the row's own code when it is the CRM's (a row of an export); a
@@ -560,6 +581,7 @@ class WorkbookImport:
         if contact is None:
             raise SkipRow("unknown_code", "client")
         self._same_person(r, contact)
+        r.client = contact.id
         return contact
 
     def _case_of(self, r: _Row) -> VisaCase:
@@ -567,6 +589,7 @@ class WorkbookImport:
         if case is None:
             raise SkipRow("unknown_code", "case")
         self._same_person(r, self.contacts[case.contact_id])
+        r.client = case.contact_id
         return case
 
     @staticmethod
@@ -709,6 +732,7 @@ class WorkbookImport:
             self._write(r, contact, "contacts")
             self._index_contact(contact)
         r.wrote = True
+        r.client = contact.id
         changed = False
         if r.snapshot:
             changed |= self._names(r, contact)
@@ -1196,6 +1220,8 @@ class WorkbookImport:
             r.created["finances"] += 1
         elif changed:
             r.updated["finances"] += 1
+        if changed and case.id not in self.made:
+            self.changed.add(case.id)
         return changed
 
     async def _talon(self, r: _Row, case: VisaCase, finance: CaseFinance) -> bool:
@@ -1290,6 +1316,7 @@ class WorkbookImport:
                     self.cases[case_id].group_id = None
                     if case_id not in self.made:
                         self.report.updated["cases"] += 1
+                        self.changed.add(case_id)
                 for members in self.families.values():
                     cases = [self.cases[i] for i in dict.fromkeys(members)]
                     groups = [c.group_id for c in cases if c.group_id is not None]
@@ -1308,6 +1335,7 @@ class WorkbookImport:
                             case.group_id = group_id
                             if case.id not in self.made:
                                 self.report.updated["cases"] += 1
+                                self.changed.add(case.id)
                 await self.session.flush()
         except SQLAlchemyError:
             self.report.skip(Issue("row_error", title))
@@ -1571,6 +1599,7 @@ class WorkbookImport:
                 contact = self.contacts[case.contact_id]
             elif case.contact_id != contact.id:
                 raise SkipRow("code_mismatch", "case")
+        r.own = contact is None
         entry: VaultEntry | None = self._own(r, self.vault)
         contact_id = contact.id if contact else None
         if entry is not None and entry.contact_id != contact_id:

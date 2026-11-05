@@ -42,11 +42,11 @@ def body(sheets: dict[str, list[list]], **extra) -> dict:
 
 
 async def check(client: AsyncClient, sheets: dict[str, list[list]], **extra) -> dict:
-    return await import_report(client, f"{API}/check", body(sheets, **extra))
+    return await import_report(client, body(sheets, **extra), save=False)
 
 
 async def run(client: AsyncClient, sheets: dict[str, list[list]], **extra) -> dict:
-    return await import_report(client, API, body(sheets, **extra))
+    return await import_report(client, body(sheets, **extra))
 
 
 async def count(engine: AsyncEngine, table: str, tenant_id: uuid.UUID) -> int:
@@ -721,12 +721,12 @@ async def test_only_the_specialist_imports_and_files_are_bounded(
     await login(client, "spec@example.com")
 
     unreadable = {"file_name": "x.xlsx", "content": base64.b64encode(b"name;phone").decode()}
-    response = await client.post(f"{API}/check", json=unreadable)
+    response = await client.post(f"{API}/uploads", json=unreadable)
     assert response.status_code == 422 and response.json()["detail"] == "file_unreadable"
 
     client.cookies.clear()
     await login(client, "emp@example.com")
-    response = await client.post(f"{API}/check", json=body({"Клиенты": CLIENTS}))
+    response = await client.post(f"{API}/uploads", json=body({"Клиенты": CLIENTS}))
     assert response.status_code == 403
 
 
@@ -772,9 +772,7 @@ async def test_the_template_has_every_sheet_and_loads_back_empty(
     assert "Instagram" in reference and "Польша" in reference and "многократная" in reference
 
     content = base64.b64encode(response.content).decode()
-    report = await import_report(
-        client, f"{API}/check", {"file_name": "t.xlsx", "content": content}
-    )
+    report = await import_report(client, {"file_name": "t.xlsx", "content": content}, save=False)
     assert report["rows"] == 0 and report["skipped"] == [] and report["warnings"] == []
 
 
