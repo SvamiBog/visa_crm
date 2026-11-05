@@ -18,6 +18,7 @@ import {
   type VisaRecord,
 } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
+import { useMoney } from "./Finance";
 import { useSortedCountries } from "./ui";
 
 // Consultations, the questionnaire and its checks on the client's card (backlog 1.3).
@@ -151,6 +152,7 @@ export function Consultations({
   const name = useLocalName();
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
+  const money = useMoney();
   const [editing, setEditing] = useState<Consultation | "new" | null>(null);
 
   return (
@@ -195,7 +197,7 @@ export function Consultations({
                       date: formatDate(c.follow_up_on, i18n.language),
                     }),
                   c.fee_amount &&
-                    `${t("contacts.fee")}: ${c.fee_amount} ${c.fee_currency} · ${t(
+                    `${t("contacts.fee")}: ${money(c.fee_amount)} ${c.fee_currency} · ${t(
                       c.fee_paid ? "contacts.feePaid" : "contacts.feeUnpaid",
                     )}`,
                 ]
