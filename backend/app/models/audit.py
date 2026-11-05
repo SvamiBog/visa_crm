@@ -27,6 +27,13 @@ class AuditAction(StrEnum):
     SPECIALIST_UNBLOCKED = "admin.specialist_unblocked"
     SPECIALIST_PASSWORD_RESET = "admin.specialist_password_reset"
     SPECIALIST_UPDATED = "admin.specialist_updated"
+    # The CRM subscription (roadmap 3.8): tariffs are platform-wide, the rest is logged
+    # under the workspace.
+    TARIFF_CREATED = "admin.tariff_created"
+    TARIFF_UPDATED = "admin.tariff_updated"
+    SUBSCRIPTION_UPDATED = "admin.subscription_updated"
+    SUBSCRIPTION_PAYMENT_RECORDED = "admin.subscription_payment_recorded"
+    SUBSCRIPTION_PAYMENT_DELETED = "admin.subscription_payment_deleted"
     EMPLOYEE_CREATED = "employees.created"
     EMPLOYEE_UPDATED = "employees.updated"
     EMPLOYEE_BLOCKED = "employees.blocked"
@@ -38,6 +45,8 @@ class AuditAction(StrEnum):
     # Opens by an employee, once a card a day (app/core/employee_limits.py).
     CONTACT_VIEWED = "contacts.viewed"
     CONTACT_UPDATED = "contacts.updated"
+    # An empty duplicate card removed by the specialist; the id stays in the log.
+    CONTACT_DELETED = "contacts.deleted"
     CONTACT_NOTE_ADDED = "contacts.note_added"
     CONTACT_NOTE_EDITED = "contacts.note_edited"
     CONTACT_NOTE_DELETED = "contacts.note_deleted"

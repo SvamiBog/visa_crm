@@ -44,16 +44,18 @@ export function CasePackage({ visaCase: c }: { visaCase: VisaCase }) {
   if (result.isError) return <ErrorAlert error={result.error} />;
   const p = result.data;
   const on = formatDate(p.on, i18n.language);
+  // Once the case is submitted the package is history: «Не хватает» would only be noise.
+  const submitted = c.outcome !== null || c.stage === "review" || c.stage === "result";
 
   return (
     <section className="package">
       <div className="card-head">
         <h4 className="h3">{t("package.title")}</h4>
-        {p.items.length > 0 && <PackageChip ready={p.ready} missing={p.missing} />}
+        {p.items.length > 0 && !submitted && <PackageChip ready={p.ready} missing={p.missing} />}
       </div>
       {p.items.length === 0 ? (
         <p className="muted small">
-          {t("package.noChecklist")} <Link to="/app/checklists">{t("nav.checklists")}</Link>
+          {t("package.noChecklist")} <Link to="/app/checklists">{t("checklists.title")}</Link>
         </p>
       ) : (
         <>

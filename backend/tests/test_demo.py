@@ -109,7 +109,16 @@ async def test_demo_workspaces_work_like_real_ones(
     await login(client, specialist_email(2), PASSWORD)
     other = {c["id"] for c in (await client.post("/api/contacts/search", json={})).json()["items"]}
     assert other and not other & own
+    # Subscriptions: the first specialist is paid up, the second is overdue.
+    assert (await client.get("/api/workspace")).json()["subscription"]["status"] == "overdue"
+
+    client.cookies.clear()
+    await login(client, specialist_email(1), PASSWORD)
+    subscription = (await client.get("/api/subscription")).json()
+    assert subscription["status"] == "paid" and len(subscription["payments"]) == 2
 
     client.cookies.clear()
     assert (await login(client, ADMIN_EMAIL, PASSWORD)).status_code == 200
     assert len((await client.get("/api/admin/specialists")).json()) == 2
+    due = (await client.get("/api/admin/subscriptions/due")).json()
+    assert [d["email"] for d in due] == [specialist_email(2)]

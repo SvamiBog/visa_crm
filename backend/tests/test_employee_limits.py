@@ -2,17 +2,22 @@
 limit they are paused until the next day, and the specialist sees it in «Требует
 внимания». Rules: tests/test_employee_limit_rules.py."""
 
+import asyncio
+from collections.abc import Awaitable
 from datetime import timedelta
 
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import AuditEvent
 from tests.helpers import WALL_CLOCK, MakeUser, give_cases
 from tests.test_cases import CONTACTS, new_contact, open_case
+from tests.test_documents import upload as upload_document
 from tests.test_employee_cases import EMPLOYEE, switch_to, user_id, with_employee
+from tests.test_templates import turn_on
+from tests.test_templates import upload as upload_template
 from tests.test_vault import entry, reveal, system
 
 
@@ -41,6 +46,39 @@ async def clients_with_cases(client: AsyncClient, count: int) -> list[dict]:
         [case] = (await open_case(client, contact["id"])).json()
         made.append({"contact": contact, "case": case})
     return made
+
+
+async def _all_waiting(conn: AsyncConnection, count: int) -> bool:
+    """Do `count` connections to this database wait for a lock? Asked again and again for
+    up to ten seconds; the activity view is read afresh each time."""
+    for _ in range(200):
+        await conn.execute(text("SELECT pg_stat_clear_snapshot()"))
+        waiting = await conn.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+            )
+        )
+        if waiting >= count:
+            return True
+        await asyncio.sleep(0.05)
+    return False
+
+
+async def at_once_on_a_busy_log(
+    owner_engine: AsyncEngine, calls: list[Awaitable[Response]]
+) -> list[Response]:
+    """Send requests at once while the audit log takes no writes, as in a slow moment of
+    the database: each request reads the log and waits to write to it, or waits for
+    another request. The log opens once every request waits, so timing does not decide
+    the outcome: if two requests can count the same events, they all do."""
+    async with owner_engine.begin() as conn:
+        await conn.execute(text("LOCK TABLE audit_events IN SHARE MODE"))
+        sent = asyncio.gather(*calls)
+        reached = await _all_waiting(conn, len(calls))
+    answers = await sent
+    assert reached, "the requests never reached the log"
+    return answers
 
 
 async def test_what_an_employee_opens_is_logged_once_a_day(
@@ -166,3 +204,125 @@ async def test_an_employee_reads_only_their_own_events_in_the_log(
         assert await session.scalar(select(func.count(func.distinct(AuditEvent.actor_id)))) == 2
     async with owner_engine.connect() as conn:
         assert (await conn.execute(text("SELECT count(*) FROM audit_events"))).scalar_one() > 1
+
+
+async def test_reveals_sent_at_once_stop_at_the_password_limit(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await with_employee(client, make_user, owner_engine)
+    made = await clients_with_cases(client, 6)
+    vfs = await system(client)
+    entries = [
+        await entry(
+            client,
+            system_id=vfs["id"],
+            contact_id=m["contact"]["id"],
+            login=f"u{n}@x.by",
+            password=f"secret-{n}",
+        )
+        for n, m in enumerate(made)
+    ]
+    await give_cases(owner_engine, EMPLOYEE)
+    await set_limits(client, owner_engine, daily_password_limit=2)
+
+    await switch_to(client, EMPLOYEE)
+    answers = await at_once_on_a_busy_log(owner_engine, [reveal(client, e["id"]) for e in entries])
+    assert sorted(a.status_code for a in answers) == [200] * 2 + [429] * 4
+    paused = {a.json()["detail"] for a in answers if a.status_code == 429}
+    assert paused == {"password_limit_reached"}
+    assert len(await events(owner_engine, "vault.password_revealed")) == 2
+    assert len(await events(owner_engine, "employees.limit_reached")) == 1  # told once
+
+
+async def test_cards_opened_at_once_stop_at_the_card_limit(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await with_employee(client, make_user, owner_engine)
+    made = await clients_with_cases(client, 6)
+    await give_cases(owner_engine, EMPLOYEE)
+    await set_limits(client, owner_engine, daily_card_limit=2)
+
+    await switch_to(client, EMPLOYEE)
+    cards = [client.get(f"{CONTACTS}/{m['contact']['id']}") for m in made]
+    answers = await at_once_on_a_busy_log(owner_engine, cards)
+    assert sorted(a.status_code for a in answers) == [200] * 2 + [429] * 4
+    assert len(await events(owner_engine, "contacts.viewed")) == 2
+    assert len(await events(owner_engine, "employees.limit_reached")) == 1
+
+
+async def test_past_the_card_limit_an_edit_gives_no_card(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await with_employee(client, make_user, owner_engine)
+    [one, two, three] = await clients_with_cases(client, 3)
+    await give_cases(owner_engine, EMPLOYEE)
+    await set_limits(client, owner_engine, daily_card_limit=2)
+
+    await switch_to(client, EMPLOYEE)
+    # An edit answers with the card, so it opens the card; a case is on its client's card.
+    assert (await client.patch(f"{CONTACTS}/{one['contact']['id']}", json={})).status_code == 200
+    assert (await client.patch(f"/api/cases/{two['case']['id']}", json={})).status_code == 200
+    assert (await client.patch(f"/api/cases/{one['case']['id']}", json={})).status_code == 200
+    group = {"case_id": one["case"]["id"]}
+    for paused in (
+        await client.patch(f"{CONTACTS}/{three['contact']['id']}", json={}),
+        await client.patch(f"/api/cases/{three['case']['id']}", json={}),
+        await client.post(f"/api/cases/{three['case']['id']}/group", json=group),
+    ):
+        assert (paused.status_code, paused.json().get("detail")) == (429, "card_limit_reached")
+    viewed = await events(owner_engine, "contacts.viewed")
+    assert [v.target_id for v in viewed] == [one["contact"]["id"], two["contact"]["id"]]
+    assert await events(owner_engine, "cases.grouped") == []
+
+    # The specialist has no limits, and her edits are not logged as opens.
+    await switch_to(client, "anna@example.com")
+    assert (await client.patch(f"{CONTACTS}/{three['contact']['id']}", json={})).status_code == 200
+    grouped = await client.post(f"/api/cases/{three['case']['id']}/group", json=group)
+    assert grouped.status_code == 200
+    assert len(await events(owner_engine, "contacts.viewed")) == 2
+
+
+async def test_past_the_card_limit_no_file_or_account_of_the_client_is_given(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant_id = await with_employee(client, make_user, owner_engine)
+    await turn_on(owner_engine, tenant_id)
+    made = await clients_with_cases(client, 3)
+    template = (await upload_template(client)).json()
+    vfs = await system(client)
+    files = []
+    for m in made[1:]:
+        contact_id = m["contact"]["id"]
+        card = f"{CONTACTS}/{contact_id}"
+        given = await client.post(f"{card}/templates", json={"template_id": template["id"]})
+        document = await upload_document(client, contact_id)
+        await entry(client, system_id=vfs["id"], contact_id=contact_id, login=f"{contact_id}@x.by")
+        files.append(
+            [
+                f"{card}/templates/{given.json()['id']}/file",
+                f"{card}/documents/{document.json()['id']}",
+                f"{card}/vault",
+            ]
+        )
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE users SET modules = array_append(modules, 'document_templates') "
+                "WHERE email = :e"
+            ),
+            {"e": EMPLOYEE},
+        )
+    await give_cases(owner_engine, EMPLOYEE)
+    await set_limits(client, owner_engine, daily_card_limit=1)
+
+    await switch_to(client, EMPLOYEE)
+    # A client's filled template, file or accounts open the client's card: the first one
+    # counts, the rest of the same card are free.
+    for url in files[0]:
+        assert (await client.get(url)).status_code == 200, url
+    assert (await client.get(f"{CONTACTS}/{made[0]['contact']['id']}")).status_code == 429
+    for url in files[1]:
+        paused = await client.get(url)
+        assert (paused.status_code, paused.json().get("detail")) == (429, "card_limit_reached"), url
+    viewed = await events(owner_engine, "contacts.viewed")
+    assert [v.target_id for v in viewed] == [made[1]["contact"]["id"]]

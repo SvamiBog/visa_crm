@@ -5,10 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete
 
-from app.api.auth import CodeIn, _check_second_factor, _register_failure
+from app.api.auth import (
+    CodeIn,
+    _check_second_factor,
+    check_current_password,
+    reject_wrong_secret,
+)
 from app.api.deps import CurrentUser, SystemSession, current_user_password_set
 from app.core.audit import record
-from app.core.security import MAX_PASSWORD_LENGTH, verify_password
+from app.core.security import MAX_PASSWORD_LENGTH
 from app.core.two_factor import (
     generate_recovery_codes,
     hash_recovery_code,
@@ -37,18 +42,25 @@ class RecoveryCodesOut(BaseModel):
     recovery_codes: list[str]
 
 
-class DisableIn(BaseModel):
+class PasswordIn(BaseModel):
     password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+
+
+class DisableIn(PasswordIn):
     # The authenticator code or a recovery code.
     code: str = Field(min_length=6, max_length=32)
 
 
 @router.post("/setup")
-async def start_setup(current: CurrentUserPasswordSet, session: SystemSession) -> SetupOut:
-    """New TOTP secret for the authenticator app; active only after /enable."""
-    user = await session.get_one(User, current.id)
+async def start_setup(
+    body: PasswordIn, current: CurrentUserPasswordSet, session: SystemSession
+) -> SetupOut:
+    """New TOTP secret for the authenticator app; active only after /enable. Asks for the
+    password, so a stolen session alone cannot put the thief's own app on the account."""
+    user = await session.get_one(User, current.id, with_for_update=True)
     if user.totp_enabled_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "two_factor_already_enabled")
+    await check_current_password(session, user, body.password, "two_factor_setup_password")
     secret = new_secret()
     user.totp_secret_encrypted = seal_secret(user.id, secret)
     user.totp_last_step = None
@@ -88,15 +100,9 @@ async def disable(body: DisableIn, current: CurrentUserPasswordSet, session: Sys
     user = await session.get_one(User, current.id, with_for_update=True)
     if user.totp_enabled_at is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "two_factor_not_enabled")
-    now = datetime.now(UTC)
-    if not verify_password(user.password_hash, body.password):
-        _register_failure(session, user, now, "two_factor_disable_password")
-        await session.commit()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_current_password")
+    await check_current_password(session, user, body.password, "two_factor_disable_password")
     if await _check_second_factor(session, user, body.code) is None:
-        _register_failure(session, user, now, "two_factor_disable_code")
-        await session.commit()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_code")
+        await reject_wrong_secret(session, user, "two_factor_disable_code", "invalid_code")
     reset_two_factor(user)
     await session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
     record(session, AuditAction.TWO_FACTOR_DISABLED, actor=user)

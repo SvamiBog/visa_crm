@@ -42,7 +42,7 @@ async def test_new_specialist_gets_default_lists(client: AsyncClient, make_user:
         "/api/auth/change-password",
         json={"current_password": temporary, "new_password": "anna-own-password-1"},
     )
-    await enable_two_factor(client)
+    await enable_two_factor(client, "anna-own-password-1")
 
     purposes = [(p["name"], p["kind"]) for p in (await client.get(f"{BASE}/purposes")).json()]
     channels = [c["name"] for c in (await client.get(f"{BASE}/channels")).json()]

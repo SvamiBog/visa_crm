@@ -181,6 +181,8 @@ export type VisaCase = {
   contact_id: string;
   group_id: string | null;
   consultation_id: string | null;
+  /** Filed again after this case of the same client. */
+  previous_case_id: string | null;
   destination_id: string;
   purpose_id: string | null;
   submission_country_id: string;
@@ -264,6 +266,8 @@ export type ContactCard = {
   cases: VisaCase[] | null;
   /** Newest first. */
   documents: ContactDocument[];
+  /** The specialist may delete a card without client history: a duplicate. */
+  can_delete: boolean;
 };
 
 // Client index (backend/app/api/client_status.py): every contact is in one tab.

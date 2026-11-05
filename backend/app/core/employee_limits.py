@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import record
@@ -71,9 +71,16 @@ async def watch(
 ) -> None:
     """Before an employee opens a card, a case or a password: raise LimitReached past
     today's limit, telling the specialist once a day; otherwise log the open (`opened`),
-    once a card a day. A specialist is neither limited nor logged here. Commits."""
+    once a card a day. A specialist is neither limited nor logged here. Commits when it
+    logs; without `opened` the caller logs the open and commits, in this transaction."""
     if user.role != UserRole.EMPLOYEE:
         return
+    # One check at a time per employee and limit, held until the open is logged and
+    # committed: requests sent at once would all count the same events and all pass.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"employee_limit:{user.id}:{kind.value}"},
+    )
     employee = await session.get_one(User, user.id)
     tenant = await session.get_one(Tenant, user.tenant_id)
     since = day_start(tenant.timezone)

@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import secrets
 
@@ -24,6 +25,12 @@ def verify_password(password_hash: str | None, password: str) -> bool:
     except (VerificationError, InvalidHashError):
         return False
     return password_hash is not None
+
+
+async def check_password(password_hash: str | None, password: str) -> bool:
+    """verify_password off the event loop: argon2 spends tens of milliseconds of CPU, and
+    every other request would wait for it."""
+    return await asyncio.to_thread(verify_password, password_hash, password)
 
 
 def password_needs_rehash(password_hash: str) -> bool:

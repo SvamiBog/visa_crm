@@ -75,10 +75,16 @@ function useSortedCountries(): Country[] {
   );
 }
 
-/** Every card that shows a case: the applicants' and their family's. */
+/** Every card that shows a case: the applicants' and their family's, and the reminders
+ * a new date or result adds or removes. */
 function useRefreshCards() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: ["contacts"] });
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+    void queryClient.invalidateQueries({ queryKey: ["queues"] });
+    void queryClient.invalidateQueries({ queryKey: ["reminders"] });
+    void queryClient.invalidateQueries({ queryKey: ["home"] });
+  };
 }
 
 const OUTCOME_CHIP: Record<Outcome, string> = {
@@ -114,16 +120,21 @@ export function Cases({
   const { t } = useTranslation();
   const ref = useRef<HTMLElement>(null);
   const cases = card.cases ?? [];
+  // «Подать повторно»: a new case filled in from the one it repeats.
+  const [repeating, setRepeating] = useState<VisaCase | null>(null);
+  const numbers = useMemo(() => new Map(cases.map((c) => [c.id, c.number])), [cases]);
 
   useEffect(() => {
-    if (creating !== null) ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [creating]);
+    if (creating !== null || repeating !== null) {
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [creating, repeating]);
 
   return (
     <section className="card" ref={ref}>
       <div className="card-head">
         <h2 className="h2">{t("cases.title")}</h2>
-        {creating === null && (
+        {creating === null && repeating === null && (
           <button type="button" className="btn btn-sm btn-p" onClick={() => onCreating("blank")}>
             {t("cases.add")}
           </button>
@@ -137,19 +148,44 @@ export function Cases({
           onDone={() => onCreating(null)}
         />
       )}
+      {repeating !== null && creating === null && (
+        <CaseCreateForm
+          key={`repeat-${repeating.id}`}
+          card={card}
+          previous={repeating}
+          onDone={() => setRepeating(null)}
+        />
+      )}
       {cases.length === 0 && creating === null && (
         <p className="muted small">{t("cases.empty")}</p>
       )}
       <div className="cases">
         {cases.map((c) => (
-          <CasePanel key={c.id} visaCase={c} />
+          <CasePanel
+            key={c.id}
+            visaCase={c}
+            previousNumber={c.previous_case_id ? numbers.get(c.previous_case_id) : undefined}
+            onFileAgain={() => {
+              onCreating(null);
+              setRepeating(c);
+            }}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
+function CasePanel({
+  visaCase: c,
+  previousNumber,
+  onFileAgain,
+}: {
+  visaCase: VisaCase;
+  // The number of the case this one was filed again after.
+  previousNumber?: number;
+  onFileAgain: () => void;
+}) {
   const { t, i18n } = useTranslation();
   const name = useLocalName();
   const countries = useCountries();
@@ -186,8 +222,18 @@ function CasePanel({ visaCase: c }: { visaCase: VisaCase }) {
               {t("reference.edit")}
             </button>
           )}
+          {!editing && c.outcome !== null && (
+            <button type="button" className="btn btn-sm" onClick={onFileAgain}>
+              {t("cases.fileAgain")}
+            </button>
+          )}
         </div>
       </div>
+      {previousNumber !== undefined && (
+        <Row label={t("cases.previousCase")}>
+          {t("cases.afterCase", { number: previousNumber })}
+        </Row>
+      )}
 
       <ol className="stepper" aria-label={t("cases.stageLabel")}>
         {CASE_STAGES.map((stage, i) => (
@@ -543,10 +589,13 @@ const PART_LABELS = {
 function CaseCreateForm({
   card,
   consultation,
+  previous,
   onDone,
 }: {
   card: ContactCard;
   consultation?: Consultation;
+  // Filing again: where and how the previous case went, and its family.
+  previous?: VisaCase;
   onDone: () => void;
 }) {
   const { t } = useTranslation();
@@ -554,20 +603,41 @@ function CaseCreateForm({
   const refresh = useRefreshCards();
   const belarus = countries.data?.find((c) => c.code === DEFAULT_SUBMISSION_CODE)?.id ?? "";
   const suggested = consultation?.destination_ids ?? [];
-  const [place, setPlace] = useState<Place>({
-    destination: suggested[0] ?? "",
-    submission: belarus,
-    center: "",
-    purpose: "",
-    registrar: "",
-    hall: "",
-    submissionOn: "",
-  });
+  const [place, setPlace] = useState<Place>(() =>
+    previous
+      ? {
+          destination: previous.destination_id,
+          submission: previous.submission_country_id,
+          center: previous.visa_center_id ?? "",
+          purpose: previous.purpose_id ?? "",
+          registrar: previous.registrar_id ?? "",
+          hall: previous.hall ?? "",
+          submissionOn: "",
+        }
+      : {
+          destination: suggested[0] ?? "",
+          submission: belarus,
+          center: "",
+          purpose: "",
+          registrar: "",
+          hall: "",
+          submissionOn: "",
+        },
+  );
   // Belarus as the submission country once the countries are loaded.
   useEffect(() => {
     if (!place.submission && belarus) setPlace((p) => ({ ...p, submission: belarus }));
   }, [belarus, place.submission]);
-  const [chosen, setChosen] = useState<Set<string>>(new Set([card.contact.id]));
+  const [chosen, setChosen] = useState<Set<string>>(
+    () =>
+      new Set([
+        card.contact.id,
+        // The family of the previous case, if they are linked to this client.
+        ...(previous?.group ?? [])
+          .map((m) => m.contact_id)
+          .filter((id) => card.relations.some((r) => r.related_id === id)),
+      ]),
+  );
   const [added, setAdded] = useState<NewApplicant[]>([]);
   const nextKey = useRef(0);
 
@@ -583,6 +653,7 @@ function CaseCreateForm({
       apiPost<VisaCase[]>(`/contacts/${card.contact.id}/cases`, {
         ...placeBody(place),
         consultation_id: consultation?.id ?? null,
+        previous_case_id: previous?.id ?? null,
         applicants: [
           ...people.filter((p) => chosen.has(p.id)).map((p) => ({ contact_id: p.id })),
           ...named.map((a) => ({
@@ -618,7 +689,11 @@ function CaseCreateForm({
         create.mutate();
       }}
     >
-      <h3 className="h3">{t(consultation ? "cases.createFromConsultation" : "cases.newTitle")}</h3>
+      <h3 className="h3">
+        {previous
+          ? t("cases.fileAgainTitle", { number: previous.number })
+          : t(consultation ? "cases.createFromConsultation" : "cases.newTitle")}
+      </h3>
       <PlaceFields place={place} onChange={setPlace} suggested={suggested} />
       <fieldset className="module-block">
         <legend>{t("cases.applicants")}</legend>
@@ -720,6 +795,8 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
   const [vacNumber, setVacNumber] = useState(c.vac_number ?? "");
   const [email, setEmail] = useState(c.application_email ?? "");
   const [emailOwner, setEmailOwner] = useState<EmailOwner | "">(c.application_email_owner ?? "");
+  // The family's number and email are usually the same: filled in where still empty.
+  const [fillGroup, setFillGroup] = useState(c.group.length > 0);
   const [questionnaireDue, setQuestionnaireDue] = useState(c.questionnaire_due_on ?? "");
   const [questionnaireReceived, setQuestionnaireReceived] = useState(
     c.questionnaire_received_on ?? "",
@@ -742,6 +819,7 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
         vac_number: vacNumber.trim() || null,
         application_email: email.trim() || null,
         application_email_owner: email.trim() ? emailOwner || null : null,
+        fill_group: c.group.length > 0 && fillGroup,
         questionnaire_due_on: questionnaireDue || null,
         questionnaire_received_on: questionnaireReceived || null,
       }),
@@ -790,6 +868,16 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
               ))}
             </select>
           </label>
+          {c.group.length > 0 && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={fillGroup}
+                onChange={(e) => setFillGroup(e.target.checked)}
+              />
+              <span>{t("queues.fillGroup")}</span>
+            </label>
+          )}
         </div>
       </fieldset>
       <fieldset className="module-block">

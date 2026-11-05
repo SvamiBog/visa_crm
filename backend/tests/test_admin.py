@@ -39,7 +39,7 @@ async def test_admin_creates_specialist_who_must_change_password(
         "/api/auth/change-password",
         json={"current_password": temporary, "new_password": NEW_PASSWORD},
     )
-    await enable_two_factor(client)
+    await enable_two_factor(client, NEW_PASSWORD)
     assert (await client.get("/api/workspace")).json() == {
         "name": "Anna Visa",
         "base_currency": "PLN",
@@ -47,6 +47,7 @@ async def test_admin_creates_specialist_who_must_change_password(
         "timezone": "Europe/Minsk",
         "modules": ["clients", "cases", "vault", "finances", "tasks", "country_rules", "analytics"],
         "file_storage": True,  # tests keep files in memory
+        "subscription": {"status": "none", "next_due_on": None, "overdue_days": 0},
     }
 
 

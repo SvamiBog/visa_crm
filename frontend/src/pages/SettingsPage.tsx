@@ -4,6 +4,11 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../api";
 import { ME_KEY, useMe, type Me } from "../auth";
+import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
+import { formatDate } from "../contacts";
+import { useOwnSubscription } from "../subscriptions";
+import { useMoney } from "./clients/Finance";
+import { Row } from "./clients/ui";
 import { applyTheme, DEFAULT_THEME, THEMES, type UiTheme } from "../theme";
 
 const LANGUAGES = ["ru", "en"] as const;
@@ -32,6 +37,7 @@ export function SettingsPage() {
         </div>
       </header>
 
+      <OwnSubscription />
       <EmailChange />
       <TwoFactor />
 
@@ -88,6 +94,38 @@ export function SettingsPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+/** The specialist's CRM subscription, read-only (roadmap 3.8); none without a tariff. */
+function OwnSubscription() {
+  const { t, i18n } = useTranslation();
+  const me = useMe();
+  const money = useMoney();
+  const own = useOwnSubscription(me.data?.role === "specialist");
+  const s = own.data;
+  if (!s?.tariff) return null;
+  const date = (value: string | null) => formatDate(value, i18n.language);
+  return (
+    <section className="card form-card">
+      <div className="card-head">
+        <h2 className="h2">{t("subscription.own")}</h2>
+        <SubscriptionChip state={s} />
+      </div>
+      <p className="muted small">{t("subscription.ownHint")}</p>
+      <div>
+        <Row label={t("subscription.tariff")}>
+          {s.tariff.name} ·{" "}
+          {t("subscription.perMonth", { amount: `${money(s.tariff.price)} ${s.tariff.currency}` })}
+        </Row>
+        <Row label={t("subscription.colNextDue")}>{date(s.next_due_on)}</Row>
+        {s.trial_until && (
+          <Row label={t("subscription.trialUntil")}>{date(s.trial_until)}</Row>
+        )}
+      </div>
+      <h3 className="h3">{t("subscription.payments")}</h3>
+      <PaymentsTable payments={s.payments} />
+    </section>
   );
 }
 

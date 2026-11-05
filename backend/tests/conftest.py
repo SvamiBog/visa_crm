@@ -134,6 +134,7 @@ def migrated_database() -> str:
 # Everything a test may write in workspaces; emptied after each test.
 WORKSPACE_TABLES = (
     "audit_events",
+    "subscription_payments",
     "employee_cases",
     "import_rows",
     "import_runs",
@@ -176,6 +177,8 @@ WORKSPACE_TABLES = (
     "lead_channels",
     "users",
     "tenants",
+    # Platform data the tests create (not seeded by migrations): emptied too.
+    "tariffs",
 )
 
 # Shared reference data seeded by migrations, parents first. Tests may change it, so it is

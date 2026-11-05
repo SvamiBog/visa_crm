@@ -23,7 +23,7 @@ from app.api.appointments import (
     entry_out,
 )
 from app.api.cases import Member, _audit, _case
-from app.api.deps import TenantSession, require_module, workspace_today
+from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.cases import advance
 from app.core.queues import SUBMITTED_STAGES, QueueStatus, deadline
 from app.models import (
@@ -45,6 +45,9 @@ router = APIRouter(
     dependencies=[Depends(require_module("clients")), Depends(require_module("cases"))],
 )
 
+# The largest family a letter is entered for at once.
+GROUP_LIMIT = 20
+
 
 # --- Schemas -------------------------------------------------------------------------
 
@@ -57,13 +60,16 @@ class QueueIn(BaseModel):
 
 class QueueUpdate(BaseModel):
     """Only the fields sent are changed. `appointment_on` — the date in the letter — is
-    saved as the case's submission date."""
+    saved as the case's submission date. `group_cases`: other cases of the submission
+    group the same letter came for (owner's decision 2026-11-04); they get its date and
+    appointment too."""
 
     queued_on: date | None = None
     letter_on: date | None = None
     appointment_on: date | None = None
     removed_on: date | None = None
     removed_reason: Annotated[str, Field(max_length=500)] | None = None
+    group_cases: list[uuid.UUID] = Field(default_factory=list, max_length=GROUP_LIMIT)
 
     @field_validator("removed_reason")
     @classmethod
@@ -76,6 +82,10 @@ class AttemptIn(BaseModel):
 
 
 class AttemptUpdate(BaseModel):
+    """Only the fields sent are changed. A corrected `sent_on` moves the deadline by the
+    window the attempt was sent with; null leaves it as it is."""
+
+    sent_on: date | None = None
     outcome: AttemptOutcome | None = None
     closed_on: date | None = None
     appointment_on: date | None = None
@@ -215,8 +225,11 @@ async def update_queue_entry(
 ) -> QueueEntryOut:
     entry = await _entry(session, entry_id)
     case = await _case(session, entry.case_id)
-    changes = body.model_dump(exclude_unset=True)
+    changes = body.model_dump(exclude_unset=True, exclude={"group_cases"})
     appointment_on = changes.pop("appointment_on", None)
+    members = [await _case(session, member_id) for member_id in set(body.group_cases)]
+    if any(m.id == case.id or m.group_id is None or m.group_id != case.group_id for m in members):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "not_in_group")
     if changes.get("queued_on", ...) is None:
         changes.pop("queued_on", None)  # required: null means «leave as is»
     if "removed_on" in changes and changes["removed_on"] is None:
@@ -243,10 +256,40 @@ async def update_queue_entry(
             case,
             {"entry": str(entry.id), "fields": ",".join(changed)},
         )
+    for member in members:
+        await _same_letter(session, user, member, changes.get("letter_on"), appointment_on)
     await session.commit()
     await session.refresh(entry)
     await session.refresh(case)
     return entry_out(entry, case.stage, await workspace_today(session, user.tenant_id))
+
+
+async def _same_letter(
+    session: AsyncSession,
+    user: CurrentUser,
+    case: VisaCase,
+    letter_on: date | None,
+    appointment_on: date | None,
+) -> None:
+    """The letter that came for the family: its date on the member's open entry (if they
+    are still in the queue) and the appointment as their submission date."""
+    entry = await session.scalar(
+        select(WaitingListEntry).where(
+            WaitingListEntry.case_id == case.id, WaitingListEntry.removed_on.is_(None)
+        )
+    )
+    changed = []
+    if entry is not None and letter_on is not None and letter_on != entry.letter_on:
+        if letter_on < entry.queued_on:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
+        entry.letter_on = letter_on
+        changed.append("letter_on")
+    if appointment_on is not None and appointment_on != case.submission_on:
+        _set_appointment(case, appointment_on)
+        changed.append("appointment_on")
+    if changed:
+        details = {"fields": ",".join(changed)} | ({"entry": str(entry.id)} if entry else {})
+        _audit(session, AuditAction.CASE_QUEUE_UPDATED, user, case, details)
 
 
 # --- Application attempts (windowed) -------------------------------------------------
@@ -304,12 +347,17 @@ async def update_attempt(
     attempt_id: uuid.UUID, body: AttemptUpdate, user: Member, session: TenantSession
 ) -> AttemptOut:
     """Close an attempt: a date came (with the appointment), it expired or was cancelled.
-    Clearing the outcome reopens it."""
+    Clearing the outcome reopens it. A typo in the sent date is corrected here rather than
+    by cancelling and sending again, which would count a false attempt."""
     attempt = await _attempt(session, attempt_id)
     case = await _case(session, attempt.case_id)
     today = await workspace_today(session, user.tenant_id)
     changes: dict[str, Any] = body.model_dump(exclude_unset=True)
     appointment_on = changes.pop("appointment_on", None)
+    if (sent_on := changes.pop("sent_on", None)) is not None:
+        # The window of the country rule at the time of sending (decisions.md, 2026-10-16).
+        window = (attempt.deadline_on - attempt.sent_on).days
+        changes |= {"sent_on": sent_on, "deadline_on": deadline(sent_on, window)}
     if "outcome" in changes:
         if changes["outcome"] is None:
             changes["closed_on"] = None
@@ -318,7 +366,9 @@ async def update_attempt(
     changed = sorted(f for f, v in changes.items() if getattr(attempt, f) != v)
     for field, value in changes.items():
         setattr(attempt, field, value)
-    if attempt.closed_on is not None and attempt.outcome is None:
+    if (attempt.closed_on is not None and attempt.outcome is None) or (
+        attempt.closed_on is not None and attempt.closed_on < attempt.sent_on
+    ):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
     if appointment_on is not None:
         if appointment_on != case.submission_on:

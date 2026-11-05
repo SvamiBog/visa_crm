@@ -694,62 +694,49 @@ h1 {
   height: 20px;
 }
 
-/* App shell: dark sidebar + content; the sidebar stacks on top on narrow screens */
+/* App shell: dark sidebar + content. The sidebar stays in view while the page scrolls;
+   on a phone it is the sheet of «Ещё» (see the phone block below). */
 .shell {
   display: flex;
-  flex-wrap: wrap;
   min-height: 100vh;
 }
 
 .sidebar {
-  flex: 1 1 232px;
-  max-width: 100%;
+  flex: 0 0 232px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
   background: var(--c-nav);
-  padding: 20px 14px;
+  padding: 20px 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
-/* The logo and, on a phone, the «Меню» button; the menu itself fills the rest */
 .sidebar-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  padding-bottom: 4px;
 }
 
-.menu-toggle {
-  display: none;
-  align-items: center;
-  min-height: 44px;
-  padding: 0 16px;
-  border: 1px solid var(--c-nav-line);
-  border-radius: var(--radius-btn);
-  background: none;
-  font: inherit;
-  color: var(--c-nav-text);
-  cursor: pointer;
-}
-
-.menu-toggle:hover,
-.menu-toggle[aria-expanded="true"] {
-  background: var(--c-nav-hover);
-  color: var(--c-nav-strong);
-}
-
-.menu-toggle:focus-visible,
 .nav-a:focus-visible,
-.sidebar-link:focus-visible {
+.sidebar-link:focus-visible,
+.account-toggle:focus-visible,
+.bar-a:focus-visible {
   outline: 2px solid var(--c-nav-strong);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
-.sidebar-menu {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* «Перейти к содержимому»: off the screen until it gets the keyboard's focus */
@@ -776,7 +763,19 @@ h1 {
 }
 
 .sidebar-area {
-  padding: 0 12px 12px;
+  padding: 0 12px 8px;
+  color: var(--c-nav-muted);
+  font-size: 12px;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-heading {
+  padding: 14px 12px 4px;
   color: var(--c-nav-muted);
   font-size: 12px;
 }
@@ -786,7 +785,7 @@ h1 {
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  min-height: 44px;
+  min-height: 40px;
   border-radius: var(--radius-sm);
   color: var(--c-nav-text);
 }
@@ -803,33 +802,58 @@ a.nav-a:hover {
   box-shadow: inset 3px 0 0 var(--c-nav-active-mark, transparent);
 }
 
-.nav-soon {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.soon {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--c-nav-muted);
-}
-
+/* «Настройки» and the account: at the bottom of the menu */
 .sidebar-footer {
   margin-top: auto;
-  padding-top: 16px;
+  padding-top: 10px;
   border-top: 1px solid var(--c-nav-line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--c-nav-muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.account-toggle:hover,
+.account-toggle[aria-expanded="true"] {
+  background: var(--c-nav-hover);
+  color: var(--c-nav-strong);
+}
+
+.account-email {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-toggle[aria-expanded="true"] .icon {
+  transform: rotate(180deg);
+}
+
+.account-menu {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
 }
 
-.sidebar-email {
-  padding: 0 12px 6px;
-  color: var(--c-nav-strong);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.account-menu[hidden] {
+  display: none;
 }
 
 .sidebar-link {
@@ -847,10 +871,127 @@ a.nav-a:hover {
   color: var(--c-nav-strong);
 }
 
+/* A finger needs a bigger target than a mouse. */
+@media (pointer: coarse) {
+  .nav-a,
+  .account-toggle {
+    min-height: 44px;
+  }
+}
+
+/* The phone's bottom bar and the shade under the sheet of «Ещё»: only on a phone */
+.tabbar,
+.sheet-backdrop {
+  display: none;
+}
+
+.bar-a {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--c-nav-muted);
+  cursor: pointer;
+}
+
+.bar-a span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The icon sits on a pill that lights up on the open page. */
+.bar-a .icon {
+  box-sizing: content-box;
+  width: 22px;
+  height: 22px;
+  padding: 3px 16px;
+  border-radius: var(--radius-chip);
+}
+
+.bar-a.active,
+.bar-a[aria-expanded="true"] {
+  color: var(--c-nav-active-mark, var(--c-nav-strong));
+}
+
+.bar-a.active .icon,
+.bar-a[aria-expanded="true"] .icon {
+  background: var(--c-nav-active);
+}
+
 .content {
-  flex: 999 1 560px;
+  flex: 1;
   min-width: 0;
   padding: 24px 28px 40px;
+}
+
+/* «Настройки»: their own menu to the left of the page */
+.settings-layout.with-nav {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  max-width: 1464px;
+  margin: 0 auto;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-heading {
+  padding: 0 12px 6px;
+  color: var(--c-muted);
+  font-size: 12px;
+}
+
+.settings-own {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-border);
+}
+
+.settings-a {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  color: var(--c-text);
+}
+
+.settings-a:hover {
+  background: var(--c-row);
+}
+
+.settings-a.active {
+  background: var(--c-primary-soft);
+  color: var(--c-link);
+  font-weight: 600;
+}
+
+.settings-a:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: -2px;
 }
 
 .page {
@@ -1766,73 +1907,139 @@ a.nav-a:hover {
   gap: 4px 24px;
 }
 
-/* Phone: the sidebar turns into a top bar — the logo and «Меню»; the menu opens under it,
-   so a page starts on the first screen */
+/* A tablet or a narrow window: the settings in one row above the page that scrolls
+   sideways, so the page keeps its width */
+@media (max-width: 1100px) {
+  .settings-layout.with-nav {
+    display: block;
+  }
+
+  .settings-nav {
+    position: relative;
+    top: 0;
+    flex-direction: row;
+    gap: 6px;
+    margin-bottom: 16px;
+    padding-bottom: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .settings-group {
+    display: contents;
+  }
+
+  .settings-heading {
+    display: none;
+  }
+
+  .settings-a {
+    flex: none;
+    min-height: 40px;
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-chip);
+    background: var(--c-surface);
+    white-space: nowrap;
+  }
+
+  .settings-a.active {
+    border-color: var(--c-primary);
+  }
+}
+
+/* Phone: the frequent pages on a bar at the bottom, under the thumb; «Ещё» opens the rest
+   of the menu as a sheet above the bar. A page starts on the first screen. */
 @media (max-width: 720px) {
-  /* One line, no wrapping: otherwise the column grows to the widest table on the page
+  /* One column, no wrapping: otherwise the column grows to the widest table on the page
      and the whole page scrolls sideways instead of the table. */
   .shell {
+    --tabbar-h: 60px;
     flex-direction: column;
-    flex-wrap: nowrap;
-  }
-
-  .sidebar {
-    flex: none;
-    gap: 0;
-    padding: 8px 12px;
-  }
-
-  .logo-inverted {
-    padding: 4px 8px;
-  }
-
-  .menu-toggle {
-    display: inline-flex;
-  }
-
-  .sidebar:not(.open) .sidebar-menu {
-    display: none;
-  }
-
-  .sidebar-menu {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    padding-top: 8px;
-  }
-
-  .sidebar-area,
-  .nav-soon {
-    display: none;
-  }
-
-  .nav-a {
-    min-height: 40px;
-  }
-
-  .sidebar-footer {
-    width: 100%;
-    margin-top: 6px;
-    padding-top: 6px;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  .sidebar-email {
-    width: 100%;
-    padding: 0 12px;
-    color: var(--c-nav-muted);
-    font-size: 12px;
   }
 
   .content {
     flex: 1;
-    padding: 16px;
+    padding: 16px 16px calc(var(--tabbar-h) + 20px);
+  }
+
+  .tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    height: var(--tabbar-h);
+    background: var(--c-nav);
+    border-top: 1px solid var(--c-nav-line);
+  }
+
+  /* While typing, the keyboard needs the room; the bar is back when the field is left. */
+  .shell:has(
+      input:not([type="checkbox"], [type="radio"], [type="file"]):focus,
+      textarea:focus,
+      select:focus
+    )
+    .tabbar {
+    display: none;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .sidebar.open {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: var(--tabbar-h);
+    z-index: 42;
+    height: auto;
+    max-height: calc(100dvh - var(--tabbar-h) - 48px);
+    padding: 12px 12px 8px;
+    border-top: 1px solid var(--c-nav-line);
+    border-radius: var(--radius) var(--radius) 0 0;
+    overscroll-behavior: contain;
+  }
+
+  /* The bar already has the logo's place and the frequent pages. */
+  .sidebar-bar,
+  .sidebar-area,
+  .nav-a.on-tabs {
+    display: none;
+  }
+
+  .sheet-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0 0 var(--tabbar-h);
+    z-index: 41;
+    background: color-mix(in srgb, var(--c-nav) 55%, transparent);
+  }
+
+  /* The row of settings runs to the screen's edges. */
+  .settings-nav {
+    margin: 0 -16px 16px;
+    padding: 0 16px 4px;
   }
 
   .tbl .actions {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) and (prefers-reduced-motion: no-preference) {
+  .sidebar.open {
+    animation: sheet-up 0.18s ease-out;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
   }
 }
 
@@ -2012,17 +2219,21 @@ a.nav-a:hover {
   font-family: var(--font-num);
 }
 
-/* The staging stand: a strip above every page */
+/* The staging stand: a strip above every page. It scrolls away with the page, so it does
+   not cover the top of the menu, which stays in view. */
 .env-banner {
-  position: sticky;
-  top: 0;
-  z-index: 50;
   padding: 6px 16px;
   background: var(--c-orange-bg);
   color: var(--c-orange);
   font-size: 13px;
   font-weight: 600;
   text-align: center;
+}
+
+/* The cabinet's notice of an overdue CRM subscription, above the page */
+.subscription-notice {
+  max-width: 1240px;
+  margin: 0 auto 20px;
 }
 
 /* Case finances: the money table of a case, in the base currency */

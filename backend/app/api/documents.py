@@ -28,6 +28,7 @@ from app.core.documents import (
     open_document,
     seal_document,
 )
+from app.core.employee_limits import LimitKind, watch
 from app.core.storage import (
     StorageFailed,
     StorageNotConfigured,
@@ -173,6 +174,8 @@ async def download_document(
     """The file itself, always as a download. Every call is written to the audit log."""
     assert user.tenant_id is not None
     document = await _document(session, contact_id, document_id)
+    # A file of the card opens the card for an employee's daily limit (Т.14).
+    await watch(session, user, LimitKind.CARDS, "contact", contact_id, AuditAction.CONTACT_VIEWED)
     try:
         blob = await get_object(object_key(user.tenant_id, document.id))
     except (StorageNotConfigured, StorageFailed) as error:

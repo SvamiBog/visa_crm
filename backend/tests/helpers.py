@@ -76,9 +76,9 @@ async def login_first_step(client: AsyncClient, email: str, password: str = PASS
     return await client.post("/api/auth/login", json={"email": email, "password": password})
 
 
-async def enable_two_factor(client: AsyncClient) -> tuple[str, list[str]]:
+async def enable_two_factor(client: AsyncClient, password: str = PASSWORD) -> tuple[str, list[str]]:
     """Set up two-factor login for the logged-in user; returns (secret, recovery codes)."""
-    setup = await client.post("/api/auth/two-factor/setup")
+    setup = await client.post("/api/auth/two-factor/setup", json={"password": password})
     assert setup.status_code == 200, setup.text
     secret = setup.json()["secret"]
     enabled = await client.post(

@@ -95,6 +95,9 @@ class ApplicantIn(BaseModel):
 
 class CaseCreate(BaseModel):
     consultation_id: uuid.UUID | None = None
+    # Filing again: the case this one repeats. It belongs to one of the applicants, whose
+    # new case is linked to it.
+    previous_case_id: uuid.UUID | None = None
     destination_id: uuid.UUID
     submission_country_id: uuid.UUID
     purpose_id: uuid.UUID | None = None
@@ -128,6 +131,9 @@ class CaseUpdate(BaseModel):
     vac_number: Annotated[str, Field(max_length=64)] | None = None
     application_email: Annotated[str, Field(max_length=320, pattern=EMAIL)] | None = None
     application_email_owner: EmailOwner | None = None
+    # Fill the number and the email in for the rest of the submission group where they
+    # are empty (owner's decision 2026-11-04); a member's own value is kept.
+    fill_group: bool = False
 
     @field_validator("vac_number", "application_email", mode="before")
     @classmethod
@@ -155,6 +161,7 @@ class CaseOut(BaseModel):
     contact_id: uuid.UUID
     group_id: uuid.UUID | None
     consultation_id: uuid.UUID | None
+    previous_case_id: uuid.UUID | None
     destination_id: uuid.UUID
     purpose_id: uuid.UUID | None
     submission_country_id: uuid.UUID
@@ -225,6 +232,14 @@ async def _case(session: AsyncSession, case_id: uuid.UUID) -> VisaCase:
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
     return case
+
+
+async def _open_card_of(session: AsyncSession, user: CurrentUser, case: VisaCase) -> None:
+    """An answer with the case opens its client's card for an employee's daily limit
+    (Т.14): the card lists the case, so from the card it costs nothing more."""
+    await watch(
+        session, user, LimitKind.CARDS, "contact", case.contact_id, AuditAction.CONTACT_VIEWED
+    )
 
 
 async def _check_refs(session: AsyncSession, fields: dict[str, Any]) -> None:
@@ -416,7 +431,7 @@ async def create_cases(
         consultation = await session.get(Consultation, body.consultation_id)
         if consultation is None or consultation.contact_id != anchor.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
-    fields = body.model_dump(exclude={"applicants", "consultation_id"})
+    fields = body.model_dump(exclude={"applicants", "consultation_id", "previous_case_id"})
     await _check_refs(session, fields)
     await _check_place(
         session, body.destination_id, body.submission_country_id, body.visa_center_id
@@ -424,6 +439,13 @@ async def create_cases(
     existing = [a.contact_id for a in body.applicants if a.contact_id is not None]
     if len(existing) != len(set(existing)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "duplicate_applicant")
+    previous: VisaCase | None = None
+    if body.previous_case_id is not None:
+        previous = await session.get(VisaCase, body.previous_case_id)
+        if previous is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+        if previous.contact_id not in existing:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
     if existing:
         found = set(await session.scalars(select(Contact.id).where(Contact.id.in_(existing))))
         if set(existing) - found:
@@ -449,6 +471,9 @@ async def create_cases(
             contact_id=applicant_id,
             group_id=group.id if group else None,
             consultation_id=consultation.id if consultation else None,
+            previous_case_id=(
+                previous.id if previous and previous.contact_id == applicant_id else None
+            ),
             stage=stage,
             created_by=user.id,
             **fields,
@@ -458,7 +483,8 @@ async def create_cases(
     session.add_all(cases)
     await session.flush()
     for case in cases:
-        _audit(session, AuditAction.CASE_CREATED, user, case)
+        linked = {"previous": str(case.previous_case_id)} if case.previous_case_id else None
+        _audit(session, AuditAction.CASE_CREATED, user, case, linked)
     if consultation is not None and consultation.decision != Decision.YES:
         consultation.decision = Decision.YES
         record(
@@ -625,7 +651,8 @@ async def update_case(
     case_id: uuid.UUID, body: CaseUpdate, user: Member, session: TenantSession
 ) -> CaseOut:
     case = await _case(session, case_id)
-    changes = body.model_dump(exclude_unset=True)
+    await _open_card_of(session, user, case)
+    changes = body.model_dump(exclude_unset=True, exclude={"fill_group"})
     for required in ("destination_id", "submission_country_id", "stage", "after_appeal"):
         if changes.get(required, ...) is None:
             changes.pop(required)  # null means «leave as is» for required fields
@@ -660,8 +687,29 @@ async def update_case(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
     if changed:
         _audit(session, AuditAction.CASE_UPDATED, user, case, {"fields": ",".join(changed)})
+    if body.fill_group and case.group_id is not None:
+        await _fill_group(session, user, case)
     await session.commit()
     return await _one_out(session, case)
+
+
+async def _fill_group(session: AsyncSession, user: CurrentUser, case: VisaCase) -> None:
+    """The visa-centre number and the application email (with whose it is) go to the
+    other members of the group that have none yet."""
+    members = await session.scalars(
+        select(VisaCase).where(VisaCase.group_id == case.group_id, VisaCase.id != case.id)
+    )
+    for member in members:
+        changed = []
+        if case.vac_number is not None and member.vac_number is None:
+            member.vac_number = case.vac_number
+            changed.append("vac_number")
+        if case.application_email is not None and member.application_email is None:
+            member.application_email = case.application_email
+            member.application_email_owner = case.application_email_owner
+            changed += ["application_email", "application_email_owner"]
+        if changed:
+            _audit(session, AuditAction.CASE_UPDATED, user, member, {"fields": ",".join(changed)})
 
 
 # --- Submission groups ---------------------------------------------------------------
@@ -706,6 +754,7 @@ async def join_group(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "self_link")
     case = await _case(session, case_id)
     other = await _case(session, body.case_id)
+    await _open_card_of(session, user, case)
     if case.group_id is not None and case.group_id == other.group_id:
         return await _one_out(session, case)
     if case.group_id is not None and other.group_id is not None:

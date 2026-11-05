@@ -27,6 +27,9 @@ _EMPLOYEE_KEY = "rls_employee"
 _SYSTEM = "system"
 # Seconds one attempt to reach the database may take (wait_for_database).
 CONNECT_TIMEOUT = 5
+# The largest number a BIGINT column takes and asyncpg sends: a larger one from a client
+# fails in the driver, so the schema refuses it first.
+BIGINT_MAX = 2**63 - 1
 
 
 class Base(DeclarativeBase):
@@ -45,7 +48,11 @@ class Base(DeclarativeBase):
 
 @lru_cache
 def get_engine() -> AsyncEngine:
-    return create_async_engine(get_settings().async_database_url, pool_pre_ping=True)
+    # A database error would otherwise quote every value of the statement («[parameters:
+    # …]»): names, phones, the search text.
+    return create_async_engine(
+        get_settings().async_database_url, pool_pre_ping=True, hide_parameters=True
+    )
 
 
 async def wait_for_database(url: str, *, timeout: float, pause: float = 2) -> bool:
@@ -53,7 +60,9 @@ async def wait_for_database(url: str, *, timeout: float, pause: float = 2) -> bo
     A new stand's app may start before its database: its name does not resolve yet, or the
     server is still starting (start.sh runs this before the migrations)."""
     deadline = time.monotonic() + timeout
-    engine = create_async_engine(url, poolclass=NullPool, connect_args={"timeout": CONNECT_TIMEOUT})
+    engine = create_async_engine(
+        url, poolclass=NullPool, hide_parameters=True, connect_args={"timeout": CONNECT_TIMEOUT}
+    )
     try:
         while True:
             try:

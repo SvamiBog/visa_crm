@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
-from app.api.auth import MeOut, _me, _register_failure
+from app.api.auth import MeOut, _me, check_current_password
 from app.api.deps import CurrentUser, SystemSession, current_user
 from app.core.audit import record
 from app.core.mail import Mail, MailFailed, MailNotConfigured, send_mail
@@ -124,13 +124,9 @@ async def request_change(
     session: SystemSession,
 ) -> PendingOut:
     """Check the password and send a code to the new address (again: a new code)."""
-    user = await session.get_one(User, current.id)
+    user = await session.get_one(User, current.id, with_for_update=True)
+    await check_current_password(session, user, body.current_password, "email_change_password")
     now = datetime.now(UTC)
-    if not verify_password(user.password_hash, body.current_password):
-        # Counted with wrong login passwords: a stolen session cannot guess the password.
-        _register_failure(session, user, now, "email_change_password")
-        await session.commit()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_current_password")
     if body.new_email == user.email:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "email_unchanged")
     if await session.scalar(select(User.id).where(User.email == body.new_email)):

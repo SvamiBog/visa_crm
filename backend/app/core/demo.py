@@ -19,12 +19,14 @@ import pyotp
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.consultation_checks import add_months
 from app.core.dictionaries import add_default_dictionaries
 from app.core.finance import to_base
 from app.core.modules import DEFAULT_MODULES
 from app.core.names import split_full_name, split_latin_name
 from app.core.passwords import PasswordRules, generate_password
 from app.core.security import hash_password
+from app.core.subscription import amount_due
 from app.core.two_factor import seal_secret
 from app.core.vault import encrypt_for_tenant, get_tenant_key
 from app.models import (
@@ -61,6 +63,8 @@ from app.models import (
     RegistrarPaymentMethod,
     RegistrarPrice,
     SubmissionGroup,
+    SubscriptionPayment,
+    Tariff,
     Tenant,
     Trip,
     User,
@@ -357,6 +361,41 @@ def female(surname: str) -> str:
     return surname + "а"
 
 
+# Demo subscriptions (roadmap 3.8): the admin's list shows each state on the stand.
+DEMO_TARIFFS = (("Базовый", Decimal("30")), ("Расширенный", Decimal("50")))
+
+
+def _subscribe(
+    session: AsyncSession, tenant: Tenant, index: int, today: date, tariffs: list[Tariff]
+) -> None:
+    """visa1 paid up, visa2 overdue, visa3 on a trial, visa4 due soon; the rest without a
+    tariff. Dates are a few days off the edges, so the state holds in any time zone."""
+    if index == 3:
+        tenant.tariff_id = tariffs[1].id
+        tenant.subscription_starts_on = today - timedelta(days=20)
+        tenant.trial_until = today + timedelta(days=14)
+        return
+    paid = {
+        1: (add_months(today, -2) + timedelta(days=12), 2),
+        2: (add_months(today, -1) - timedelta(days=5), 1),
+        4: (add_months(today, -1) + timedelta(days=4), 1),
+    }
+    if index not in paid:
+        return
+    starts_on, months = paid[index]
+    tariff = tariffs[0]
+    tenant.tariff_id, tenant.subscription_starts_on = tariff.id, starts_on
+    for month in range(months):
+        session.add(
+            SubscriptionPayment(
+                tenant_id=tenant.id,
+                paid_on=add_months(starts_on, month),
+                amount=amount_due(tariff.price, 1),
+                currency=tariff.currency,
+            )
+        )
+
+
 def specialist_email(index: int) -> str:
     return f"visa{index}@{DOMAIN}"
 
@@ -442,11 +481,17 @@ async def seed(session: AsyncSession, settings: DemoSettings) -> dict[str, int]:
     await _shared_checklist(session, countries["PL"])
 
     session.add(_user(ADMIN_EMAIL, UserRole.ADMIN, settings, None, now))
+    tariffs = [
+        Tariff(id=uuid.uuid4(), name=name, price=price, currency="EUR")
+        for name, price in DEMO_TARIFFS
+    ]
+    session.add_all(tariffs)
+    await session.flush()
     totals = {"specialists": 0, "clients": 0, "cases": 0}
     for index in range(1, settings.specialists + 1):
         rng = random.Random(index)
         clients = int(settings.clients * rng.uniform(0.8, 1.25))
-        counts = await _workspace(session, settings, index, clients, rng, countries, now)
+        counts = await _workspace(session, settings, index, clients, rng, countries, now, tariffs)
         totals["specialists"] += 1
         totals["clients"] += counts["clients"]
         totals["cases"] += counts["cases"]
@@ -462,12 +507,14 @@ async def _workspace(
     rng: random.Random,
     countries: dict[str, Country],
     now: datetime,
+    tariffs: list[Tariff],
 ) -> dict[str, int]:
     today = now.date()
     name = SPECIALIST_NAMES[(index - 1) % len(SPECIALIST_NAMES)]
     tenant = Tenant(id=uuid.uuid4(), name=f"{name} (демо {index})", modules=list(DEMO_MODULES))
     session.add(tenant)
     await session.flush()
+    _subscribe(session, tenant, index, today, tariffs)
     # The demo clients apply from Belarus.
     rules, centers = await _directions(session, tenant.id, countries)
     owner = _user(specialist_email(index), UserRole.SPECIALIST, settings, tenant.id, now)

@@ -14,13 +14,13 @@ import refuses a new run. A finished run is kept an hour for the page to collect
 import asyncio
 import logging
 import time
-import traceback
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.core.data_import import ImportStopped, Progress
+from app.core.server_errors import frames
 
 logger = logging.getLogger(__name__)
 
@@ -107,11 +107,7 @@ async def _run(job: ImportJob, work: Work) -> None:
     except Exception as error:
         # The message may carry a value of the file (a database error quotes the row): the
         # log gets the type and the frames it went through, never the text.
-        where = "\n".join(
-            f"  {frame.filename}:{frame.lineno} in {frame.name}"
-            for frame in traceback.extract_tb(error.__traceback__)
-        )
-        logger.error("Import job %s failed: %s\n%s", job.id, type(error).__name__, where)
+        logger.error("Import job %s failed: %s\n%s", job.id, type(error).__name__, frames(error))
         job.status = "failed"
         job.error = "import_failed"
     finally:

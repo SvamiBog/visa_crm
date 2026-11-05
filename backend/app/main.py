@@ -33,6 +33,8 @@ from app.api.reference import router as reference_router
 from app.api.registrar_ledger import router as registrar_ledger_router
 from app.api.reminders import router as reminders_router
 from app.api.stay import router as stay_router
+from app.api.subscriptions import admin_router as admin_subscriptions_router
+from app.api.subscriptions import router as subscriptions_router
 from app.api.templates import contact_router as contact_templates_router
 from app.api.templates import router as templates_router
 from app.api.two_factor import router as two_factor_router
@@ -43,6 +45,7 @@ from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
 from app.core.http_headers import add_security_headers
 from app.core.rates import keep_fresh
+from app.core.server_errors import UnexpectedErrors
 
 
 @asynccontextmanager
@@ -59,6 +62,8 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="VisaCRM", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan
     )
+    # An unexpected error is logged without its text (it may quote clients' data).
+    app.add_middleware(UnexpectedErrors)
 
     @app.middleware("http")
     async def remember_client_ip(request: Request, call_next) -> Response:
@@ -83,7 +88,9 @@ def create_app() -> FastAPI:
         email_change_router,
         two_factor_router,
         admin_router,
+        admin_subscriptions_router,
         workspace_router,
+        subscriptions_router,
         home_router,
         audit_router,
         employees_router,
