@@ -181,6 +181,8 @@ export type VisaCase = {
   contact_id: string;
   group_id: string | null;
   consultation_id: string | null;
+  /** Filed again after this case of the same client. */
+  previous_case_id: string | null;
   destination_id: string;
   purpose_id: string | null;
   submission_country_id: string;

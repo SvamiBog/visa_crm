@@ -98,11 +98,13 @@ class VisaCase(Base):
         # Leaving the last group member or removing a consultation keeps the case.
         _same_tenant("group_id", "submission_groups", "SET NULL (group_id)"),
         _same_tenant("consultation_id", "consultations", "SET NULL (consultation_id)"),
+        _same_tenant("previous_case_id", "visa_cases", "SET NULL (previous_case_id)"),
         _same_tenant("purpose_id", "visa_purposes", "RESTRICT"),
         _same_tenant("registrar_id", "registrars", "RESTRICT"),
         _same_tenant("visa_center_id", "visa_centers", "RESTRICT"),
         Index("ix_visa_cases_contact_id", "contact_id"),
         Index("ix_visa_cases_group_id", "group_id"),
+        Index("ix_visa_cases_previous_case_id", "previous_case_id"),
         Index("ix_visa_cases_tenant_stage", "tenant_id", "stage"),
         CheckConstraint("number > 0", name="number_positive"),
         CheckConstraint(
@@ -136,6 +138,8 @@ class VisaCase(Base):
     group_id: Mapped[uuid.UUID | None]
     # Where the case came from: its fee counts towards the price (backlog 1.9).
     consultation_id: Mapped[uuid.UUID | None]
+    # Filed again after this case (a refusal, a client who did not submit).
+    previous_case_id: Mapped[uuid.UUID | None]
 
     destination_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("countries.id", ondelete="RESTRICT"), index=True

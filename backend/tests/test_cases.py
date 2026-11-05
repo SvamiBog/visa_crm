@@ -445,3 +445,54 @@ async def test_log_has_ids_only(client: AsyncClient, make_user: MakeUser):
     actions = [e["action"] for e in events]
     assert actions.count("cases.created") == 2 and "contacts.linked" in actions
     assert "Секретов" not in str(events)
+
+
+async def test_a_case_filed_again_is_linked_to_the_previous_one(
+    client: AsyncClient, make_user: MakeUser
+):
+    """After a refusal the specialist files again: a new case linked to the previous one
+    (docs/clients-module.md → «Этапы кейса»; specialist run before the pilot, 2026-11-04)."""
+    await as_specialist(client, make_user)
+    anna = await new_contact(client)
+    old = (await open_case(client, anna["id"])).json()[0]
+    await client.patch(
+        f"/api/cases/{old['id']}", json={"outcome": "refusal", "decided_on": "2026-10-01"}
+    )
+    codes = await countries(client)
+    body = {
+        "destination_id": codes["PL"],
+        "submission_country_id": codes["BY"],
+        "previous_case_id": old["id"],
+    }
+
+    again = await client.post(
+        f"{CONTACTS}/{anna['id']}/cases",
+        json=body | {"applicants": [{"contact_id": anna["id"]}, {"first_name": "Сергей"}]},
+    )
+    assert again.status_code == 201, again.text
+    mine, husband = again.json()
+    assert mine["previous_case_id"] == old["id"] and husband["previous_case_id"] is None
+    shown = (await client.get(f"/api/cases/{mine['id']}")).json()
+    assert shown["previous_case_id"] == old["id"]
+    events = (await client.get("/api/audit")).json()["events"]
+    created = next(
+        e for e in events if e["action"] == "cases.created" and e["target_id"] == mine["id"]
+    )
+    assert created["details"]["previous"] == old["id"]
+
+    # The previous case must be one of an applicant's.
+    boris = await new_contact(client, first_name="Борис")
+    foreign = await client.post(
+        f"{CONTACTS}/{boris['id']}/cases",
+        json=body | {"applicants": [{"contact_id": boris["id"]}]},
+    )
+    assert foreign.status_code == 422
+    unknown = await client.post(
+        f"{CONTACTS}/{anna['id']}/cases",
+        json=body
+        | {
+            "previous_case_id": "00000000-0000-0000-0000-000000000000",
+            "applicants": [{"contact_id": anna["id"]}],
+        },
+    )
+    assert unknown.status_code == 404
