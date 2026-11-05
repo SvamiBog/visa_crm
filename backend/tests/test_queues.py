@@ -323,3 +323,95 @@ async def test_a_letter_entered_after_the_deadline_is_recorded(
     assert came.json()["status"] == "date_received"
     shown = (await client.get(f"/api/cases/{france['id']}")).json()
     assert shown["submission_on"] == "2026-12-15"
+
+
+async def test_a_letter_for_the_family_goes_to_the_members_checked(
+    client: AsyncClient, make_user: MakeUser
+):
+    """Owner's decision 2026-11-04: the letter with a date comes to the family; the form
+    applies it to the members checked, the rest keep their own."""
+    await as_specialist(client, make_user)
+    anna = await contact(client)
+    family = await open_cases(
+        client,
+        anna,
+        applicants=[{"contact_id": anna}, {"first_name": "Сергей"}, {"first_name": "Мария"}],
+    )
+    entries = (await queue(client, family[0]["id"], "2026-06-01", with_group=True)).json()
+    mine = next(e for e in entries if e["case_id"] == family[0]["id"])
+
+    response = await client.patch(
+        f"/api/queue-entries/{mine['id']}",
+        json={
+            "letter_on": "2026-06-20",
+            "appointment_on": "2026-07-10",
+            "group_cases": [family[1]["id"]],
+        },
+    )
+    assert response.status_code == 200, response.text
+    shown = {
+        c["id"]: c
+        for c in [(await client.get(f"/api/cases/{case['id']}")).json() for case in family]
+    }
+    for checked in (family[0], family[1]):
+        case = shown[checked["id"]]
+        assert case["submission_on"] == "2026-07-10" and case["stage"] == "documents"
+        [entry] = case["queue_entries"]
+        assert entry["letter_on"] == "2026-06-20" and entry["status"] == "date_received"
+    left = shown[family[2]["id"]]
+    assert left["submission_on"] is None and left["stage"] == "waiting"
+    assert left["queue_entries"][0]["status"] == "in_queue"
+
+    events = (await client.get("/api/audit")).json()["events"]
+    updated = {e["target_id"] for e in events if e["action"] == "cases.queue_updated"}
+    assert updated == {family[0]["id"], family[1]["id"]}
+
+
+async def test_a_letter_goes_only_to_the_same_group(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    anna = await contact(client)
+    [alone] = await open_cases(client, anna)
+    [stranger] = await open_cases(client, await contact(client, "Борис"))
+    [entry] = (await queue(client, alone["id"], "2026-06-01")).json()
+    response = await client.patch(
+        f"/api/queue-entries/{entry['id']}",
+        json={"letter_on": "2026-06-20", "group_cases": [stranger["id"]]},
+    )
+    assert response.status_code == 422 and response.json()["detail"] == "not_in_group"
+    assert (await client.get(f"/api/cases/{stranger['id']}")).json()["queue_entries"] == []
+
+
+async def test_number_and_email_fill_in_the_family_where_empty(
+    client: AsyncClient, make_user: MakeUser
+):
+    """Owner's decision 2026-11-04: the visa-centre number and the application email are
+    filled in for the rest of the group where they are empty; each can be changed."""
+    await as_specialist(client, make_user)
+    anna = await contact(client)
+    family = await open_cases(
+        client,
+        anna,
+        applicants=[{"contact_id": anna}, {"first_name": "Сергей"}, {"first_name": "Мария"}],
+    )
+    own = await client.patch(f"/api/cases/{family[2]['id']}", json={"vac_number": "PL-MARIA"})
+    assert own.status_code == 200, own.text
+
+    response = await client.patch(
+        f"/api/cases/{family[0]['id']}",
+        json={
+            "vac_number": "PL-777",
+            "application_email": "family@mail.by",
+            "application_email_owner": "specialist",
+            "fill_group": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    shown = [(await client.get(f"/api/cases/{c['id']}")).json() for c in family]
+    assert [c["vac_number"] for c in shown] == ["PL-777", "PL-777", "PL-MARIA"]
+    assert [c["application_email"] for c in shown] == ["family@mail.by"] * 3
+    assert {c["application_email_owner"] for c in shown} == {"specialist"}
+
+    # Without the flag only the case itself changes.
+    await client.patch(f"/api/cases/{family[1]['id']}", json={"vac_number": None})
+    await client.patch(f"/api/cases/{family[0]['id']}", json={"vac_number": "PL-888"})
+    assert (await client.get(f"/api/cases/{family[1]['id']}")).json()["vac_number"] is None

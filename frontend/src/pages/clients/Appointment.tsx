@@ -34,6 +34,8 @@ function useRefreshCards() {
   return () => {
     void queryClient.invalidateQueries({ queryKey: ["contacts"] });
     void queryClient.invalidateQueries({ queryKey: ["queues"] });
+    void queryClient.invalidateQueries({ queryKey: ["reminders"] });
+    void queryClient.invalidateQueries({ queryKey: ["home"] });
   };
 }
 
@@ -135,11 +137,14 @@ function WaitingList({ visaCase: c }: { visaCase: VisaCase }) {
   const [appointment, setAppointment] = useState("");
   const [reason, setReason] = useState("");
   const [withGroup, setWithGroup] = useState(true);
+  // The letter usually comes for the whole family: the members it also came for.
+  const [letterFor, setLetterFor] = useState<string[]>([]);
 
   const start = (next: QueueAction) => {
     setDay(todayIso());
     setAppointment(c.submission_on ?? "");
     setReason("");
+    setLetterFor(c.group.map((m) => m.case_id));
     setAction(next);
   };
   const done = () => {
@@ -212,7 +217,13 @@ function WaitingList({ visaCase: c }: { visaCase: VisaCase }) {
       )}
       {action === "letter" && (
         <InlineForm
-          onSubmit={() => update.mutate({ letter_on: day, appointment_on: appointment || null })}
+          onSubmit={() =>
+            update.mutate({
+              letter_on: day,
+              appointment_on: appointment || null,
+              group_cases: letterFor,
+            })
+          }
           onCancel={() => setAction(null)}
           pending={update.isPending}
           error={update.error}
@@ -220,6 +231,29 @@ function WaitingList({ visaCase: c }: { visaCase: VisaCase }) {
         >
           <DateField label={t("queues.letterDate")} value={day} onChange={setDay} required />
           <DateField label={t("cases.submissionOn")} value={appointment} onChange={setAppointment} />
+          {c.group.length > 0 && (
+            <fieldset className="module-block">
+              <legend>{t("queues.sameLetterFor")}</legend>
+              {c.group.map((m) => (
+                <label key={m.case_id} className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={letterFor.includes(m.case_id)}
+                    onChange={(e) =>
+                      setLetterFor((current) =>
+                        e.target.checked
+                          ? [...current, m.case_id]
+                          : current.filter((id) => id !== m.case_id),
+                      )
+                    }
+                  />
+                  <span>
+                    {m.full_name} · {t("cases.number", { number: m.number })}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          )}
         </InlineForm>
       )}
       {action === "remove" && (

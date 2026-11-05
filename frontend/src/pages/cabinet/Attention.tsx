@@ -41,6 +41,7 @@ type Reminder = {
   contact_name: string | null;
   case_id: string | null;
   case_number: number | null;
+  group_id: string | null;
   destination_id: string | null;
   booking_kind: "hotel" | "flight" | null;
   registrar_id: string | null;
@@ -55,6 +56,55 @@ type Reminder = {
 };
 
 const remindersKey = (contactId?: string) => ["reminders", contactId ?? "all"] as const;
+
+// One family, one line (specialist run, 2026-11-04): a submission group's reminders of
+// the same kind and day go together — the family submits together and pays together.
+const FAMILY_KINDS: Kind[] = ["submission", "balance_due", "balance_queued", "package"];
+
+type Line = { item: Reminder; members: Reminder[] };
+
+/** Sum of amounts in kopecks, so the family's balance is exact. */
+function totalAmount(members: Reminder[]): string | null {
+  if (members.every((m) => m.amount === null)) return null;
+  const kopecks = members.reduce((sum, m) => {
+    if (m.amount === null) return sum;
+    const [whole, fraction = ""] = m.amount.replace("-", "").split(".");
+    const value = Number(whole) * 100 + Number(fraction.padEnd(2, "0").slice(0, 2));
+    return sum + (m.amount.startsWith("-") ? -value : value);
+  }, 0);
+  const sign = kopecks < 0 ? "-" : "";
+  const abs = Math.abs(kopecks);
+  return `${sign}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+}
+
+function familyLines(items: Reminder[]): Line[] {
+  const lines: Line[] = [];
+  const byFamily = new Map<string, Line>();
+  for (const r of items) {
+    const family =
+      r.group_id && FAMILY_KINDS.includes(r.kind) ? `${r.kind}|${r.group_id}|${r.due_on}` : null;
+    const line = family ? byFamily.get(family) : undefined;
+    if (line) {
+      line.members.push(r);
+      continue;
+    }
+    const fresh = { item: r, members: [r] };
+    lines.push(fresh);
+    if (family) byFamily.set(family, fresh);
+  }
+  return lines.map(({ item, members }) =>
+    members.length === 1
+      ? { item, members }
+      : {
+          item: {
+            ...item,
+            amount: totalAmount(members),
+            missing: item.missing === null ? null : members.reduce((s, m) => s + (m.missing ?? 0), 0),
+          },
+          members,
+        },
+  );
+}
 
 /** When the event is: overdue and today are urgent, the next days are close. */
 function DaysChip({ days }: { days: number | null }) {
@@ -173,14 +223,17 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
       apiGet<Reminder[]>(contactId ? `/reminders?contact_id=${contactId}` : "/reminders"),
   });
   const done = useMutation({
-    mutationFn: (key: string) => apiPost<void>("/reminders/dismiss", { key }),
+    // A family's line is «Готово» for each of its members.
+    mutationFn: (keys: string[]) =>
+      Promise.all(keys.map((key) => apiPost<void>("/reminders/dismiss", { key }))),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reminders"] }),
   });
+  const lines = useMemo(() => familyLines(list.data ?? []), [list.data]);
 
   // In a client's card the block shows only when there is something to do.
   if (contactId && (!list.data || list.data.length === 0)) return null;
-  const shown = limit && !all ? list.data?.slice(0, limit) : list.data;
-  const hidden = (list.data?.length ?? 0) - (shown?.length ?? 0);
+  const shown = limit && !all ? lines.slice(0, limit) : lines;
+  const hidden = lines.length - shown.length;
 
   return (
     <section className="card attention">
@@ -189,9 +242,9 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
       {list.isError && <ErrorAlert error={list.error} />}
       {done.isError && <ErrorAlert error={done.error} />}
       {list.data?.length === 0 && <p className="muted">{t("attention.none")}</p>}
-      {shown && shown.length > 0 && (
+      {shown.length > 0 && (
         <ul className="attention-list">
-          {shown.map((r) => (
+          {shown.map(({ item: r, members }) => (
             <li key={r.key ?? `${r.kind}-${r.registrar_id}`} className="attention-item">
               <div className="attention-main">
                 <div>
@@ -204,14 +257,23 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
                     <Link to={`/app/registrars/${r.registrar_id}`}>{r.registrar_name}</Link>
                   ) : (
                     <>
-                      {!contactId && r.contact_id && (
-                        <Link to={`/app/clients/${r.contact_id}`}>{r.contact_name}</Link>
-                      )}
+                      {!contactId &&
+                        members.map(
+                          (m, i) =>
+                            m.contact_id && (
+                              <span key={m.key ?? m.contact_id}>
+                                {i > 0 && ", "}
+                                <Link to={`/app/clients/${m.contact_id}`}>{m.contact_name}</Link>
+                              </span>
+                            ),
+                        )}
                       {r.case_number !== null && (
                         <>
                           {!contactId && " · "}
-                          {t("cases.number", { number: r.case_number })} ·{" "}
-                          {name.country(countryById.get(r.destination_id ?? ""))}
+                          {members
+                            .map((m) => t("cases.number", { number: m.case_number }))
+                            .join(", ")}{" "}
+                          · {name.country(countryById.get(r.destination_id ?? ""))}
                         </>
                       )}
                     </>
@@ -225,7 +287,9 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
                     type="button"
                     className="btn btn-sm"
                     disabled={done.isPending}
-                    onClick={() => done.mutate(r.key!)}
+                    onClick={() =>
+                      done.mutate(members.flatMap((m) => (m.key ? [m.key] : [])))
+                    }
                   >
                     {t("attention.done")}
                   </button>
@@ -237,7 +301,7 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
       )}
       {(hidden > 0 || all) && limit && (
         <button type="button" className="btn btn-sm" onClick={() => setAll(!all)}>
-          {all ? t("attention.showLess") : t("attention.showAll", { count: list.data?.length })}
+          {all ? t("attention.showLess") : t("attention.showAll", { count: lines.length })}
         </button>
       )}
     </section>

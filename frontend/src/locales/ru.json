@@ -829,6 +829,8 @@
   "queues.putInQueue": "Поставить в очередь",
   "queues.queuedOn": "Дата постановки",
   "queues.withGroup": "Вся группа подачи",
+  "queues.sameLetterFor": "Та же дата и запись у членов группы",
+  "queues.fillGroup": "Подставить номер и почту членам группы, у кого они не заполнены",
   "queues.letterDate": "Дата письма",
   "queues.dateCame": "Пришла дата",
   "queues.remove": "Снять с очереди",

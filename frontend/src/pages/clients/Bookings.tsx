@@ -72,6 +72,8 @@ function useRefreshCards() {
   return () => {
     void queryClient.invalidateQueries({ queryKey: ["contacts"] });
     void queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    void queryClient.invalidateQueries({ queryKey: ["reminders"] });
+    void queryClient.invalidateQueries({ queryKey: ["home"] });
   };
 }
 
