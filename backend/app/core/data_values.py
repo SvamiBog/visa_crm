@@ -23,8 +23,9 @@ _YMD = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
 _NUMBER = re.compile(r"^\d+(?:\.\d+)?$")
 _DOCUMENT_NUMBER = re.compile(r"^[A-Z0-9]{1,20}$")
 _PHONE = re.compile(r"^\+[\d\s()\-]+$")
-# Telegram usernames: 5–32 letters, digits and underscores, starting with a letter.
-_NICK = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
+# Telegram usernames: 5–32 letters, digits and underscores, starting with a letter. The
+# card's duplicate warning uses it too (app/api/contacts.py).
+TELEGRAM_NICK = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_LENGTH = 320
 _YES = {"да", "yes"}
@@ -179,7 +180,7 @@ def parse_phone(cell: Cell) -> str:
 def parse_telegram(cell: Cell) -> str:
     """A nick, kept without «@» as the card keeps it."""
     nick = (cell_text(cell) or "").removeprefix("@")
-    if not _NICK.match(nick):
+    if not TELEGRAM_NICK.match(nick):
         raise CellError("telegram")
     return nick
 

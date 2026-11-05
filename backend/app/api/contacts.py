@@ -1,5 +1,6 @@
-"""Contacts (backlog 1.2): the card, search, the duplicate guard by phone, the notes
-timeline and links between contacts. Closed by the «clients» module.
+"""Contacts (backlog 1.2): the card, search, the duplicate guard by phone and warning by
+Telegram, the notes timeline, links between contacts and deleting an empty duplicate.
+Closed by the «clients» module.
 
 Personal data stays out of URLs and logs: search takes its query in the request body,
 and audit events carry ids and the names of changed fields only.
@@ -22,22 +23,26 @@ from app.api.consultations import ConsultationOut, HintOut, consultations_of, hi
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
+from app.core.data_values import TELEGRAM_NICK
 from app.core.db import BIGINT_MAX
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
-from app.core.phone import normalize_phone, phone_digits
+from app.core.phone import normalize_phone, phone_search_digits
 from app.core.questionnaire import Passport, Questionnaire
 from app.models import (
     AuditAction,
     CaseStage,
     Consultation,
     Contact,
+    ContactDocument,
     ContactNote,
     ContactRelation,
+    ContactTemplate,
     Decision,
     LeadChannel,
     Messenger,
     Partner,
+    Trip,
     User,
     UserRole,
     VaultEntry,
@@ -250,6 +255,8 @@ class ContactCard(BaseModel):
     cases: list[CaseOut] | None
     # Files of the consent and the contract, newest first.
     documents: list[DocumentOut]
+    # The specialist may delete a card without client history: a duplicate.
+    can_delete: bool
 
 
 # --- Helpers -------------------------------------------------------------------------
@@ -303,6 +310,43 @@ async def _phone_conflict(
     return None
 
 
+async def _telegram_conflict(
+    session: AsyncSession, telegram: str | None, exclude: uuid.UUID | None = None
+) -> JSONResponse | None:
+    """409 when another card the user sees has this nick — a warning, not a block (owner's
+    decision 2026-11-04): the form offers that card or saving anyway with
+    allow_shared_telegram, since a family may share one account. A name typed in the
+    field is not a nick and is never a duplicate."""
+    if telegram is None or not TELEGRAM_NICK.match(telegram):
+        return None
+    query = select(Contact.id).where(func.lower(Contact.telegram) == telegram.lower())
+    if exclude is not None:
+        query = query.where(Contact.id != exclude)
+    owner = await session.scalar(query.order_by(Contact.created_at).limit(1))
+    if owner is None:
+        return None
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": "telegram_taken", "contact_id": str(owner)},
+    )
+
+
+async def _has_history(session: AsyncSession, contact_id: uuid.UUID) -> bool:
+    """What keeps a card from being deleted as a duplicate (owner's decision 2026-11-04):
+    a case (with its payments, queue and bookings), a paid consultation, a vault account,
+    a stored file, a trip or a template given to the client. Notes, links and unpaid
+    consultations go with the card."""
+    history = (
+        exists().where(VisaCase.contact_id == contact_id),
+        exists().where(Consultation.contact_id == contact_id, Consultation.fee_paid),
+        exists().where(VaultEntry.contact_id == contact_id),
+        exists().where(ContactDocument.contact_id == contact_id),
+        exists().where(Trip.contact_id == contact_id),
+        exists().where(ContactTemplate.contact_id == contact_id),
+    )
+    return bool(await session.scalar(select(or_(*history))))
+
+
 async def _notes(session: AsyncSession, contact_id: uuid.UUID) -> list[NoteOut]:
     rows = await session.execute(
         select(ContactNote, User.email)
@@ -345,6 +389,7 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
         hints=await hints_for(session, contact),
         cases=await cases_of(session, contact.id) if with_cases else None,
         documents=await documents_of(session, contact.id),
+        can_delete=user.role == UserRole.SPECIALIST and not await _has_history(session, contact.id),
     )
 
 
@@ -385,9 +430,10 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
             conditions.append(
                 exists().where(VaultEntry.contact_id == Contact.id, VaultEntry.login.ilike(pattern))
             )
-        digits = phone_digits(term)
-        if len(digits) >= 3:
-            conditions.append(Contact.phone.contains(digits))
+        # «8 029 …» typed the local way finds the number stored with 375.
+        for digits in phone_search_digits(term):
+            if len(digits) >= 3:
+                conditions.append(Contact.phone.contains(digits))
         query = query.where(or_(*conditions))
     query = filter_contacts(
         query,
@@ -499,10 +545,14 @@ async def _rows(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ContactOut)
-async def create_contact(body: ContactIn, user: Member, session: TenantSession) -> Any:
+async def create_contact(
+    body: ContactIn, user: Member, session: TenantSession, allow_shared_telegram: bool = False
+) -> Any:
     fields = body.model_dump(exclude={"passport", *NAME_PARTS, *LATIN_PARTS})
     await _check_refs(session, fields)
     if (conflict := await _phone_conflict(session, body.phone)) is not None:
+        return conflict
+    if not allow_shared_telegram and (conflict := await _telegram_conflict(session, body.telegram)):
         return conflict
     contact = Contact(
         tenant_id=user.tenant_id,
@@ -542,7 +592,11 @@ async def get_contact(contact_id: uuid.UUID, user: Member, session: TenantSessio
 
 @router.patch("/{contact_id}", response_model=ContactOut)
 async def update_contact(
-    contact_id: uuid.UUID, body: ContactUpdate, user: Member, session: TenantSession
+    contact_id: uuid.UUID,
+    body: ContactUpdate,
+    user: Member,
+    session: TenantSession,
+    allow_shared_telegram: bool = False,
 ) -> Any:
     contact = await _contact(session, contact_id)
     # The answer is the card, so an edit opens it too (Т.14).
@@ -558,6 +612,15 @@ async def update_contact(
     await _check_refs(session, changes)
     if "phone" in changes and (
         conflict := await _phone_conflict(session, changes["phone"], exclude=contact.id)
+    ):
+        return conflict
+    # Only a new nick is checked: a card already sharing one is not stopped on every edit.
+    new_telegram = changes.get("telegram")
+    if (
+        not allow_shared_telegram
+        and new_telegram is not None
+        and new_telegram.lower() != (contact.telegram or "").lower()
+        and (conflict := await _telegram_conflict(session, new_telegram, exclude=contact.id))
     ):
         return conflict
     changed = [f for f, v in changes.items() if getattr(contact, f) != v]
@@ -576,6 +639,22 @@ async def update_contact(
     await session.commit()
     await session.refresh(contact)
     return ContactOut.model_validate(contact)
+
+
+@router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_contact(contact_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
+    """A card made by mistake — a duplicate (owner's decision 2026-11-04). The specialist
+    only; a card with client history stays (deleting a client's data on request is
+    roadmap 6.6). Notes, links and unpaid consultations go with it by the foreign keys."""
+    contact = await _contact(session, contact_id)
+    if user.role != UserRole.SPECIALIST:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+    if await _has_history(session, contact.id):
+        raise HTTPException(status.HTTP_409_CONFLICT, "contact_has_history")
+    await session.execute(delete(Contact).where(Contact.id == contact.id))
+    _audit(session, AuditAction.CONTACT_DELETED, user, contact.id)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --- Notes ---------------------------------------------------------------------------

@@ -91,6 +91,16 @@ export function ContactPage() {
   // «Создать кейс» from a consultation, or a new case without one.
   const [creatingCase, setCreatingCase] = useState<Consultation | "blank" | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["contacts"] });
+  const navigate = useNavigate();
+  // A duplicate made by mistake: the API refuses a card with client history.
+  const remove = useMutation({
+    mutationFn: () => apiDelete(`/contacts/${id}`),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: contactKey(id) });
+      void refresh();
+      navigate("/app/clients");
+    },
+  });
 
   if (card.isPending) return <p className="muted">{t("common.loading")}</p>;
   if (card.isError) {
@@ -131,8 +141,23 @@ export function ContactPage() {
               {t("reference.edit")}
             </button>
           )}
+          {card.data.can_delete && !editing && (
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={remove.isPending}
+              onClick={() => {
+                if (window.confirm(t("contacts.confirmDeleteCard", { name: contact.full_name }))) {
+                  remove.mutate();
+                }
+              }}
+            >
+              {t("contacts.deleteCard")}
+            </button>
+          )}
         </div>
       </header>
+      {remove.isError && <ErrorAlert error={remove.error} />}
 
       {editing && (
         <ContactForm
