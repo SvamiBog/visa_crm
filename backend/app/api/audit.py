@@ -138,7 +138,7 @@ async def workspace_actors(
     rows = await session.execute(
         select(User.id, User.email).where(User.tenant_id == user.tenant_id).order_by(User.email)
     )
-    return [Actor(id=i, email=e) for i, e in rows.tuples()]
+    return [Actor(id=i, email=e) for i, e in rows]
 
 
 @router.get("/admin/audit", dependencies=[Depends(require_admin)])
@@ -172,4 +172,4 @@ async def platform_actors(session: SystemSession) -> list[Actor]:
         .join(latest, latest.c.last == AuditEvent.id)
         .order_by(AuditEvent.actor_email)
     )
-    return [Actor(id=i, email=e) for i, e in rows.tuples() if i is not None and e is not None]
+    return [Actor(id=i, email=e) for i, e in rows if i is not None and e is not None]

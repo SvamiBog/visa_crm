@@ -12,6 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -414,11 +415,11 @@ async def queue_summary(user: Member, session: TenantSession) -> list[QueueCount
         .group_by(VisaCase.destination_id)
     )
     summary: dict[uuid.UUID, QueueCountry] = {}
-    for country, waiting, dated in entries.tuples():
+    for country, waiting, dated in entries:
         summary[country] = QueueCountry(
             country_id=country, waiting=waiting, dated=dated, open_attempts=0
         )
-    for country, count in attempts.tuples():
+    for country, count in attempts:
         row = summary.setdefault(
             country, QueueCountry(country_id=country, waiting=0, dated=0, open_attempts=0)
         )
@@ -449,7 +450,7 @@ async def queue_view(
             WaitingListEntry.removed_on.is_(None), VisaCase.stage.not_in(SUBMITTED_STAGES)
         )
     entries = []
-    for entry, case, name in (await session.execute(query)).tuples():
+    for entry, case, name in await session.execute(query):
         out = entry_out(entry, case.stage, today)
         if not closed and out.status not in (QueueStatus.IN_QUEUE, QueueStatus.DATE_RECEIVED):
             continue
@@ -478,7 +479,7 @@ async def queue_view(
         .join(Contact, Contact.id == VisaCase.contact_id)
         .where(VisaCase.destination_id == country_id)
         .order_by(ApplicationAttempt.case_id, ApplicationAttempt.number.desc())
-        .distinct(ApplicationAttempt.case_id)
+        .ext(distinct_on(ApplicationAttempt.case_id))
     )
     if not closed:
         latest = latest.where(VisaCase.stage.not_in(SUBMITTED_STAGES))
@@ -494,7 +495,7 @@ async def queue_view(
             stage=case.stage,
             submission_on=case.submission_on,
         )
-        for attempt, case, name in (await session.execute(latest)).tuples()
+        for attempt, case, name in await session.execute(latest)
     ]
     attempts.sort(key=lambda a: a.deadline_on)
 

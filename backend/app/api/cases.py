@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Date, cast, func, or_, select, text, true, tuple_
+from sqlalchemy import Date, any_, cast, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.appointments import AttemptOut, QueueEntryOut, appointments_of, average_waits
@@ -302,7 +302,7 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
             .where(VisaCase.group_id.in_(group_ids))
             .order_by(VisaCase.number)
         )
-        for member, name in rows.tuples():
+        for member, name in rows:
             assert member.group_id is not None
             members.setdefault(member.group_id, []).append(
                 GroupMember(
@@ -586,7 +586,7 @@ async def board(
             submission_on=c.submission_on,
             decided_on=c.decided_on,
         )
-        for c, name in rows.tuples()
+        for c, name in rows
     ]
 
     leads: list[BoardLead] = []
@@ -604,12 +604,12 @@ async def board(
             )
         )
         if country_id is not None:
-            lead_query = lead_query.where(latest.c.destination_ids.any(country_id))
+            lead_query = lead_query.where(any_(latest.c.destination_ids) == country_id)
         if channel_id is not None:
             lead_query = lead_query.where(Contact.lead_channel_id == channel_id)
-        for contact_id, name, lead_tab, held_on, decision, destinations in (
-            await session.execute(lead_query.order_by(since.desc()).limit(BOARD_LIMIT))
-        ).tuples():
+        for contact_id, name, lead_tab, held_on, decision, destinations in await session.execute(
+            lead_query.order_by(since.desc()).limit(BOARD_LIMIT)
+        ):
             leads.append(
                 BoardLead(
                     contact_id=contact_id,
@@ -740,7 +740,7 @@ async def group_candidates(case_id: uuid.UUID, session: TenantSession) -> list[G
             destination_id=c.destination_id,
             stage=c.stage,
         )
-        for c, name in rows.tuples()
+        for c, name in rows
     ]
 
 

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import delete, exists, func, or_, select, true
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -354,7 +355,7 @@ async def _notes(session: AsyncSession, contact_id: uuid.UUID) -> list[NoteOut]:
         .where(ContactNote.contact_id == contact_id)
         .order_by(ContactNote.created_at.desc(), ContactNote.id.desc())
     )
-    return [_note_out(note, email) for note, email in rows.tuples()]
+    return [_note_out(note, email) for note, email in rows]
 
 
 def _note_out(note: ContactNote, author_email: str | None) -> NoteOut:
@@ -375,7 +376,7 @@ async def _relations(session: AsyncSession, contact_id: uuid.UUID) -> list[Relat
         .where(ContactRelation.contact_id == contact_id)
         .order_by(Contact.full_name)
     )
-    return [RelationOut(related_id=r, full_name=n, label=lb) for r, n, lb in rows.tuples()]
+    return [RelationOut(related_id=r, full_name=n, label=lb) for r, n, lb in rows]
 
 
 async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> ContactCard:
@@ -446,9 +447,7 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
 
     tabs = query.with_only_columns(tab.label("tab")).subquery()
     counted = dict(
-        (await session.execute(select(tabs.c.tab, func.count()).group_by(tabs.c.tab)))
-        .tuples()
-        .all()
+        (await session.execute(select(tabs.c.tab, func.count()).group_by(tabs.c.tab))).all()
     )
     counts = {t: counted.get(t.value, 0) for t in TABS}
     counts[Tab.ALL] = sum(counts.values())
@@ -456,16 +455,12 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
     if body.tab != Tab.ALL:
         query = query.where(tab == body.tab.value)
     rows = (
-        (
-            await session.execute(
-                query.order_by(Contact.created_at.desc(), Contact.id.desc())
-                .offset(body.offset)
-                .limit(SEARCH_LIMIT + 1)
-            )
+        await session.execute(
+            query.order_by(Contact.created_at.desc(), Contact.id.desc())
+            .offset(body.offset)
+            .limit(SEARCH_LIMIT + 1)
         )
-        .tuples()
-        .all()
-    )
+    ).all()
     page = rows[:SEARCH_LIMIT]
     with_cases = "cases" in await effective_modules(session, user)
     return SearchOut(
@@ -492,7 +487,7 @@ async def _rows(
                 Consultation.held_on.desc(),
                 Consultation.created_at.desc(),
             )
-            .distinct(Consultation.contact_id)
+            .ext(distinct_on(Consultation.contact_id))
         )
     }
     cases: dict[uuid.UUID, list[VisaCase]] = {}
@@ -511,9 +506,7 @@ async def _rows(
                         .where(VisaCase.group_id.in_(groups))
                         .group_by(VisaCase.group_id)
                     )
-                )
-                .tuples()
-                .all()
+                ).all()
             )
 
     result = []

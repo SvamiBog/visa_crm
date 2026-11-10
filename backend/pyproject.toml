@@ -7,7 +7,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "pydantic-settings>=2.6",
-    "sqlalchemy[asyncio]>=2.0.36",
+    "sqlalchemy[asyncio]>=2.1",
     "asyncpg>=0.30",
     "alembic>=1.14",
     "argon2-cffi>=23.1",
@@ -39,3 +39,5 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# A call SQLAlchemy is about to drop fails the test that makes it.
+filterwarnings = ["error::sqlalchemy.exc.SADeprecationWarning"]

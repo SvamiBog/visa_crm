@@ -134,7 +134,7 @@ class _Builder:
 
         self.names: dict[uuid.UUID, str] = {}
         for model in (LeadChannel, Partner, VisaPurpose, Registrar, VaultSystem):
-            self.names |= dict((await s.execute(select(model.id, model.name))).tuples().all())
+            self.names |= dict((await s.execute(select(model.id, model.name))).all())
         self.countries: dict[uuid.UUID, Localized] = {}
         self.by_code: dict[str, Localized] = {}
         for cid, code, ru, en in await s.execute(

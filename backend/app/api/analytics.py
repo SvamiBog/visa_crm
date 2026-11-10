@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, and_, delete, func, or_, select
+from sqlalchemy import ColumnElement, and_, any_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -297,7 +297,7 @@ async def analytics(
         .where(Consultation.held_on.between(start, end))
     )
     if country_id is not None:
-        query = query.where(Consultation.destination_ids.any(country_id))
+        query = query.where(any_(Consultation.destination_ids) == country_id)
     consultations = (await session.execute(query)).all()
     opened: dict[uuid.UUID, list[VisaCase]] = defaultdict(list)
     if consultations:

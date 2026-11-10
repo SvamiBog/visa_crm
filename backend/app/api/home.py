@@ -339,7 +339,7 @@ async def _queues(session: AsyncSession, today: date) -> QueuesBlock:
         )
         .group_by(VisaCase.destination_id)
     )
-    for country, count in waiting.tuples():
+    for country, count in waiting:
         row(country).waiting = count
     attempts = await session.execute(
         select(
@@ -354,7 +354,7 @@ async def _queues(session: AsyncSession, today: date) -> QueuesBlock:
         .where(ApplicationAttempt.outcome.is_(None))
         .group_by(VisaCase.destination_id)
     )
-    for country, count, deadline in attempts.tuples():
+    for country, count, deadline in attempts:
         row(country).open_attempts, row(country).next_deadline = count, deadline
     waits = await session.execute(
         select(
@@ -368,7 +368,7 @@ async def _queues(session: AsyncSession, today: date) -> QueuesBlock:
         .group_by(VisaCase.destination_id)
     )
     total_days = total_letters = 0
-    for country, days, letters in waits.tuples():
+    for country, days, letters in waits:
         total_days, total_letters = total_days + days, total_letters + letters
         if country in countries:
             countries[country].average_days = round(days / letters)

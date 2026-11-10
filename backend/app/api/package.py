@@ -101,7 +101,7 @@ async def _checklists(
         rows = await session.execute(
             select(VisaPurpose.id, VisaPurpose.kind).where(VisaPurpose.id.in_(purpose_ids))
         )
-        kinds = dict(rows.tuples().all())
+        kinds = dict(rows.all())
     items: list[Item] = []
     for model in (ChecklistItem, OwnChecklistItem):
         query = (

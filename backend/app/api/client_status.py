@@ -11,7 +11,7 @@ exactly one tab, computed in SQL so search, filters, paging and counts agree.
 import uuid
 from enum import StrEnum
 
-from sqlalchemy import Select, and_, case, exists, or_, select
+from sqlalchemy import Select, and_, any_, case, exists, or_, select
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import Lateral
 
@@ -77,7 +77,7 @@ def filter_contacts(
                 exists().where(
                     VisaCase.contact_id == Contact.id, VisaCase.destination_id == country_id
                 ),
-                latest.c.destination_ids.any(country_id),
+                any_(latest.c.destination_ids) == country_id,
             )
         )
     if stage is not None:

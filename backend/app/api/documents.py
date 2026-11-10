@@ -87,7 +87,7 @@ async def documents_of(session: AsyncSession, contact_id: uuid.UUID) -> list[Doc
         .where(ContactDocument.contact_id == contact_id)
         .order_by(ContactDocument.created_at.desc(), ContactDocument.id.desc())
     )
-    return [_out(document, email) for document, email in rows.tuples()]
+    return [_out(document, email) for document, email in rows]
 
 
 def _audit(

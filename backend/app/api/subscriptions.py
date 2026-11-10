@@ -289,7 +289,7 @@ async def _rows(session: AsyncSession) -> list[SubscriptionRow]:
                     func.max(SubscriptionPayment.paid_on),
                 ).group_by(SubscriptionPayment.tenant_id)
             )
-        ).tuples()
+        )
     )
     rows = await session.execute(
         select(Tenant, User.email, Tariff.name)
@@ -298,7 +298,7 @@ async def _rows(session: AsyncSession) -> list[SubscriptionRow]:
         .order_by(Tenant.name)
     )
     out = []
-    for tenant, email, tariff in rows.tuples():
+    for tenant, email, tariff in rows:
         months, last = paid.get(tenant.id, (0, None))
         out.append(
             SubscriptionRow(

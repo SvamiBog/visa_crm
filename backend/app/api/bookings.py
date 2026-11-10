@@ -282,5 +282,5 @@ async def booking_deadlines(
             destination_id=case.destination_id,
             stage=case.stage,
         )
-        for booking, case, name in rows.tuples()
+        for booking, case, name in rows
     ]

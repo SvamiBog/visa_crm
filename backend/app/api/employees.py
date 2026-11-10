@@ -105,7 +105,7 @@ async def _case_counts(session: TenantSession, ids: list[uuid.UUID]) -> dict[uui
         .where(EmployeeCase.user_id.in_(ids))
         .group_by(EmployeeCase.user_id)
     )
-    return dict(rows.tuples().all())
+    return dict(rows.all())
 
 
 async def _out_one(session: TenantSession, user: User) -> EmployeeOut:
@@ -285,26 +285,22 @@ async def revealed_passwords(
     employee = await _get_employee(session, specialist, employee_id)
     last = func.max(AuditEvent.occurred_at)
     reveals = (
-        (
-            await session.execute(
-                select(
-                    AuditEvent.target_id,
-                    func.count(),
-                    last,
-                    func.max(AuditEvent.details["name"].astext),
-                )
-                .where(
-                    AuditEvent.actor_id == employee.id,
-                    AuditEvent.action == AuditAction.VAULT_PASSWORD_REVEALED,
-                )
-                .group_by(AuditEvent.target_id)
-                .order_by(last.desc())
-                .limit(REVEALED_LIMIT)
+        await session.execute(
+            select(
+                AuditEvent.target_id,
+                func.count(),
+                last,
+                func.max(AuditEvent.details["name"].astext),
             )
+            .where(
+                AuditEvent.actor_id == employee.id,
+                AuditEvent.action == AuditAction.VAULT_PASSWORD_REVEALED,
+            )
+            .group_by(AuditEvent.target_id)
+            .order_by(last.desc())
+            .limit(REVEALED_LIMIT)
         )
-        .tuples()
-        .all()
-    )
+    ).all()
     ids = [uuid.UUID(target) for target, *_ in reveals if target]
     entries = {
         entry.id: (entry, system, name)
@@ -315,7 +311,7 @@ async def revealed_passwords(
                 .outerjoin(Contact, Contact.id == VaultEntry.contact_id)
                 .where(VaultEntry.id.in_(ids))
             )
-        ).tuples()
+        )
     }
     rows = []
     for target, times, last_at, system_name in reveals:
