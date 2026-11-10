@@ -45,6 +45,7 @@ from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
 from app.core.http_headers import add_security_headers
 from app.core.rates import keep_fresh
+from app.core.request_limit import RequestLimit
 from app.core.server_errors import UnexpectedErrors
 
 
@@ -64,6 +65,8 @@ def create_app() -> FastAPI:
     )
     # An unexpected error is logged without its text (it may quote clients' data).
     app.add_middleware(UnexpectedErrors)
+    # A request too large to be a file the CRM takes is refused before it is read.
+    app.add_middleware(RequestLimit)
 
     @app.middleware("http")
     async def remember_client_ip(request: Request, call_next) -> Response:

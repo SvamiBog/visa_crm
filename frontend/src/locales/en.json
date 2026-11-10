@@ -91,6 +91,7 @@
   "errors.validation": "Please check the fields.",
   "errors.network": "No connection to the server. Check your internet.",
   "errors.unknown": "Something went wrong. Please try again.",
+  "errors.request_too_large": "The request is too large. If you are uploading a file, make it smaller.",
   "twoFactor.loginTitle": "Verification code",
   "twoFactor.codeHint": "Open your authenticator app and enter the 6-digit code for VisaCRM.",
   "twoFactor.recoveryHint": "Enter one of the recovery codes you saved during setup. Each code works once.",
