@@ -309,6 +309,9 @@ async def update_trip(
     trip_id: uuid.UUID, body: TripUpdate, user: Member, _card: CardMember, session: TenantSession
 ) -> TripOut:
     trip = await _trip(session, trip_id)
+    # Asked before the trip changes: a query sends the trip to the database, where dates
+    # in the wrong order fail the table's check instead of being answered below.
+    today = await _today(session, user)
     changes = body.model_dump(exclude_unset=True)
     for field in ("country_id", "entered_on", "long_stay"):
         if field in changes and changes[field] is None:
@@ -316,7 +319,6 @@ async def update_trip(
     changed = sorted(f for f, v in changes.items() if getattr(trip, f) != v)
     for field, value in changes.items():
         setattr(trip, field, value)
-    today = await _today(session, user)
     _check_dates(trip.entered_on, trip.left_on, trip.long_stay, today)
     if "country_id" in changed:
         await _schengen_since(session, {trip.country_id})

@@ -59,6 +59,8 @@ async def test_systems_keep_password_rules(client: AsyncClient, make_user: MakeU
     )
     assert updated.status_code == 200, updated.text
     assert (updated.json()["password_symbols"], updated.json()["url"]) == ("", None)
+    not_text = await client.patch(f"{SYSTEMS}/{vfs['id']}", json={"url": 5})
+    assert not_text.status_code == 422
     nothing = await client.patch(
         f"{SYSTEMS}/{vfs['id']}",
         json={"password_lower": False, "password_upper": False, "password_digits": False},

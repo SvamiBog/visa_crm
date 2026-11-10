@@ -233,6 +233,24 @@ async def test_result_rules(client: AsyncClient, make_user: MakeUser):
     assert (await client.get(url)).json()["outcome"] is None
 
 
+async def test_result_rules_hold_for_a_case_with_a_city(client: AsyncClient, make_user: MakeUser):
+    """The city of a case is looked up in the database; a wrong result must be refused by
+    the rule before that, not by the table's check on the way."""
+    await as_specialist(client, make_user)
+    minsk = await add_city(client, (await own_rule(client, "PL"))["id"], "Минск")
+    contact = await new_contact(client)
+    [case] = (await open_case(client, contact["id"], visa_center_id=minsk)).json()
+    url = f"/api/cases/{case['id']}"
+    backwards = await client.patch(
+        url,
+        json={"outcome": "visa", "visa_valid_from": "2027-01-10", "visa_valid_to": "2027-01-01"},
+    )
+    assert backwards.status_code == 422 and backwards.json()["detail"] == "validation"
+    undecided = await client.patch(url, json={"decided_on": "2026-12-01"})
+    assert undecided.status_code == 422 and undecided.json()["detail"] == "validation"
+    assert (await client.get(url)).json()["outcome"] is None
+
+
 async def test_appeal_deadline_from_the_rules(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     await own_rule(client, "LT", appeals_accepted=True, appeal_deadline_days=14)
@@ -424,6 +442,22 @@ async def test_refusal_in_a_case_warns_about_the_same_country(
     await open_case(client, contact["id"], destination="FR")
     hints = (await card(client, contact["id"]))["hints"]
     assert {"code": "refusal_before", "country": "FR"} in hints
+
+
+async def test_the_card_opens_with_a_refusal_of_any_year(client: AsyncClient, make_user: MakeUser):
+    """The questionnaire lists refusals from 1990 on; a case's refusal decided before that
+    (an old one, or a year typed wrong) still warns, and the card still opens."""
+    await as_specialist(client, make_user)
+    contact = await new_contact(client)
+    [refused] = (await open_case(client, contact["id"], destination="FR")).json()
+    saved = await client.patch(
+        f"/api/cases/{refused['id']}", json={"outcome": "refusal", "decided_on": "1985-06-01"}
+    )
+    assert saved.status_code == 200, saved.text
+    await open_case(client, contact["id"], destination="FR")
+    opened = await client.get(f"{CONTACTS}/{contact['id']}")
+    assert opened.status_code == 200, opened.text
+    assert {"code": "refusal_before", "country": "FR"} in opened.json()["hints"]
 
 
 async def test_log_has_ids_only(client: AsyncClient, make_user: MakeUser):

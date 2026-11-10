@@ -667,9 +667,8 @@ async def update_case(
     changed = sorted(f for f, v in changes.items() if getattr(case, f) != v)
     for field, value in changes.items():
         setattr(case, field, value)
-    await _check_place(
-        session, case.destination_id, case.submission_country_id, case.visa_center_id
-    )
+    # Before anything is looked up: a query sends the case to the database, where a
+    # wrong result fails the table's checks instead of being answered here.
     invalid_result = (
         (
             case.outcome != VisaOutcome.VISA
@@ -685,6 +684,9 @@ async def update_case(
     )
     if invalid_result:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
+    await _check_place(
+        session, case.destination_id, case.submission_country_id, case.visa_center_id
+    )
     if changed:
         _audit(session, AuditAction.CASE_UPDATED, user, case, {"fields": ",".join(changed)})
     if body.fill_group and case.group_id is not None:

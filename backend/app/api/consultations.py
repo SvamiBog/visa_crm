@@ -205,11 +205,10 @@ async def hints_for(session: AsyncSession, contact: Contact) -> list[HintOut]:
         if i in countries
     ]
     questionnaire = Questionnaire.model_validate(contact.questionnaire)
+    # By the country alone: the checks do not look at the year, and the questionnaire's
+    # own list takes only the years a client would remember (1990 on).
     case_refusals = [
-        Refusal(
-            country=countries[c.destination_id].code,
-            year=c.decided_on.year if c.decided_on else None,
-        )
+        Refusal(country=countries[c.destination_id].code)
         for c in refused
         if c.destination_id in countries
     ]

@@ -221,6 +221,22 @@ async def test_trip_dates_are_checked(
             assert response.json()["detail"] == code
 
 
+async def test_a_trip_edited_into_the_wrong_order_is_refused(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Correcting one date past the other is answered with the rule's code, and the trip
+    stays as it was."""
+    await as_specialist(client, make_user, owner_engine)
+    anna = await contact(client)
+    trip = await add_trip(client, anna, "PL", entered_on=day(-20), left_on=day(-10))
+    for change in ({"entered_on": day(-5)}, {"left_on": day(-30)}):
+        response = await client.patch(f"/api/trips/{trip['id']}", json=change)
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"] == "dates_order"
+    [saved] = (await trips(client, anna))["trips"]
+    assert (saved["entered_on"], saved["left_on"]) == (day(-20), day(-10))
+
+
 async def test_long_stays_may_be_long_and_countries_must_exist(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):

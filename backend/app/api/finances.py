@@ -539,7 +539,7 @@ async def _update_money(
 ) -> list[str]:
     """Apply the changes; a new currency takes the site's latest rate unless one is given."""
     tenant = await _tenant(session, user)
-    for field in ("amount", "currency", day_field):
+    for field in ("amount", "currency", "rate", "official", day_field):
         if field in changes and changes[field] is None:
             del changes[field]  # required: null means «leave as is»
     changed = [f for f, v in changes.items() if getattr(item, f) != v]

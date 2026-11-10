@@ -245,8 +245,9 @@ Symbols = Annotated[str, Field(max_length=32, pattern=r"^[!-/:-@\[-`{-~]*$")]
 Url = Annotated[str, Field(max_length=300, pattern=r"^https?://\S+$")]
 
 
-def _blank_is_none(value: str | None) -> str | None:
-    return (value or "").strip() or None
+def _blank_is_none(value: object) -> object:
+    """Runs before the type is checked, so it may be given anything."""
+    return (value.strip() or None) if isinstance(value, str) else value
 
 
 def _unique_chars(value: str | None) -> str | None:
