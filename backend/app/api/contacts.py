@@ -333,6 +333,12 @@ async def _telegram_conflict(
     )
 
 
+def _has(column: Any, term: str) -> Any:
+    """The column has the text, whatever the case, as it was typed: «_» and «%» are
+    characters of a nick or a number, not wildcards."""
+    return column.icontains(term, autoescape=True)
+
+
 async def _has_history(session: AsyncSession, contact_id: uuid.UUID) -> bool:
     """What keeps a card from being deleted as a duplicate (owner's decision 2026-11-04):
     a case (with its payments, queue and bookings), a paid consultation, a vault account,
@@ -419,18 +425,17 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
     query = select(Contact, tab.label("tab")).outerjoin(latest, true())
     term = body.query.strip().removeprefix("@").strip()
     if term:
-        pattern = f"%{term}%"
         conditions = [
-            Contact.full_name.ilike(pattern),
-            Contact.full_name_latin.ilike(pattern),
-            Contact.telegram.ilike(pattern),
+            _has(Contact.full_name, term),
+            _has(Contact.full_name_latin, term),
+            _has(Contact.telegram, term),
             # The number the visa center knows the client by (ID, application number…).
-            exists().where(VisaCase.contact_id == Contact.id, VisaCase.vac_number.ilike(pattern)),
+            exists().where(VisaCase.contact_id == Contact.id, _has(VisaCase.vac_number, term)),
         ]
         if "vault" in await effective_modules(session, user):
             # The login of an account in the vault: whose account is on this mailbox.
             conditions.append(
-                exists().where(VaultEntry.contact_id == Contact.id, VaultEntry.login.ilike(pattern))
+                exists().where(VaultEntry.contact_id == Contact.id, _has(VaultEntry.login, term))
             )
         # «8 029 …» typed the local way finds the number stored with 375.
         for digits in phone_search_digits(term):
