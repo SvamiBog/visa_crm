@@ -26,6 +26,7 @@ from app.api.appointments import (
 from app.api.cases import Member, _audit, _case
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.cases import advance
+from app.core.days import Day
 from app.core.queues import SUBMITTED_STAGES, QueueStatus, deadline
 from app.models import (
     ApplicationAttempt,
@@ -54,7 +55,7 @@ GROUP_LIMIT = 20
 
 
 class QueueIn(BaseModel):
-    queued_on: date
+    queued_on: Day
     # Put the whole submission group in the queue on the same day.
     with_group: bool = False
 
@@ -65,10 +66,10 @@ class QueueUpdate(BaseModel):
     group the same letter came for (owner's decision 2026-11-04); they get its date and
     appointment too."""
 
-    queued_on: date | None = None
-    letter_on: date | None = None
-    appointment_on: date | None = None
-    removed_on: date | None = None
+    queued_on: Day | None = None
+    letter_on: Day | None = None
+    appointment_on: Day | None = None
+    removed_on: Day | None = None
     removed_reason: Annotated[str, Field(max_length=500)] | None = None
     group_cases: list[uuid.UUID] = Field(default_factory=list, max_length=GROUP_LIMIT)
 
@@ -79,17 +80,17 @@ class QueueUpdate(BaseModel):
 
 
 class AttemptIn(BaseModel):
-    sent_on: date
+    sent_on: Day
 
 
 class AttemptUpdate(BaseModel):
     """Only the fields sent are changed. A corrected `sent_on` moves the deadline by the
     window the attempt was sent with; null leaves it as it is."""
 
-    sent_on: date | None = None
+    sent_on: Day | None = None
     outcome: AttemptOutcome | None = None
-    closed_on: date | None = None
-    appointment_on: date | None = None
+    closed_on: Day | None = None
+    appointment_on: Day | None = None
 
 
 class QueueRow(QueueEntryOut):

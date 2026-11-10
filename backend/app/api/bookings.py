@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.bookings import LIVE, BookingWarning, days_left, deadline, warnings
+from app.core.days import Day
 from app.models import (
     AuditAction,
     Booking,
@@ -53,11 +54,11 @@ def _blank_is_none(value: object) -> object:
 class BookingIn(BaseModel):
     kind: BookingKind
     place: Annotated[str, Field(min_length=1, max_length=200)]
-    starts_on: date | None = None
-    ends_on: date | None = None
+    starts_on: Day | None = None
+    ends_on: Day | None = None
     reference: Annotated[str, Field(max_length=64)] | None = None
-    free_cancel_until: date | None = None
-    valid_until: date | None = None
+    free_cancel_until: Day | None = None
+    valid_until: Day | None = None
     vault_entry_id: uuid.UUID | None = None
     note: Annotated[str, Field(max_length=500)] | None = None
 
@@ -71,11 +72,11 @@ class BookingUpdate(BaseModel):
     kind: BookingKind | None = None
     status: BookingStatus | None = None
     place: Annotated[str, Field(min_length=1, max_length=200)] | None = None
-    starts_on: date | None = None
-    ends_on: date | None = None
+    starts_on: Day | None = None
+    ends_on: Day | None = None
     reference: Annotated[str, Field(max_length=64)] | None = None
-    free_cancel_until: date | None = None
-    valid_until: date | None = None
+    free_cancel_until: Day | None = None
+    valid_until: Day | None = None
     vault_entry_id: uuid.UUID | None = None
     note: Annotated[str, Field(max_length=500)] | None = None
 

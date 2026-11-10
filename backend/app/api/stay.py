@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core import stay
 from app.core.audit import record
+from app.core.days import LAST_DAY
 from app.models import AuditAction, Contact, Country, Trip
 
 router = APIRouter(tags=["stay"], dependencies=[Depends(require_module("stay_calculator"))])
@@ -32,7 +33,7 @@ DAYS_AHEAD = 730
 MAX_TRIP_DAYS = 366
 MAX_TRIPS = 200
 
-Day = Annotated[date, Field(ge=FIRST_DAY)]
+Day = Annotated[date, Field(ge=FIRST_DAY, le=LAST_DAY)]
 
 
 # --- Schemas -------------------------------------------------------------------------

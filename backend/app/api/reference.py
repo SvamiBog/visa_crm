@@ -25,6 +25,7 @@ from app.api.deps import (
     require_specialist,
 )
 from app.core.audit import record
+from app.core.days import Day
 from app.core.directions import city_key, new_cities
 from app.models import (
     AuditAction,
@@ -63,7 +64,7 @@ class CountryIn(BaseModel):
     consultation_minutes: Annotated[int, Field(ge=5, le=600)] | None = None
     passport_max_age_years: PassportAge | None = None
     passport_valid_after_months: PassportMargin | None = None
-    schengen_since: date | None = None
+    schengen_since: Day | None = None
     is_active: bool = True
 
     @model_validator(mode="after")
@@ -81,7 +82,7 @@ class CountryUpdate(BaseModel):
     consultation_minutes: Annotated[int, Field(ge=5, le=600)] | None = None
     passport_max_age_years: PassportAge | None = None
     passport_valid_after_months: PassportMargin | None = None
-    schengen_since: date | None = None
+    schengen_since: Day | None = None
     is_active: bool | None = None
 
 

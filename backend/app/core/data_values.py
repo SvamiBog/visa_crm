@@ -11,6 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from app.core.data_format import Choice
+from app.core.days import in_range
 from app.core.finance import money
 from app.core.money import CURRENCIES
 from app.core.phone import normalize_phone
@@ -82,7 +83,15 @@ def parse_document_number(cell: Cell) -> str:
 
 def parse_date(cell: Cell) -> date:
     """A date cell, or ДД.ММ.ГГГГ (ГГГГ-ММ-ДД too). A number is not a date here: a file
-    in the format has real dates, and a day count could be anything."""
+    in the format has real dates, and a day count could be anything. A date outside the
+    years the CRM takes (app/core/days.py) is a year typed wrong."""
+    day = _read_date(cell)
+    if not in_range(day):
+        raise CellError("out_of_range")
+    return day
+
+
+def _read_date(cell: Cell) -> date:
     if isinstance(cell, datetime):
         return cell.date()
     if isinstance(cell, date):

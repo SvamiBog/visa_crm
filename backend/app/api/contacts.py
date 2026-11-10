@@ -25,6 +25,7 @@ from app.api.deps import CurrentUser, TenantSession, effective_modules, require_
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
 from app.core.data_values import TELEGRAM_NICK
+from app.core.days import Day
 from app.core.db import BIGINT_MAX
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
@@ -77,12 +78,12 @@ class ContactFields(BaseModel):
     messenger: Messenger | None = None
     messenger_contact: Annotated[str, Field(max_length=64)] | None = None
     email: Annotated[str, Field(max_length=320, pattern=EMAIL)] | None = None
-    birth_date: date | None = None
+    birth_date: Day | None = None
     lead_channel_id: uuid.UUID | None = None
     partner_id: uuid.UUID | None = None
-    consent_signed_on: date | None = None
+    consent_signed_on: Day | None = None
     contract_number: Annotated[str, Field(max_length=50)] | None = None
-    contract_signed_on: date | None = None
+    contract_signed_on: Day | None = None
     # Kept with the questionnaire; on a change, only the fields sent are changed.
     passport: Passport | None = None
 

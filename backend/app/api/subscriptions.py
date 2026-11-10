@@ -26,6 +26,7 @@ from app.api.deps import (
 )
 from app.core.audit import record
 from app.core.clock import today_in
+from app.core.days import Day
 from app.core.money import Amount, Currency
 from app.core.subscription import Status, Summary, amount_due, summarize
 from app.models import AuditAction, SubscriptionPayment, Tariff, Tenant, User, UserRole
@@ -72,12 +73,12 @@ class SubscriptionIn(BaseModel):
     current start, or starts today."""
 
     tariff_id: uuid.UUID | None
-    starts_on: date | None = None
-    trial_until: date | None = None
+    starts_on: Day | None = None
+    trial_until: Day | None = None
 
 
 class PaymentIn(BaseModel):
-    paid_on: date
+    paid_on: Day
     months: int = Field(default=1, ge=1, le=24)
     # Left out: the tariff's price for the months, in the tariff's currency.
     amount: Amount | None = None

@@ -35,6 +35,7 @@ from app.api.finances import (
     registrar_price_for,
 )
 from app.core.audit import record
+from app.core.days import Day
 from app.core.finance import to_base
 from app.core.money import Amount
 from app.core.registrar_ledger import Movement, build, is_low
@@ -72,7 +73,7 @@ def _blank_is_none(value: object) -> object:
 class PaymentIn(BaseModel):
     """A payment in the registrar's currency: for `talons` talons, or an advance (none)."""
 
-    paid_on: date
+    paid_on: Day
     amount: Amount
     method: RegistrarPaymentMethod
     talons: Talons | None = None
@@ -82,7 +83,7 @@ class PaymentIn(BaseModel):
 
 
 class PaymentUpdate(BaseModel):
-    paid_on: date | None = None
+    paid_on: Day | None = None
     amount: Amount | None = None
     method: RegistrarPaymentMethod | None = None
     talons: Talons | None = None

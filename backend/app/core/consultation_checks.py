@@ -28,9 +28,15 @@ class Hint:
 
 
 def add_months(day: date, months: int) -> date:
-    """Calendar months; the 31st becomes the last day of a shorter month."""
+    """Calendar months; the 31st becomes the last day of a shorter month. Past either end
+    of the calendar the answer is that end: a year typed wrong on a card saved long ago
+    must not stop the card from opening (new dates are checked, app/core/days.py)."""
     month_index = day.month - 1 + months
     year, month = day.year + month_index // 12, month_index % 12 + 1
+    if year < date.min.year:
+        return date.min
+    if year > date.max.year:
+        return date.max
     return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
 
 

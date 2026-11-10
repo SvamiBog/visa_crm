@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from app.core.consultation_checks import Destination, Hint, check
+from app.core.consultation_checks import Destination, Hint, add_months, check
 from app.core.questionnaire import Questionnaire
 
 TODAY = date(2026, 10, 16)
@@ -69,3 +69,16 @@ def test_invitations_from_relatives_and_humanitarian_trips():
 
 def test_unknown_passport_dates_are_not_guessed():
     assert check(Questionnaire(), [POLAND], trip_on=None, today=TODAY) == []
+
+
+def test_months_past_the_end_of_the_calendar_stop_there():
+    """A date at the edge of the calendar (a year typed wrong on a card saved long ago)
+    is counted from without an error."""
+    assert add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
+    assert add_months(date(9995, 6, 15), 120) == date.max
+    assert add_months(date(5, 6, 15), -120) == date.min
+
+
+def test_a_passport_dated_at_the_end_of_the_calendar_is_checked_without_an_error():
+    q = Questionnaire(passport_issued_on=date(9995, 1, 1), passport_expires_on=date(9999, 12, 31))
+    assert check(q, [POLAND], trip_on=date(2026, 12, 1), today=TODAY) == []

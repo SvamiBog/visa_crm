@@ -21,6 +21,7 @@ from app.api.client_status import Tab, latest_consultation, tab_of
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.cases import VISA_DETAILS, advance, appeal_until, cleared_by_outcome
+from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
 from app.models import (
@@ -104,7 +105,7 @@ class CaseCreate(BaseModel):
     visa_center_id: uuid.UUID | None = None
     registrar_id: uuid.UUID | None = None
     hall: Hall | None = None
-    submission_on: date | None = None
+    submission_on: Day | None = None
     applicants: Annotated[list[ApplicantIn], Field(min_length=1, max_length=MAX_APPLICANTS)]
 
 
@@ -118,14 +119,14 @@ class CaseUpdate(BaseModel):
     registrar_id: uuid.UUID | None = None
     hall: Hall | None = None
     stage: CaseStage | None = None
-    submission_on: date | None = None
-    questionnaire_due_on: date | None = None
-    questionnaire_received_on: date | None = None
+    submission_on: Day | None = None
+    questionnaire_due_on: Day | None = None
+    questionnaire_received_on: Day | None = None
     outcome: VisaOutcome | None = None
-    decided_on: date | None = None
+    decided_on: Day | None = None
     visa_entries: VisaEntries | None = None
-    visa_valid_from: date | None = None
-    visa_valid_to: date | None = None
+    visa_valid_from: Day | None = None
+    visa_valid_to: Day | None = None
     stay_days: int | None = Field(default=None, ge=1, le=3660)
     after_appeal: bool | None = None
     vac_number: Annotated[str, Field(max_length=64)] | None = None
