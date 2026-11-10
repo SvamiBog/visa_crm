@@ -124,6 +124,15 @@ def test_dates_without_a_year_in_words_or_as_numbers_are_errors(cell):
         parse_date(cell)
 
 
+@pytest.mark.parametrize(
+    "cell", ["05.11.0026", "9999-12-31", date(1899, 12, 30), datetime(2101, 1, 1, 0, 0)]
+)
+def test_a_date_outside_the_years_the_crm_takes_is_an_error(cell):
+    """A year typed wrong in the table, as text or in a date cell (app/core/days.py)."""
+    with pytest.raises(CellError, match="out_of_range"):
+        parse_date(cell)
+
+
 # --- Numbers and money -------------------------------------------------------------------
 
 

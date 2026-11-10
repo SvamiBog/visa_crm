@@ -135,6 +135,13 @@ async def test_a_rate_can_be_corrected_and_a_missing_one_entered(
     # Another currency: the bank's rate for it again.
     switched = await client.patch(f"/api/payments/{payment['id']}", json={"currency": "USD"})
     assert switched.json()["payments"][0]["amount_base"] == "310.00"
+    # A null for a field a payment always has leaves it as it is.
+    kept = await client.patch(
+        f"/api/payments/{payment['id']}", json={"official": None, "amount": None, "rate": None}
+    )
+    assert kept.status_code == 200, kept.text
+    [same] = kept.json()["payments"]
+    assert (same["official"], same["amount"], same["amount_base"]) == (False, "100.00", "310.00")
 
     # The site has no rate of the currency yet.
     monkeypatch.delitem(rates._latest, "EUR")

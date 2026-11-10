@@ -20,13 +20,14 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, and_, delete, func, or_, select
+from sqlalchemy import ColumnElement, and_, any_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.home import MoneyBlock, money_block
 from app.core import analytics as rules
+from app.core.days import Day
 from app.core.finance import ZERO, money, summarize
 from app.core.queues import SUBMITTED_STAGES
 from app.models import (
@@ -271,12 +272,12 @@ def _sum(values: list[Decimal]) -> Decimal:
 async def analytics(
     user: Member,
     session: TenantSession,
-    start: date,
-    end: date,
+    start: Day,
+    end: Day,
     country_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> AnalyticsOut:
     if end < start or end - start > LONGEST_PERIOD:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid_period")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_period")
     tenant = await session.get_one(Tenant, user.tenant_id)
     money_on = "finances" in await effective_modules(session, user)
 
@@ -297,7 +298,7 @@ async def analytics(
         .where(Consultation.held_on.between(start, end))
     )
     if country_id is not None:
-        query = query.where(Consultation.destination_ids.any(country_id))
+        query = query.where(any_(Consultation.destination_ids) == country_id)
     consultations = (await session.execute(query)).all()
     opened: dict[uuid.UUID, list[VisaCase]] = defaultdict(list)
     if consultations:

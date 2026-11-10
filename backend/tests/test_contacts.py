@@ -188,6 +188,18 @@ async def test_search_by_name_phone_and_telegram(client: AsyncClient, make_user:
     assert len(await search(client, "")) == 2
 
 
+async def test_search_takes_the_text_as_typed(client: AsyncClient, make_user: MakeUser):
+    """«_» and «%» are characters of a nick or a number, not wildcards: «anna_k» does not
+    find «annaxk», and «%» alone does not list everyone."""
+    await as_specialist(client, make_user)
+    anna = await create(client, telegram="anna_k_visa")
+    await create(client, last_name="Семёнова", first_name="Анна", telegram="annaxk_visa")
+
+    assert [c["id"] for c in await search(client, "anna_k")] == [anna["id"]]
+    assert await search(client, "%") == []
+    assert len(await search(client, "_visa")) == 2
+
+
 async def test_search_terms_never_go_into_urls(client: AsyncClient, make_user: MakeUser):
     """Names and phones are personal data: search takes them in the body, not the URL."""
     await as_specialist(client, make_user)

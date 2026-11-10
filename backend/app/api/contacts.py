@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import delete, exists, func, or_, select, true
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,7 @@ from app.api.deps import CurrentUser, TenantSession, effective_modules, require_
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
 from app.core.data_values import TELEGRAM_NICK
+from app.core.days import Day
 from app.core.db import BIGINT_MAX
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
@@ -76,12 +78,12 @@ class ContactFields(BaseModel):
     messenger: Messenger | None = None
     messenger_contact: Annotated[str, Field(max_length=64)] | None = None
     email: Annotated[str, Field(max_length=320, pattern=EMAIL)] | None = None
-    birth_date: date | None = None
+    birth_date: Day | None = None
     lead_channel_id: uuid.UUID | None = None
     partner_id: uuid.UUID | None = None
-    consent_signed_on: date | None = None
+    consent_signed_on: Day | None = None
     contract_number: Annotated[str, Field(max_length=50)] | None = None
-    contract_signed_on: date | None = None
+    contract_signed_on: Day | None = None
     # Kept with the questionnaire; on a change, only the fields sent are changed.
     passport: Passport | None = None
 
@@ -331,6 +333,12 @@ async def _telegram_conflict(
     )
 
 
+def _has(column: Any, term: str) -> Any:
+    """The column has the text, whatever the case, as it was typed: «_» and «%» are
+    characters of a nick or a number, not wildcards."""
+    return column.icontains(term, autoescape=True)
+
+
 async def _has_history(session: AsyncSession, contact_id: uuid.UUID) -> bool:
     """What keeps a card from being deleted as a duplicate (owner's decision 2026-11-04):
     a case (with its payments, queue and bookings), a paid consultation, a vault account,
@@ -354,7 +362,7 @@ async def _notes(session: AsyncSession, contact_id: uuid.UUID) -> list[NoteOut]:
         .where(ContactNote.contact_id == contact_id)
         .order_by(ContactNote.created_at.desc(), ContactNote.id.desc())
     )
-    return [_note_out(note, email) for note, email in rows.tuples()]
+    return [_note_out(note, email) for note, email in rows]
 
 
 def _note_out(note: ContactNote, author_email: str | None) -> NoteOut:
@@ -375,7 +383,7 @@ async def _relations(session: AsyncSession, contact_id: uuid.UUID) -> list[Relat
         .where(ContactRelation.contact_id == contact_id)
         .order_by(Contact.full_name)
     )
-    return [RelationOut(related_id=r, full_name=n, label=lb) for r, n, lb in rows.tuples()]
+    return [RelationOut(related_id=r, full_name=n, label=lb) for r, n, lb in rows]
 
 
 async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> ContactCard:
@@ -417,18 +425,17 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
     query = select(Contact, tab.label("tab")).outerjoin(latest, true())
     term = body.query.strip().removeprefix("@").strip()
     if term:
-        pattern = f"%{term}%"
         conditions = [
-            Contact.full_name.ilike(pattern),
-            Contact.full_name_latin.ilike(pattern),
-            Contact.telegram.ilike(pattern),
+            _has(Contact.full_name, term),
+            _has(Contact.full_name_latin, term),
+            _has(Contact.telegram, term),
             # The number the visa center knows the client by (ID, application number…).
-            exists().where(VisaCase.contact_id == Contact.id, VisaCase.vac_number.ilike(pattern)),
+            exists().where(VisaCase.contact_id == Contact.id, _has(VisaCase.vac_number, term)),
         ]
         if "vault" in await effective_modules(session, user):
             # The login of an account in the vault: whose account is on this mailbox.
             conditions.append(
-                exists().where(VaultEntry.contact_id == Contact.id, VaultEntry.login.ilike(pattern))
+                exists().where(VaultEntry.contact_id == Contact.id, _has(VaultEntry.login, term))
             )
         # «8 029 …» typed the local way finds the number stored with 375.
         for digits in phone_search_digits(term):
@@ -446,9 +453,7 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
 
     tabs = query.with_only_columns(tab.label("tab")).subquery()
     counted = dict(
-        (await session.execute(select(tabs.c.tab, func.count()).group_by(tabs.c.tab)))
-        .tuples()
-        .all()
+        (await session.execute(select(tabs.c.tab, func.count()).group_by(tabs.c.tab))).all()
     )
     counts = {t: counted.get(t.value, 0) for t in TABS}
     counts[Tab.ALL] = sum(counts.values())
@@ -456,16 +461,12 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
     if body.tab != Tab.ALL:
         query = query.where(tab == body.tab.value)
     rows = (
-        (
-            await session.execute(
-                query.order_by(Contact.created_at.desc(), Contact.id.desc())
-                .offset(body.offset)
-                .limit(SEARCH_LIMIT + 1)
-            )
+        await session.execute(
+            query.order_by(Contact.created_at.desc(), Contact.id.desc())
+            .offset(body.offset)
+            .limit(SEARCH_LIMIT + 1)
         )
-        .tuples()
-        .all()
-    )
+    ).all()
     page = rows[:SEARCH_LIMIT]
     with_cases = "cases" in await effective_modules(session, user)
     return SearchOut(
@@ -492,7 +493,7 @@ async def _rows(
                 Consultation.held_on.desc(),
                 Consultation.created_at.desc(),
             )
-            .distinct(Consultation.contact_id)
+            .ext(distinct_on(Consultation.contact_id))
         )
     }
     cases: dict[uuid.UUID, list[VisaCase]] = {}
@@ -511,9 +512,7 @@ async def _rows(
                         .where(VisaCase.group_id.in_(groups))
                         .group_by(VisaCase.group_id)
                     )
-                )
-                .tuples()
-                .all()
+                ).all()
             )
 
     result = []

@@ -254,7 +254,7 @@ async def test_every_table_of_a_client_or_case_is_under_the_employee_scope(
                 "WHERE col.table_schema = 'public' AND col.column_name IN ('contact_id', 'case_id')"
             )
         )
-        tables = dict(rows.tuples().all())
+        tables = dict(rows.all())
     assert {"visa_cases", "vault_entries", "bookings"} <= set(tables)
     assert [name for name, scoped in tables.items() if not scoped] == []
 

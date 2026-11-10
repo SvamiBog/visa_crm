@@ -22,6 +22,7 @@ from app.api.deps import (
     require_admin,
     require_specialist,
 )
+from app.core.days import in_range
 from app.core.db import BIGINT_MAX
 from app.models import AuditAction, AuditEvent, User, UserRole
 
@@ -68,6 +69,11 @@ class Filters:
         occurred_from: Annotated[datetime | None, Query()] = None,
         occurred_to: Annotated[datetime | None, Query()] = None,
     ) -> None:
+        # A moment at either end of the calendar cannot be put into the workspace's time
+        # zone: no event is that old or that far ahead (app/core/days.py).
+        for moment in (occurred_from, occurred_to):
+            if moment is not None and not in_range(moment.date()):
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
         self.order = order
         self.cursor = cursor
         self.limit = limit
@@ -138,7 +144,7 @@ async def workspace_actors(
     rows = await session.execute(
         select(User.id, User.email).where(User.tenant_id == user.tenant_id).order_by(User.email)
     )
-    return [Actor(id=i, email=e) for i, e in rows.tuples()]
+    return [Actor(id=i, email=e) for i, e in rows]
 
 
 @router.get("/admin/audit", dependencies=[Depends(require_admin)])
@@ -172,4 +178,4 @@ async def platform_actors(session: SystemSession) -> list[Actor]:
         .join(latest, latest.c.last == AuditEvent.id)
         .order_by(AuditEvent.actor_email)
     )
-    return [Actor(id=i, email=e) for i, e in rows.tuples() if i is not None and e is not None]
+    return [Actor(id=i, email=e) for i, e in rows if i is not None and e is not None]

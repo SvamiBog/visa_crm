@@ -85,7 +85,8 @@ async def _get_specialist(session: SystemSession, tenant_id: uuid.UUID) -> tuple
     ).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
-    return row.tuple()
+    tenant, user = row
+    return tenant, user
 
 
 def _record_on_tenant(
@@ -123,7 +124,7 @@ async def list_specialists(session: SystemSession) -> list[SpecialistOut]:
         .where(User.role == UserRole.SPECIALIST)
         .order_by(Tenant.created_at.desc())
     )
-    return [_out(tenant, owner) for tenant, owner in rows.tuples()]
+    return [_out(tenant, owner) for tenant, owner in rows]
 
 
 @router.post("/specialists", status_code=status.HTTP_201_CREATED)

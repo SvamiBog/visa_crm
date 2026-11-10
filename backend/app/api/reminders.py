@@ -620,7 +620,7 @@ async def _limits(session: AsyncSession, out: _Collector, timezone: str) -> None
         .order_by(AuditEvent.id)
     )
     zone = ZoneInfo(timezone)
-    for event, employee in rows.tuples():
+    for event, employee in rows:
         details = event.details or {}
         kind = (
             ReminderKind.CARD_LIMIT

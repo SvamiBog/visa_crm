@@ -271,7 +271,7 @@ async def verify_login(
     ).first()
     if row is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "login_expired")
-    pending, user = row.tuple()
+    pending, user = row
 
     if _is_locked(user, now):
         raise HTTPException(status.HTTP_423_LOCKED, "account_locked")
@@ -308,7 +308,7 @@ async def logout(request: Request, response: Response, session: SystemSession) -
             )
         ).first()
         if row is not None:
-            user_session, user = row.tuple()
+            user_session, user = row
             await session.delete(user_session)
             if not user_session.mfa_pending:
                 record(session, AuditAction.LOGOUT, actor=user)

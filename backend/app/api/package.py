@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.checklists import applies
+from app.core.days import Day
 from app.core.package import ItemStatus, Summary, item_status, reference_day, summarize
 from app.models import (
     AuditAction,
@@ -54,7 +55,7 @@ Item = ChecklistItem | OwnChecklistItem
 
 class Mark(BaseModel):
     state: PackageItemState
-    document_date: date | None = None
+    document_date: Day | None = None
 
 
 class PackageItemOut(BaseModel):
@@ -101,7 +102,7 @@ async def _checklists(
         rows = await session.execute(
             select(VisaPurpose.id, VisaPurpose.kind).where(VisaPurpose.id.in_(purpose_ids))
         )
-        kinds = dict(rows.tuples().all())
+        kinds = dict(rows.all())
     items: list[Item] = []
     for model in (ChecklistItem, OwnChecklistItem):
         query = (

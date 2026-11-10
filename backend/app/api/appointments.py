@@ -128,5 +128,5 @@ async def average_waits(session: AsyncSession) -> dict[WaitKey, tuple[int, int]]
     )
     return {
         (destination, center, purpose): (round(avg), count)
-        for destination, center, purpose, avg, count in rows.tuples()
+        for destination, center, purpose, avg, count in rows
     }

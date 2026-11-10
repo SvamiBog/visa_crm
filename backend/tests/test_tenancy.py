@@ -163,6 +163,6 @@ async def test_every_workspace_table_is_under_row_level_security(owner_engine: A
                 "WHERE c.relkind = 'r'"
             )
         )
-        tables = {name: rls and policy for name, rls, policy in rows.tuples()}
+        tables = {name: rls and policy for name, rls, policy in rows}
     assert {"vault_entries", "vault_systems", "visa_cases"} <= set(tables)
     assert [name for name, protected in tables.items() if not protected] == []

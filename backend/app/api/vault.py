@@ -233,7 +233,7 @@ async def own_vault(session: TenantSession) -> list[OwnEntryOut]:
             .where(login.in_(logins))
             .order_by(Contact.full_name)
         )
-        for key, entry_id, system_id, contact_id, name in rows.tuples():
+        for key, entry_id, system_id, contact_id, name in rows:
             accounts.setdefault(key, []).append(
                 AccountOnMailbox(
                     id=entry_id, system_id=system_id, contact_id=contact_id, contact_name=name

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.consultation_checks import Destination, check
+from app.core.days import Day
 from app.core.money import Amount, Currency
 from app.core.questionnaire import Questionnaire, Refusal
 from app.models import (
@@ -40,17 +41,17 @@ class ConsultationFields(BaseModel):
     decision: Decision | None = None
     lead_channel_id: uuid.UUID | None = None
     destination_ids: Annotated[list[uuid.UUID], Field(max_length=10)] = []
-    trip_planned_on: date | None = None
-    follow_up_on: date | None = None
+    trip_planned_on: Day | None = None
+    follow_up_on: Day | None = None
     fee_amount: Amount | None = None
     fee_currency: Currency | None = None
     fee_paid: bool = False
-    fee_paid_on: date | None = None
+    fee_paid_on: Day | None = None
     notes: Annotated[str, Field(max_length=5000)] | None = None
 
 
 class ConsultationIn(ConsultationFields):
-    held_on: date
+    held_on: Day
 
     @model_validator(mode="after")
     def fee_is_consistent(self) -> "ConsultationIn":
@@ -61,17 +62,17 @@ class ConsultationIn(ConsultationFields):
 class ConsultationUpdate(BaseModel):
     """Only the fields sent are changed; null clears an optional field."""
 
-    held_on: date | None = None
+    held_on: Day | None = None
     applicants: int | None = Field(default=None, ge=1, le=30)
     decision: Decision | None = None
     lead_channel_id: uuid.UUID | None = None
     destination_ids: Annotated[list[uuid.UUID], Field(max_length=10)] | None = None
-    trip_planned_on: date | None = None
-    follow_up_on: date | None = None
+    trip_planned_on: Day | None = None
+    follow_up_on: Day | None = None
     fee_amount: Amount | None = None
     fee_currency: Currency | None = None
     fee_paid: bool | None = None
-    fee_paid_on: date | None = None
+    fee_paid_on: Day | None = None
     notes: Annotated[str, Field(max_length=5000)] | None = None
 
 
@@ -205,11 +206,10 @@ async def hints_for(session: AsyncSession, contact: Contact) -> list[HintOut]:
         if i in countries
     ]
     questionnaire = Questionnaire.model_validate(contact.questionnaire)
+    # By the country alone: the checks do not look at the year, and the questionnaire's
+    # own list takes only the years a client would remember (1990 on).
     case_refusals = [
-        Refusal(
-            country=countries[c.destination_id].code,
-            year=c.decided_on.year if c.decided_on else None,
-        )
+        Refusal(country=countries[c.destination_id].code)
         for c in refused
         if c.destination_id in countries
     ]

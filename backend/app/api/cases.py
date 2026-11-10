@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Date, cast, func, or_, select, text, true, tuple_
+from sqlalchemy import Date, any_, cast, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.appointments import AttemptOut, QueueEntryOut, appointments_of, average_waits
@@ -21,6 +21,7 @@ from app.api.client_status import Tab, latest_consultation, tab_of
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.cases import VISA_DETAILS, advance, appeal_until, cleared_by_outcome
+from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
 from app.models import (
@@ -104,7 +105,7 @@ class CaseCreate(BaseModel):
     visa_center_id: uuid.UUID | None = None
     registrar_id: uuid.UUID | None = None
     hall: Hall | None = None
-    submission_on: date | None = None
+    submission_on: Day | None = None
     applicants: Annotated[list[ApplicantIn], Field(min_length=1, max_length=MAX_APPLICANTS)]
 
 
@@ -118,14 +119,14 @@ class CaseUpdate(BaseModel):
     registrar_id: uuid.UUID | None = None
     hall: Hall | None = None
     stage: CaseStage | None = None
-    submission_on: date | None = None
-    questionnaire_due_on: date | None = None
-    questionnaire_received_on: date | None = None
+    submission_on: Day | None = None
+    questionnaire_due_on: Day | None = None
+    questionnaire_received_on: Day | None = None
     outcome: VisaOutcome | None = None
-    decided_on: date | None = None
+    decided_on: Day | None = None
     visa_entries: VisaEntries | None = None
-    visa_valid_from: date | None = None
-    visa_valid_to: date | None = None
+    visa_valid_from: Day | None = None
+    visa_valid_to: Day | None = None
     stay_days: int | None = Field(default=None, ge=1, le=3660)
     after_appeal: bool | None = None
     vac_number: Annotated[str, Field(max_length=64)] | None = None
@@ -302,7 +303,7 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
             .where(VisaCase.group_id.in_(group_ids))
             .order_by(VisaCase.number)
         )
-        for member, name in rows.tuples():
+        for member, name in rows:
             assert member.group_id is not None
             members.setdefault(member.group_id, []).append(
                 GroupMember(
@@ -586,7 +587,7 @@ async def board(
             submission_on=c.submission_on,
             decided_on=c.decided_on,
         )
-        for c, name in rows.tuples()
+        for c, name in rows
     ]
 
     leads: list[BoardLead] = []
@@ -604,12 +605,12 @@ async def board(
             )
         )
         if country_id is not None:
-            lead_query = lead_query.where(latest.c.destination_ids.any(country_id))
+            lead_query = lead_query.where(any_(latest.c.destination_ids) == country_id)
         if channel_id is not None:
             lead_query = lead_query.where(Contact.lead_channel_id == channel_id)
-        for contact_id, name, lead_tab, held_on, decision, destinations in (
-            await session.execute(lead_query.order_by(since.desc()).limit(BOARD_LIMIT))
-        ).tuples():
+        for contact_id, name, lead_tab, held_on, decision, destinations in await session.execute(
+            lead_query.order_by(since.desc()).limit(BOARD_LIMIT)
+        ):
             leads.append(
                 BoardLead(
                     contact_id=contact_id,
@@ -667,9 +668,8 @@ async def update_case(
     changed = sorted(f for f, v in changes.items() if getattr(case, f) != v)
     for field, value in changes.items():
         setattr(case, field, value)
-    await _check_place(
-        session, case.destination_id, case.submission_country_id, case.visa_center_id
-    )
+    # Before anything is looked up: a query sends the case to the database, where a
+    # wrong result fails the table's checks instead of being answered here.
     invalid_result = (
         (
             case.outcome != VisaOutcome.VISA
@@ -685,6 +685,9 @@ async def update_case(
     )
     if invalid_result:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation")
+    await _check_place(
+        session, case.destination_id, case.submission_country_id, case.visa_center_id
+    )
     if changed:
         _audit(session, AuditAction.CASE_UPDATED, user, case, {"fields": ",".join(changed)})
     if body.fill_group and case.group_id is not None:
@@ -740,7 +743,7 @@ async def group_candidates(case_id: uuid.UUID, session: TenantSession) -> list[G
             destination_id=c.destination_id,
             stage=c.stage,
         )
-        for c, name in rows.tuples()
+        for c, name in rows
     ]
 
 

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
+from app.core.days import Day
 from app.core.finance import Summary, summarize, to_base
 from app.core.money import Amount, Currency, Percent
 from app.core.rates import RateUnavailable, latest, rate_to_base
@@ -94,12 +95,12 @@ class FinanceUpdate(BaseModel):
     registrar_fee_amount: Amount | None = None
     registrar_fee_currency: Currency | None = None
     registrar_fee_rate: Rate | None = None
-    registrar_fee_on: date | None = None
+    registrar_fee_on: Day | None = None
     registrar_fee_settled: bool | None = None
     partner_terms: PartnerTermsType | None = None
     partner_percent: Percent | None = None
     partner_fixed: Amount | None = None
-    partner_paid_on: date | None = None
+    partner_paid_on: Day | None = None
 
 
 class MoneyIn(BaseModel):
@@ -110,7 +111,7 @@ class MoneyIn(BaseModel):
 
 
 class PaymentIn(MoneyIn):
-    paid_on: date
+    paid_on: Day
     official: bool = False
     note: Note | None = None
 
@@ -118,7 +119,7 @@ class PaymentIn(MoneyIn):
 
 
 class PaymentUpdate(BaseModel):
-    paid_on: date | None = None
+    paid_on: Day | None = None
     amount: Amount | None = None
     currency: Currency | None = None
     rate: Rate | None = None
@@ -129,14 +130,14 @@ class PaymentUpdate(BaseModel):
 
 
 class ExpenseIn(MoneyIn):
-    spent_on: date
+    spent_on: Day
     description: Annotated[str, Field(min_length=1, max_length=200)]
 
     _description = field_validator("description", mode="before")(_strip)
 
 
 class ExpenseUpdate(BaseModel):
-    spent_on: date | None = None
+    spent_on: Day | None = None
     amount: Amount | None = None
     currency: Currency | None = None
     rate: Rate | None = None
@@ -539,7 +540,7 @@ async def _update_money(
 ) -> list[str]:
     """Apply the changes; a new currency takes the site's latest rate unless one is given."""
     tenant = await _tenant(session, user)
-    for field in ("amount", "currency", day_field):
+    for field in ("amount", "currency", "rate", "official", day_field):
         if field in changes and changes[field] is None:
             del changes[field]  # required: null means «leave as is»
     changed = [f for f, v in changes.items() if getattr(item, f) != v]

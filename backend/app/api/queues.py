@@ -12,6 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,7 @@ from app.api.appointments import (
 from app.api.cases import Member, _audit, _case
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.cases import advance
+from app.core.days import Day
 from app.core.queues import SUBMITTED_STAGES, QueueStatus, deadline
 from app.models import (
     ApplicationAttempt,
@@ -53,7 +55,7 @@ GROUP_LIMIT = 20
 
 
 class QueueIn(BaseModel):
-    queued_on: date
+    queued_on: Day
     # Put the whole submission group in the queue on the same day.
     with_group: bool = False
 
@@ -64,10 +66,10 @@ class QueueUpdate(BaseModel):
     group the same letter came for (owner's decision 2026-11-04); they get its date and
     appointment too."""
 
-    queued_on: date | None = None
-    letter_on: date | None = None
-    appointment_on: date | None = None
-    removed_on: date | None = None
+    queued_on: Day | None = None
+    letter_on: Day | None = None
+    appointment_on: Day | None = None
+    removed_on: Day | None = None
     removed_reason: Annotated[str, Field(max_length=500)] | None = None
     group_cases: list[uuid.UUID] = Field(default_factory=list, max_length=GROUP_LIMIT)
 
@@ -78,17 +80,17 @@ class QueueUpdate(BaseModel):
 
 
 class AttemptIn(BaseModel):
-    sent_on: date
+    sent_on: Day
 
 
 class AttemptUpdate(BaseModel):
     """Only the fields sent are changed. A corrected `sent_on` moves the deadline by the
     window the attempt was sent with; null leaves it as it is."""
 
-    sent_on: date | None = None
+    sent_on: Day | None = None
     outcome: AttemptOutcome | None = None
-    closed_on: date | None = None
-    appointment_on: date | None = None
+    closed_on: Day | None = None
+    appointment_on: Day | None = None
 
 
 class QueueRow(QueueEntryOut):
@@ -414,11 +416,11 @@ async def queue_summary(user: Member, session: TenantSession) -> list[QueueCount
         .group_by(VisaCase.destination_id)
     )
     summary: dict[uuid.UUID, QueueCountry] = {}
-    for country, waiting, dated in entries.tuples():
+    for country, waiting, dated in entries:
         summary[country] = QueueCountry(
             country_id=country, waiting=waiting, dated=dated, open_attempts=0
         )
-    for country, count in attempts.tuples():
+    for country, count in attempts:
         row = summary.setdefault(
             country, QueueCountry(country_id=country, waiting=0, dated=0, open_attempts=0)
         )
@@ -449,7 +451,7 @@ async def queue_view(
             WaitingListEntry.removed_on.is_(None), VisaCase.stage.not_in(SUBMITTED_STAGES)
         )
     entries = []
-    for entry, case, name in (await session.execute(query)).tuples():
+    for entry, case, name in await session.execute(query):
         out = entry_out(entry, case.stage, today)
         if not closed and out.status not in (QueueStatus.IN_QUEUE, QueueStatus.DATE_RECEIVED):
             continue
@@ -478,7 +480,7 @@ async def queue_view(
         .join(Contact, Contact.id == VisaCase.contact_id)
         .where(VisaCase.destination_id == country_id)
         .order_by(ApplicationAttempt.case_id, ApplicationAttempt.number.desc())
-        .distinct(ApplicationAttempt.case_id)
+        .ext(distinct_on(ApplicationAttempt.case_id))
     )
     if not closed:
         latest = latest.where(VisaCase.stage.not_in(SUBMITTED_STAGES))
@@ -494,7 +496,7 @@ async def queue_view(
             stage=case.stage,
             submission_on=case.submission_on,
         )
-        for attempt, case, name in (await session.execute(latest)).tuples()
+        for attempt, case, name in await session.execute(latest)
     ]
     attempts.sort(key=lambda a: a.deadline_on)
 
