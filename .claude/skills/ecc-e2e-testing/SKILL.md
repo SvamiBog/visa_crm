@@ -27,6 +27,7 @@ The CI job `ui` in `.github/workflows/ci.yml` does the same on a throwaway datab
 - `npm ci` and `npx playwright install chromium` download packages and a browser (about 150 MB): ask the user before either. Without them, say the browser tests were skipped; CI runs them.
 - Another server: `E2E_BASE_URL`; another demo account: `E2E_EMAIL`.
 - One test: `npx playwright test -g "consultation"`; a report after a failure: `npx playwright show-report`.
+- A cloud session has no UTF-8 locale, and Chromium then names a download with Cyrillic in its name «download» (`e2e/import.spec.ts` fails on the template's file name): run the tests as `LANG=C.UTF-8 LC_ALL=C.UTF-8 npx playwright test`.
 
 ## Writing a test
 
