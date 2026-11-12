@@ -58,7 +58,7 @@ export function ContactVault({ contactId, cases }: { contactId: string; cases: V
       <div className="card-head">
         <h2 className="h2">{t("vault.title")}</h2>
         {editing === null && (
-          <button type="button" className="btn btn-sm btn-p" onClick={() => setEditing("new")}>
+          <button type="button" className="btn btn-sm" onClick={() => setEditing("new")}>
             {t("vault.add")}
           </button>
         )}

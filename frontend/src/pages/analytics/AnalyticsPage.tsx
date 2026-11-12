@@ -321,7 +321,7 @@ export function AnalyticsPage() {
                 <td className="money-cell">
                   <span className="cell-bar">
                     <Bar value={r.consultations} max={top} label={`${r.consultations}`} />
-                    {r.consultations}
+                    <span className="cell-num">{r.consultations}</span>
                   </span>
                 </td>
                 <td className="bar-col">

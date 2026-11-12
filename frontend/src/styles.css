@@ -40,10 +40,10 @@
   --radius-chip: 999px;
   --radius-logo: 8px;
   --h2-font: var(--font-body);
-  --h2-size: 12px;
-  --h2-case: uppercase;
-  --h2-spacing: 0.6px;
-  --h2-color: var(--c-muted);
+  --h2-size: 14px;
+  --h2-case: none;
+  --h2-spacing: 0;
+  --h2-color: var(--c-text);
   /* Charts: two series (visa / refusal), checked for colour blindness in this theme */
   --c-chart-a: #2453d6;
   --c-chart-b: #d06a12;
@@ -231,7 +231,7 @@ h1,
 h1 {
   margin: 0;
   font-size: 26px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .muted {
@@ -253,12 +253,12 @@ h1 {
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
-  padding: 18px 20px;
+  padding: 20px;
   min-width: 0;
 }
 
 .h2 {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   font-family: var(--h2-font);
   font-size: var(--h2-size);
   font-weight: 600;
@@ -311,7 +311,7 @@ h1 {
 }
 
 .tbl td {
-  padding: 11px 8px;
+  padding: 12px 8px;
   border-bottom: 1px solid var(--c-row);
   vertical-align: middle;
 }
@@ -364,7 +364,7 @@ h1 {
 .btn-sm {
   min-height: 36px;
   padding: 0 12px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .btn-danger:hover:not(:disabled) {
@@ -436,7 +436,7 @@ h1 {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   font-weight: 500;
 }
 
@@ -459,7 +459,7 @@ h1 {
 }
 
 .alert {
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-radius: var(--radius-sm);
 }
 
@@ -501,7 +501,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 18px;
 }
 
@@ -511,8 +511,8 @@ h1 {
 }
 
 .logo-mark {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-logo);
   background: var(--c-primary);
   color: var(--c-on-primary);
@@ -528,7 +528,7 @@ h1 {
 }
 
 .load-more {
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 .st-gray {
@@ -538,7 +538,7 @@ h1 {
 
 .h3 {
   margin: 4px 0 0;
-  font-size: 15px;
+  font-size: var(--h2-size);
   font-weight: 600;
 }
 
@@ -560,8 +560,6 @@ h1 {
   font-size: 12px;
   font-weight: 600;
   color: var(--c-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
 }
 
 .module-block .checkbox {
@@ -583,8 +581,8 @@ h1 {
 }
 
 .booking-options legend {
-  margin-bottom: 6px;
-  font-size: 13px;
+  margin-bottom: 8px;
+  font-size: 12px;
   color: var(--c-muted);
 }
 
@@ -592,7 +590,7 @@ h1 {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  padding: 10px 12px;
+  padding: 12px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -643,7 +641,7 @@ h1 {
   padding-left: 20px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .qr-block {
@@ -662,7 +660,7 @@ h1 {
 }
 
 .secret {
-  font-size: 15px;
+  font-size: 14px;
   letter-spacing: 1px;
   word-break: break-all;
   text-align: center;
@@ -675,10 +673,10 @@ h1 {
   padding: 12px;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 6px 16px;
+  gap: 8px 16px;
   background: var(--c-bg);
   border-radius: var(--radius-sm);
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .checkbox {
@@ -708,7 +706,7 @@ h1 {
   height: 100vh;
   overflow-y: auto;
   background: var(--c-nav);
-  padding: 20px 14px 14px;
+  padding: 20px 12px 16px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -745,7 +743,7 @@ h1 {
   top: 12px;
   left: 12px;
   z-index: 10;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border: 2px solid var(--c-primary);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
@@ -775,7 +773,7 @@ h1 {
 }
 
 .nav-heading {
-  padding: 14px 12px 4px;
+  padding: 16px 12px 4px;
   color: var(--c-nav-muted);
   font-size: 12px;
 }
@@ -805,7 +803,7 @@ a.nav-a:hover {
 /* «Настройки» and the account: at the bottom of the menu */
 .sidebar-footer {
   margin-top: auto;
-  padding-top: 10px;
+  padding-top: 12px;
   border-top: 1px solid var(--c-nav-line);
   display: flex;
   flex-direction: column;
@@ -822,7 +820,7 @@ a.nav-a:hover {
   border-radius: var(--radius-sm);
   background: none;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--c-nav-muted);
   cursor: pointer;
   text-align: left;
@@ -897,7 +895,7 @@ a.nav-a:hover {
   border: 0;
   background: none;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--c-nav-muted);
   cursor: pointer;
 }
@@ -912,9 +910,9 @@ a.nav-a:hover {
 /* The icon sits on a pill that lights up on the open page. */
 .bar-a .icon {
   box-sizing: content-box;
-  width: 22px;
-  height: 22px;
-  padding: 3px 16px;
+  width: 20px;
+  height: 20px;
+  padding: 4px 16px;
   border-radius: var(--radius-chip);
 }
 
@@ -959,7 +957,7 @@ a.nav-a:hover {
 }
 
 .settings-heading {
-  padding: 0 12px 6px;
+  padding: 0 12px 8px;
   color: var(--c-muted);
   font-size: 12px;
 }
@@ -1017,7 +1015,7 @@ a.nav-a:hover {
 .form-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .form-card p {
@@ -1027,7 +1025,7 @@ a.nav-a:hover {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 
 /* Fields in a row line up: each takes three rows of the grid (label, control, hint)
@@ -1040,7 +1038,7 @@ a.nav-a:hover {
 .form-grid > .field {
   display: grid;
   grid-template-rows: subgrid;
-  row-gap: 6px;
+  row-gap: 4px;
   align-items: start;
 }
 
@@ -1050,7 +1048,7 @@ a.nav-a:hover {
 
 .form-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -1059,7 +1057,7 @@ a.nav-a:hover {
   background: var(--c-primary-soft);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-start;
 }
 
@@ -1069,7 +1067,7 @@ a.nav-a:hover {
 
 .issued-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -1078,7 +1076,7 @@ a.nav-a:hover {
   font-family: var(--font-num);
   font-size: 20px;
   letter-spacing: 1px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   background: var(--c-surface);
   border-radius: var(--radius-sm);
   user-select: all;
@@ -1087,7 +1085,7 @@ a.nav-a:hover {
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 6px 16px;
+  gap: 8px 16px;
   margin: 12px 0 0;
 }
 
@@ -1109,7 +1107,7 @@ a.nav-a:hover {
 
 .tab {
   min-height: 44px;
-  padding: 0 14px;
+  padding: 0 12px;
   border: 0;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
@@ -1177,7 +1175,7 @@ a.nav-a:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 0;
+  padding: 8px 0;
   border-bottom: 1px solid var(--c-row);
 }
 
@@ -1289,7 +1287,7 @@ a.nav-a:hover {
 .contact-head {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -1303,7 +1301,7 @@ a.nav-a:hover {
   justify-content: center;
   background: var(--c-primary-soft);
   color: var(--c-primary);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .card-grid {
@@ -1362,7 +1360,7 @@ a.nav-a:hover {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 0;
-  border-bottom: 1px dashed var(--c-border);
+  border-bottom: 1px solid var(--c-border);
   overflow-wrap: anywhere;
 }
 
@@ -1405,7 +1403,7 @@ a.nav-a:hover {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .notes > li {
@@ -1430,7 +1428,7 @@ a.nav-a:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .card-head .h2 {
@@ -1440,7 +1438,7 @@ a.nav-a:hover {
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .chip-removable {
@@ -1488,7 +1486,7 @@ a.nav-a:hover {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* Cases on the client's card */
@@ -1509,7 +1507,7 @@ a.nav-a:hover {
 
 .case-panel .card-head {
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .case-panel .h3 {
@@ -1552,7 +1550,7 @@ a.nav-a:hover {
 .stepper button {
   width: 100%;
   min-height: 36px;
-  padding: 6px 2px 0;
+  padding: 8px 2px 0;
   border: 0;
   background: none;
   font: inherit;
@@ -1641,12 +1639,12 @@ a.nav-a:hover {
 .filter-bar {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr));
-  gap: 10px 12px;
+  gap: 12px;
   align-items: end;
 }
 
 .tab-count {
-  margin-left: 6px;
+  margin-left: 4px;
   font-size: 12px;
   color: var(--c-muted);
   font-weight: 400;
@@ -1707,7 +1705,7 @@ a.nav-a:hover {
   flex-direction: column;
   gap: 8px;
   min-height: 120px;
-  padding: 10px;
+  padding: 12px;
   background: var(--c-row);
   border: 2px dashed transparent;
   border-radius: var(--radius);
@@ -1720,7 +1718,7 @@ a.nav-a:hover {
 
 .board-title {
   margin: 2px 2px 4px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -1729,7 +1727,7 @@ a.nav-a:hover {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  padding: 10px 12px;
+  padding: 12px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: calc(var(--radius) / 2);
@@ -1767,8 +1765,8 @@ a.nav-a:hover {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px;
+  gap: 8px;
+  padding: 12px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1851,7 +1849,7 @@ a.nav-a:hover {
 .tp-title {
   font-family: var(--font-heading);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -1918,7 +1916,7 @@ a.nav-a:hover {
     position: relative;
     top: 0;
     flex-direction: row;
-    gap: 6px;
+    gap: 4px;
     margin-bottom: 16px;
     padding-bottom: 4px;
     overflow-x: auto;
@@ -2067,7 +2065,7 @@ a.nav-a:hover {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .secret {
@@ -2110,7 +2108,7 @@ a.nav-a:hover {
 .package {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px dashed var(--c-border);
+  border-top: 1px solid var(--c-border);
 }
 
 .bookings .card-head,
@@ -2150,7 +2148,7 @@ a.nav-a:hover {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 6px 12px;
+  gap: 4px 12px;
 }
 
 .package-item > p {
@@ -2188,11 +2186,11 @@ a.nav-a:hover {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 6px 12px;
+  gap: 4px 12px;
 }
 
 .booking-item .alert {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
 }
 
 .booking-form {
@@ -2222,10 +2220,10 @@ a.nav-a:hover {
 /* The staging stand: a strip above every page. It scrolls away with the page, so it does
    not cover the top of the menu, which stays in view. */
 .env-banner {
-  padding: 6px 16px;
+  padding: 8px 16px;
   background: var(--c-orange-bg);
   color: var(--c-orange);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   text-align: center;
 }
@@ -2240,7 +2238,7 @@ a.nav-a:hover {
 .finance {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px dashed var(--c-border);
+  border-top: 1px solid var(--c-border);
 }
 
 .finance .card-head {
@@ -2271,13 +2269,13 @@ a.nav-a:hover {
 }
 
 .finance-chip {
-  margin-left: 6px;
+  margin-left: 8px;
 }
 
 .finance-actions {
   display: inline-flex;
   gap: 4px;
-  margin-left: 6px;
+  margin-left: 8px;
 }
 
 .finance-actions .link-button {
@@ -2289,13 +2287,13 @@ a.nav-a:hover {
 .chips-inline {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .ledger-summary {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .amount-plus {
@@ -2318,8 +2316,8 @@ a.nav-a:hover {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 6px 12px;
-  padding: 10px 0;
+  gap: 4px 12px;
+  padding: 12px 0;
   border-top: 1px solid var(--c-row);
 }
 
@@ -2350,7 +2348,7 @@ a.nav-a:hover {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  padding: 14px 16px;
+  padding: 16px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
@@ -2372,7 +2370,7 @@ a.kpi:hover {
 .kpi-value {
   font-family: var(--font-num);
   font-size: 24px;
-  font-weight: 700;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
@@ -2419,7 +2417,7 @@ a.kpi:hover {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 4px 12px;
-    padding: 10px 0;
+    padding: 12px 0;
     border-bottom: 1px solid var(--c-row);
   }
 
@@ -2486,7 +2484,7 @@ a.kpi:hover {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .funnel-label {
@@ -2522,7 +2520,7 @@ a.kpi:hover {
   align-items: baseline;
   justify-content: space-between;
   gap: 4px 12px;
-  padding: 9px 0;
+  padding: 8px 0;
   border-top: 1px solid var(--c-row);
 }
 
@@ -2545,7 +2543,7 @@ a.kpi:hover {
 .analytics-filters {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .analytics-hint {
@@ -2554,7 +2552,7 @@ a.kpi:hover {
 
 .analytics-sub {
   margin: 20px 0 8px;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .analytics-table td {
@@ -2575,6 +2573,13 @@ a.kpi:hover {
 
 .bar-col .cell-bar {
   justify-content: flex-start;
+}
+
+/* The number after a bar: a fixed width, so every bar in the column starts on one line */
+.cell-num {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .bar {
@@ -2632,7 +2637,7 @@ a.kpi:hover {
   padding: 0;
   display: grid;
   grid-template-columns: minmax(0, 220px) minmax(60px, 1fr) auto;
-  gap: 10px 12px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -2673,11 +2678,11 @@ a.kpi:hover {
 }
 
 .import-note {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
 }
 
 .import-how {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   padding-left: 20px;
 }
 
@@ -2687,7 +2692,7 @@ a.kpi:hover {
 
 .import-prompt {
   width: 100%;
-  margin-top: 14px;
+  margin-top: 16px;
   padding: 10px 12px;
   border: 1px solid var(--c-border-strong);
   border-radius: var(--radius-sm);
@@ -2699,7 +2704,7 @@ a.kpi:hover {
 }
 
 .import-file {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .import-file input[type="file"] {
@@ -2710,8 +2715,8 @@ a.kpi:hover {
 .import-report {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-bottom: 14px;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
 .import-counts {
@@ -2723,20 +2728,20 @@ a.kpi:hover {
 }
 
 .import-unknown {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .import-progress {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   max-width: 560px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .import-progress progress {
   width: 100%;
-  height: 10px;
+  height: 8px;
   border: 0;
   border-radius: var(--radius-chip);
   background: var(--c-row);
@@ -2760,7 +2765,7 @@ a.kpi:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .import-unknown select {
@@ -2777,12 +2782,12 @@ a.kpi:hover {
 .import-sample {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-bottom: 14px;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
 .import-card {
-  padding: 12px 14px;
+  padding: 12px 16px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
@@ -2794,7 +2799,7 @@ a.kpi:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: 4px 8px;
 }
 
 .import-card-head {
@@ -2802,18 +2807,18 @@ a.kpi:hover {
 }
 
 .import-card-section {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .import-card-title {
-  margin: 0 0 6px;
-  font-size: 13px;
+  margin: 0 0 4px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--c-muted);
 }
 
 .import-record {
-  padding: 8px 10px;
+  padding: 8px 12px;
   border-left: 3px solid var(--c-border);
   background: var(--c-row);
   border-radius: var(--radius-sm);
@@ -2832,13 +2837,13 @@ a.kpi:hover {
 }
 
 .import-record > .chip {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .import-fields {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 6px 14px;
+  gap: 4px 16px;
   margin: 0;
 }
 
@@ -2856,18 +2861,18 @@ a.kpi:hover {
 }
 
 .import-card-issues {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .import-card-filters {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .import-card-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .import-card-list > .import-card-line {
@@ -2885,19 +2890,19 @@ a.kpi:hover {
 }
 
 .import-confirm {
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 /* Калькулятор 90/180: дни за 180 дней, поездки, проверка поездки */
 .stay-block {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .stay-meter {
   display: block;
-  height: 6px;
+  height: 8px;
   margin-top: 4px;
   background: var(--c-row);
   border-radius: var(--radius-chip);
@@ -2936,14 +2941,14 @@ a.kpi:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 10px;
+  gap: 4px 12px;
 }
 
 .stay-check {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-top: 14px;
+  padding-top: 16px;
   border-top: 1px solid var(--c-border);
 }
 
@@ -2971,14 +2976,14 @@ a.kpi:hover {
 .stay-row {
   display: grid;
   grid-template-columns: minmax(160px, 2fr) repeat(2, minmax(130px, 1fr)) auto;
-  gap: 10px;
+  gap: 8px;
   align-items: end;
 }
 
 .stay-trip {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .stay-trip + .stay-trip {
@@ -2988,7 +2993,7 @@ a.kpi:hover {
 
 .stay-row > .link-button {
   justify-self: start;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
 }
 
 @media (max-width: 720px) {
@@ -3003,8 +3008,8 @@ a.kpi:hover {
 
 /* Распознавание паспорта: строки MRZ и что из них перенести в карточку */
 .passport-reader {
-  margin-bottom: 14px;
-  padding-bottom: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--c-border);
 }
 
@@ -3039,7 +3044,7 @@ a.kpi:hover {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .plain-list .actions select {
@@ -3055,7 +3060,7 @@ a.kpi:hover {
 
 /* Document templates: codes found in a file, actions that wrap on a phone */
 .templates .chips {
-  margin: 6px 0;
+  margin: 8px 0;
 }
 
 .templates .note-actions {
@@ -3063,7 +3068,7 @@ a.kpi:hover {
 }
 
 .templates-unknown {
-  margin: 6px 0;
+  margin: 8px 0;
 }
 
 /* A group name sits in the first column with the code names: the same size as
