@@ -3,11 +3,12 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { calculateStay, type TripDraft } from "../../stay";
 import { ErrorAlert } from "../clients/ui";
-import { CountrySelect, StaySummaryView, TripCheck, TripFacts } from "./StayParts";
+import { CountrySelect, StaySummaryView, TripCheck, TripResultLine } from "./StayParts";
 
 // «Калькулятор 90/180» (backlog 2.6): days in the Schengen area for trips typed in here,
 // say during a consultation, before the person is a client. Nothing is saved: a
-// client's trips are kept in their card.
+// client's trips are kept in their card. The trips are on the left and the answer next to
+// them, so it is in view while the dates are typed.
 
 type Row = TripDraft & { key: number };
 
@@ -19,15 +20,21 @@ export function StayCalculatorPage() {
   const ready = rows.filter((r) => r.country_id && r.entered_on);
   const result = useQuery({
     queryKey: ["stay", "calculator", ready.map(({ key: _, ...trip }) => trip)],
-    queryFn: () => calculateStay(ready),
+    // The answer remembers which rows it was for: while a new one is on its way the old
+    // one stays on screen, and must not slip onto another row if rows were added or removed.
+    queryFn: async () => ({ keys: ready.map((r) => r.key), stay: await calculateStay(ready) }),
     placeholderData: keepPreviousData,
   });
-  const results = new Map(
-    ready.map((r, i) => [r.key, result.data?.trips[i]] as const),
-  );
+  const stay = result.data?.stay;
+  const results = new Map(result.data?.keys.map((key, i) => [key, stay?.trips[i]] as const));
 
   const change = (key: number, patch: Partial<TripDraft>) =>
     setRows((current) => current.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  const filled = rows.some((r) => r.country_id || r.entered_on || r.left_on);
+  const clear = () => {
+    if (window.confirm(t("stay.confirmClear"))) setRows([blank(nextKey.current++)]);
+  };
 
   return (
     <div className="page">
@@ -38,83 +45,100 @@ export function StayCalculatorPage() {
         </div>
       </header>
 
-      <section className="card stay-block">
-        <div className="card-head">
-          <h2 className="h2">{t("stay.tripsTitle")}</h2>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => setRows((current) => [...current, blank(nextKey.current++)])}
-          >
-            {t("stay.add")}
-          </button>
-        </div>
-        <div className="stay-rows">
-          {rows.map((row) => (
-            <div key={row.key} className="stay-trip">
-              <div className="stay-row">
-                <label className="field">
-                  <span>{t("stay.country")}</span>
-                  <CountrySelect
-                    value={row.country_id}
-                    onChange={(id) => change(row.key, { country_id: id })}
-                  />
-                </label>
-                <label className="field">
-                  <span>{t("stay.entry")}</span>
-                  <input
-                    type="date"
-                    value={row.entered_on}
-                    onChange={(e) => change(row.key, { entered_on: e.target.value })}
-                  />
-                </label>
-                <label className="field">
-                  <span>{t("stay.exit")}</span>
-                  <input
-                    type="date"
-                    min={row.entered_on || undefined}
-                    value={row.left_on ?? ""}
-                    onChange={(e) => change(row.key, { left_on: e.target.value || null })}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => setRows((current) => current.filter((r) => r.key !== row.key))}
-                >
-                  {t("vault.delete")}
+      <div className="stay-layout">
+        <section className="card stay-block">
+          <div className="card-head">
+            <h2 className="h2">{t("stay.tripsTitle")}</h2>
+            <div className="card-head-actions">
+              {filled && (
+                <button type="button" className="btn btn-sm" onClick={clear}>
+                  {t("stay.clear")}
                 </button>
-              </div>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={row.long_stay}
-                  onChange={(e) => change(row.key, { long_stay: e.target.checked })}
-                />
-                {t("stay.longStay")}
-              </label>
-              {results.get(row.key) && result.data && (
-                <TripFacts
-                  trip={row}
-                  result={results.get(row.key)}
-                  maxDays={result.data.max_days}
-                />
               )}
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setRows((current) => [...current, blank(nextKey.current++)])}
+              >
+                {t("stay.add")}
+              </button>
             </div>
-          ))}
-        </div>
-        <p className="muted small">{t("stay.exitHint")}</p>
-      </section>
+          </div>
+          <p className="muted small stay-intro">{t("stay.tripsHint")}</p>
+          <div className="stay-rows">
+            {rows.map((row, i) => (
+              <div key={row.key} className="stay-trip">
+                <div className="stay-row">
+                  <label className="field">
+                    <span>{t("stay.country")}</span>
+                    <CountrySelect
+                      value={row.country_id}
+                      onChange={(id) => change(row.key, { country_id: id })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>{t("stay.entry")}</span>
+                    <input
+                      type="date"
+                      value={row.entered_on}
+                      onChange={(e) => change(row.key, { entered_on: e.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>{t("stay.exit")}</span>
+                    <input
+                      type="date"
+                      min={row.entered_on || undefined}
+                      value={row.left_on ?? ""}
+                      onChange={(e) => change(row.key, { left_on: e.target.value || null })}
+                    />
+                  </label>
+                  {rows.length > 1 && (
+                    <button
+                      type="button"
+                      className="link-button"
+                      aria-label={t("stay.removeTrip", { number: i + 1 })}
+                      onClick={() => setRows((current) => current.filter((r) => r.key !== row.key))}
+                    >
+                      {t("vault.delete")}
+                    </button>
+                  )}
+                </div>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={row.long_stay}
+                    onChange={(e) => change(row.key, { long_stay: e.target.checked })}
+                  />
+                  {t("stay.longStay")}
+                </label>
+                {row.country_id && row.entered_on ? (
+                  stay && (
+                    <TripResultLine
+                      trip={row}
+                      result={results.get(row.key)}
+                      maxDays={stay.max_days}
+                    />
+                  )
+                ) : (
+                  <p className="muted small stay-pending">{t("stay.rowIncomplete")}</p>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="muted small">{t("stay.exitHint")}</p>
+        </section>
 
-      <section className="card stay-block">
-        <h2 className="h2">{t("stay.resultTitle")}</h2>
-        {result.isError && <ErrorAlert error={result.error} />}
-        {result.data && <StaySummaryView stay={result.data} />}
-        <TripCheck trips={ready} />
-        <p className="muted small">
-          {t("stay.rule")} {t("stay.nothingSaved")}
-        </p>
-      </section>
+        <section className="card stay-block stay-result">
+          <h2 className="h2">{t("stay.resultTitle")}</h2>
+          {result.isError && <ErrorAlert error={result.error} />}
+          {stay && <StaySummaryView stay={stay} />}
+          <TripCheck trips={ready} />
+          <p className="muted small">
+            {t("stay.rule")} {t("stay.nothingSaved")}
+          </p>
+        </section>
+      </div>
     </div>
   );
 }

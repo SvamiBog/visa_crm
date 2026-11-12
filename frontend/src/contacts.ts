@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "./api";
+import type { PurposeKind } from "./checklists";
 import type { BookingType, IdentifierType } from "./reference";
 
 // Contacts (backend/app/api/contacts.py). Search goes in a POST body: names and phones
@@ -76,6 +77,8 @@ export const VISA_KINDS = ["schengen", "national", "uk", "usa", "asia", "other"]
 export type VisaRecord = {
   kind: (typeof VISA_KINDS)[number];
   country: string | null;
+  // What the visa was for; null on visas written before the field existed.
+  purpose: PurposeKind | null;
   valid_from: string | null;
   valid_to: string | null;
   note: string | null;
@@ -376,6 +379,25 @@ export function telegramUrl(telegram: string | null): string | null {
 }
 
 /** ISO date ("1990-10-14") shown in the interface language, without time-zone shifts. */
+/** «05.11.2026»: a date for a table, where the long form of formatDate does not line up. */
+export function formatDateShort(value: string | null, language: string): string {
+  if (!value) return "";
+  const [y, m, d] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat(language, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
+/** Today's date (ISO) in the specialist's time zone, to tell a valid visa from an expired one. */
+export function todayIn(timeZone: string | undefined): string | undefined {
+  if (!timeZone) return undefined;
+  // The Swedish format is year-month-day, which is what an ISO date is.
+  return new Intl.DateTimeFormat("sv-SE", { timeZone }).format(new Date());
+}
+
 export function formatDate(value: string | null, language: string): string {
   if (!value) return "";
   const [y, m, d] = value.split("-").map(Number);

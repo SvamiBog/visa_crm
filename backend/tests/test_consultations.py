@@ -127,6 +127,29 @@ async def test_questionnaire_is_kept_on_the_contact(client: AsyncClient, make_us
     assert bad.status_code == 422
 
 
+async def test_a_visa_of_the_questionnaire_keeps_its_purpose(
+    client: AsyncClient, make_user: MakeUser
+):
+    await as_specialist(client, make_user)
+    contact = await new_contact(client)
+    url = f"{CONTACTS}/{contact['id']}/questionnaire"
+    answers = {
+        "visas": [
+            {"kind": "schengen", "country": "PL", "purpose": "tourism"},
+            {"kind": "national", "country": "PL", "purpose": "study", "valid_to": "2026-06-30"},
+            # Written before the purpose existed: it stays valid without one.
+            {"kind": "uk", "country": "GB"},
+        ]
+    }
+    assert (await client.put(url, json=answers)).status_code == 200
+    saved = (await card(client, contact["id"]))["questionnaire"]["visas"]
+    assert [v["purpose"] for v in saved] == ["tourism", "study", None]
+
+    # The purposes are the platform's (PurposeKind), not any word.
+    bad = await client.put(url, json={"visas": [{"kind": "schengen", "purpose": "holiday"}]})
+    assert bad.status_code == 422
+
+
 async def test_hints_use_the_latest_consultation(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     contact = await new_contact(client)
