@@ -160,7 +160,7 @@ export function Consultations({
       <div className="card-head">
         <h2 className="h2">{t("contacts.consultations")}</h2>
         {editing === null && (
-          <button type="button" className="btn btn-sm btn-p" onClick={() => setEditing("new")}>
+          <button type="button" className="btn btn-sm" onClick={() => setEditing("new")}>
             {t("contacts.addConsultation")}
           </button>
         )}
@@ -208,7 +208,7 @@ export function Consultations({
             </div>
             <div className="actions">
               {onCreateCase && c.decision !== "no" && (
-                <button type="button" className="btn btn-sm btn-p" onClick={() => onCreateCase(c)}>
+                <button type="button" className="btn btn-sm" onClick={() => onCreateCase(c)}>
                   {t("cases.createFromHere")}
                 </button>
               )}

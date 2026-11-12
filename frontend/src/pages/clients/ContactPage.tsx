@@ -674,7 +674,7 @@ function Timeline({ contactId, notes }: { contactId: string; notes: Note[] }) {
         </label>
         {add.isError && <ErrorAlert error={add.error} />}
         <div className="form-actions">
-          <button type="submit" className="btn btn-sm btn-p" disabled={add.isPending || !draft.trim()}>
+          <button type="submit" className="btn btn-sm" disabled={add.isPending || !draft.trim()}>
             {t("contacts.addNote")}
           </button>
         </div>

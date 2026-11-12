@@ -135,7 +135,7 @@ export function Cases({
       <div className="card-head">
         <h2 className="h2">{t("cases.title")}</h2>
         {creating === null && repeating === null && (
-          <button type="button" className="btn btn-sm btn-p" onClick={() => onCreating("blank")}>
+          <button type="button" className="btn btn-sm" onClick={() => onCreating("blank")}>
             {t("cases.add")}
           </button>
         )}
