@@ -283,6 +283,14 @@ export function openedFromIndex(state: unknown): boolean {
   return typeof state === "object" && state !== null && "fromIndex" in state;
 }
 
+/** History state of a card opened by dropping a client from «Консультация» on a stage
+ * of the board: the card opens with the case form from the latest consultation. */
+export const CREATE_CASE = { createCase: true } as const;
+
+export function openedToCreateCase(state: unknown): boolean {
+  return typeof state === "object" && state !== null && "createCase" in state;
+}
+
 export type CaseBrief = {
   id: string;
   number: number;

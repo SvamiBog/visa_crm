@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -14,9 +14,11 @@ import {
 import { useMe } from "../../auth";
 import {
   contactKey,
+  FROM_INDEX,
   formatDate,
   formatPhone,
   openedFromIndex,
+  openedToCreateCase,
   telegramUrl,
   useContactLists,
   type Consultation,
@@ -92,6 +94,19 @@ export function ContactPage() {
   const [creatingCase, setCreatingCase] = useState<Consultation | "blank" | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["contacts"] });
   const navigate = useNavigate();
+  const location = useLocation();
+  // A client dropped from «Консультация» on a stage of the board: the case form opens
+  // once, from the latest consultation, and the request leaves the history so that a
+  // reload or «back» does not open it again.
+  useEffect(() => {
+    if (!card.data || !openedToCreateCase(location.state)) return;
+    if (card.data.cases !== null) {
+      const [latest] = card.data.consultations;
+      setCreatingCase(latest && latest.decision !== "no" ? latest : "blank");
+    }
+    const state = openedFromIndex(location.state) ? FROM_INDEX : null;
+    navigate(location.pathname, { replace: true, state });
+  }, [card.data, location.state, location.pathname, navigate]);
   // A duplicate made by mistake: the API refuses a card with client history.
   const remove = useMutation({
     mutationFn: () => apiDelete(`/contacts/${id}`),

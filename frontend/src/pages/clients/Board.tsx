@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiGet, apiPost, errorCode } from "../../api";
 import { useDisclosure } from "../../components/Disclosure";
 import {
   CASE_STAGES,
+  CREATE_CASE,
   FROM_INDEX,
   formatDate,
   useCaseLists,
@@ -19,9 +20,18 @@ import { CaseChip } from "./Cases";
 import type { Filters } from "./ClientsPage";
 
 // Kanban of the client index (backlog 1.5): clients after a consultation, then cases by
-// stage. A submission group at one stage is one card and moves together.
+// stage. A submission group at one stage is one card and moves together. A card is easy
+// to drop in the wrong column, so every drop asks first; a client from «Консультация»
+// dropped on a stage opens the case form in the client's card (a case needs the place
+// of submission and the applicants, which the board does not have).
 
 const DRAG_TYPE = "application/x-visacrm-cases";
+const LEAD_DRAG_TYPE = "application/x-visacrm-lead";
+
+/** What a case card carries while it is dragged. */
+type CaseDrag = { ids: string[]; from: CaseStage; names: string[] };
+/** What a card from «Консультация» carries. */
+type LeadDrag = { contactId: string; name: string };
 
 /** The board is searched by name on the page: its data has names, not phones. */
 function matches(name: string, query: string): boolean {
@@ -47,6 +57,7 @@ function cardsByStage(cases: BoardCase[]): Map<CaseStage, Card[]> {
 export function BoardView({ filters, query }: { filters: Filters; query: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const hint = useDisclosure();
   const term = query.trim();
   const params = new URLSearchParams();
@@ -93,10 +104,24 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
   const drop = (stage: CaseStage) => (event: DragEvent) => {
     event.preventDefault();
     setOver(null);
+    const lead = event.dataTransfer.getData(LEAD_DRAG_TYPE);
+    if (lead) {
+      const { contactId, name } = JSON.parse(lead) as LeadDrag;
+      if (window.confirm(t("index.confirmOpenCase", { name }))) {
+        navigate(`/app/clients/${contactId}`, { state: { ...FROM_INDEX, ...CREATE_CASE } });
+      }
+      return;
+    }
     const raw = event.dataTransfer.getData(DRAG_TYPE);
     if (!raw) return;
-    const { ids, from } = JSON.parse(raw) as { ids: string[]; from: CaseStage };
-    if (from !== stage) move.mutate({ ids, stage });
+    const { ids, from, names } = JSON.parse(raw) as CaseDrag;
+    if (from === stage) return;
+    const question = t("index.confirmMove", {
+      name: names.join(", "),
+      from: t(`cases.stage.${from}`),
+      to: t(`cases.stage.${stage}`),
+    });
+    if (window.confirm(question)) move.mutate({ ids, stage });
   };
 
   if (board.isPending) return <p className="muted">{t("common.loading")}</p>;
@@ -131,7 +156,8 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
               key={stage}
               className={over === stage ? "board-col drop" : "board-col"}
               onDragOver={(e) => {
-                if (!e.dataTransfer.types.includes(DRAG_TYPE)) return;
+                const types = e.dataTransfer.types;
+                if (!types.includes(DRAG_TYPE) && !types.includes(LEAD_DRAG_TYPE)) return;
                 e.preventDefault();
                 setOver(stage);
               }}
@@ -167,10 +193,12 @@ function CaseCard({ card }: { card: Card }) {
       className="board-card"
       draggable
       onDragStart={(e) => {
-        e.dataTransfer.setData(
-          DRAG_TYPE,
-          JSON.stringify({ ids: card.cases.map((c) => c.id), from: first.stage }),
-        );
+        const drag: CaseDrag = {
+          ids: card.cases.map((c) => c.id),
+          from: first.stage,
+          names: card.cases.map((c) => c.full_name),
+        };
+        e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(drag));
         e.dataTransfer.effectAllowed = "move";
       }}
     >
@@ -213,8 +241,16 @@ function LeadCard({ lead }: { lead: BoardLead }) {
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
   return (
-    <article className="board-card lead">
-      <Link to={`/app/clients/${lead.contact_id}`} state={FROM_INDEX}>
+    <article
+      className="board-card lead"
+      draggable
+      onDragStart={(e) => {
+        const drag: LeadDrag = { contactId: lead.contact_id, name: lead.full_name };
+        e.dataTransfer.setData(LEAD_DRAG_TYPE, JSON.stringify(drag));
+        e.dataTransfer.effectAllowed = "move";
+      }}
+    >
+      <Link to={`/app/clients/${lead.contact_id}`} state={FROM_INDEX} draggable={false}>
         {lead.full_name}
       </Link>
       <div className="muted small">
