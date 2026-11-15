@@ -441,7 +441,8 @@ h1 {
 }
 
 .field input,
-.field select {
+.field select,
+.input-action input {
   min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--c-border-strong);
@@ -453,7 +454,8 @@ h1 {
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.input-action input:focus {
   outline: 2px solid var(--c-primary-soft);
   border-color: var(--c-primary);
 }
@@ -616,6 +618,14 @@ h1 {
 /* Cities of a direction: chips in a row, not pushed apart like the module stages */
 .module-block .chips .chip {
   margin-left: 0;
+}
+
+/* The hint, the city tags, the input and the suggestions each get the same gap */
+.module-block.city-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 16px 16px;
 }
 
 /* «Изменить» and «Копировать» side by side: rows stay one line high */
