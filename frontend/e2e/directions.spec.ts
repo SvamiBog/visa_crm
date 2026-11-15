@@ -1,9 +1,9 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-// The specialist sets up her own directions (backlog 1.20): one form adds the same booking
-// for several destinations with their cities, and the new case form then offers the city.
-// Both languages; each takes its own destinations, as the tests run in parallel.
+// The specialist sets up her own directions (backlog 1.20): the form adds one destination
+// with its booking and cities, and the new case form then offers the city.
+// Both languages; each takes its own destination, as the tests run in parallel.
 
 type Lang = "ru" | "en";
 
@@ -17,7 +17,7 @@ const EMAIL = process.env.E2E_EMAIL ?? "visa1@demo.visacrm.test";
 const PASSWORD = process.env.DEMO_PASSWORD ?? "";
 
 const SUBMISSION = "RS";
-const DESTINATIONS: Record<Lang, [string, string]> = { ru: ["JP", "CA"], en: ["AU", "US"] };
+const DESTINATION: Record<Lang, string> = { ru: "JP", en: "AU" };
 const CITY: Record<Lang, string> = { ru: "Белград", en: "Novi Sad" };
 
 type Country = { id: string; code: string; name_ru: string; name_en: string };
@@ -73,47 +73,41 @@ for (const lang of ["ru", "en"] as const) {
         data: { email: EMAIL, password: PASSWORD },
       });
       expect(login.ok(), await login.text()).toBe(true);
-      await removeDirections(page.request, DESTINATIONS[lang]);
+      await removeDirections(page.request, [DESTINATION[lang]]);
     });
 
     test.afterEach(async ({ page }) => {
-      await removeDirections(page.request, DESTINATIONS[lang]);
+      await removeDirections(page.request, [DESTINATION[lang]]);
     });
 
-    test("one form adds a direction for two countries, the case form offers its city", async ({
-      page,
-    }) => {
+    test("a direction is added for one country, the case form offers its city", async ({ page }) => {
       const byCode = await countries(page.request);
-      const [first, second] = DESTINATIONS[lang].map((code) => byCode.get(code));
+      const country = byCode.get(DESTINATION[lang]);
       const serbia = byCode.get(SUBMISSION);
 
       await page.goto("/app/countries");
       await page.getByRole("button", { name: t("directions.add"), exact: true }).click();
       const form = page.locator("form.form-card");
       await select(form, t("reference.submissionCountry")).selectOption(serbia!.id);
-      const destinations = select(form, t("directions.destinations"));
-      await destinations.selectOption(first!.id);
-      await destinations.selectOption(second!.id);
+      await select(form, t("directions.destination")).selectOption(country!.id);
       // The radio's name is the way of booking and its explanation.
       await form.getByRole("radio", { name: new RegExp(`^${t("reference.booking.embassy")}`) }).check();
       await form.getByLabel(t("directions.city"), { exact: true }).fill(CITY[lang]);
       await form.getByLabel(t("directions.city"), { exact: true }).press("Enter");
       await expect(form.locator(".chip", { hasText: CITY[lang] })).toBeVisible();
-      await form.getByRole("button", { name: t("directions.create_other", { count: 2 }) }).click();
+      await form.getByRole("button", { name: t("directions.create") }).click();
 
       await expect(form).toBeHidden();
       await page
         .getByRole("tab", { name: new RegExp(t("directions.from", { country: countryName(serbia) })) })
         .click();
-      for (const country of [first, second]) {
-        const row = page.getByRole("row").filter({ hasText: countryName(country) });
-        await expect(row).toContainText(CITY[lang]);
-        await expect(row).toContainText(t("reference.booking.embassy"));
-      }
+      const row = page.getByRole("row").filter({ hasText: countryName(country) });
+      await expect(row).toContainText(CITY[lang]);
+      await expect(row).toContainText(t("reference.booking.embassy"));
 
       await openCard(page);
       await page.getByRole("button", { name: t("cases.add"), exact: true }).click();
-      await select(page, t("cases.country")).selectOption(first!.id);
+      await select(page, t("cases.country")).selectOption(country!.id);
       await select(page, t("cases.submissionCountry")).selectOption(serbia!.id);
       await expect(
         select(page, t("cases.city")).getByRole("option", { name: CITY[lang] }),

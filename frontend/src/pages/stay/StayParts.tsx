@@ -54,12 +54,24 @@ function meterClass(used: number, max: number): string {
   return used >= max * 0.75 ? "stay-meter is-high" : "stay-meter";
 }
 
-/** Days used, how long the person may stay from today, overstays. */
+/** Days used out of the most allowed, as a bar: calm, then orange from three quarters, red when full. */
+function Meter({ used, max }: { used: number; max: number }) {
+  return (
+    <span className={meterClass(used, max)} aria-hidden="true">
+      <span style={{ width: `${Math.min(100, (used / max) * 100)}%` }} />
+    </span>
+  );
+}
+
+/** Where the person stands: days used, how long they may stay from today, overstays. */
 export function StaySummaryView({ stay }: { stay: Stay }) {
   const { t, i18n } = useTranslation();
   const date = (value: string | null) => formatDate(value, i18n.language);
   const s = stay.summary;
   const left = s.stay_until ? daysBetween(stay.today, s.stay_until) : 0;
+  const free = Math.max(0, stay.max_days - s.used);
+  // Days the person may stay after today (in the area) or from today (outside).
+  const mayStay = s.in_area ? left - 1 : left;
   return (
     <>
       <div className="kpis">
@@ -68,8 +80,9 @@ export function StaySummaryView({ stay }: { stay: Stay }) {
           <span className="kpi-value">
             {s.used} <small>{t("stay.ofMax", { max: stay.max_days })}</small>
           </span>
-          <span className={meterClass(s.used, stay.max_days)} aria-hidden="true">
-            <span style={{ width: `${Math.min(100, (s.used / stay.max_days) * 100)}%` }} />
+          <Meter used={s.used} max={stay.max_days} />
+          <span className="kpi-note">
+            {free > 0 ? t("stay.freeDays", { count: free }) : t("stay.limitReached")}
           </span>
         </div>
         {s.in_area ? (
@@ -97,15 +110,19 @@ export function StaySummaryView({ stay }: { stay: Stay }) {
             <span className="kpi-note">{t("stay.nextEntry")}</span>
           </div>
         )}
-        <div className="kpi">
-          <span className="kpi-label">{t("stay.fullStay", { max: stay.max_days })}</span>
-          <span className="kpi-value">
-            {s.full_stay_from === stay.today
-              ? t("stay.fromToday")
-              : t("stay.fromDate", { date: date(s.full_stay_from) })}
-          </span>
-        </div>
       </div>
+      <p className="stay-again">
+        <span className="muted">{t("stay.fullStay", { max: stay.max_days })}</span>{" "}
+        <strong>
+          {s.full_stay_from === stay.today
+            ? t("stay.fromToday")
+            : t("stay.fromDate", { date: date(s.full_stay_from) })}
+        </strong>
+      </p>
+      {/* The stay may be longer than the free days: the period moves on every day. */}
+      {s.stay_until && mayStay > free && (
+        <p className="muted small stay-hint">{t("stay.windowHint", { free })}</p>
+      )}
       {s.in_area && <p className="chip st-blue stay-now">{t("stay.inAreaNow")}</p>}
       {s.overstays.map((p) => (
         <p key={p.first} className="alert alert-error small">
@@ -120,8 +137,9 @@ export function StaySummaryView({ stay }: { stay: Stay }) {
   );
 }
 
-/** «12 дн. · на выезде 47 из 90» and the chips of one trip. */
-export function TripFacts({
+/** «47 из 90» with a bar: the days of the 180-day period used when the trip ended (or
+ * today, while it goes on), which is what the border guard sees. */
+export function TripUsage({
   trip,
   result,
   maxDays,
@@ -130,32 +148,70 @@ export function TripFacts({
   result?: TripResult;
   maxDays: number;
 }) {
-  const { t, i18n } = useTranslation();
-  const date = (value: string | null) => formatDate(value, i18n.language);
+  const { t } = useTranslation();
+  if (!result?.counts || result.used_at_end === null) return <span className="muted">—</span>;
   return (
-    <div className="muted small stay-facts">
+    <span className="stay-usage">
       <span>
-        {date(trip.entered_on)} – {trip.left_on ? date(trip.left_on) : t("stay.stillThere")}
+        {result.used_at_end} {t("stay.ofMax", { max: maxDays })}
+        {!trip.left_on && <small className="muted"> {t("stay.asOfToday")}</small>}
       </span>
-      {result?.counts && <span>{t("stay.daysCount", { count: result.days })}</span>}
-      {result?.counts && result.used_at_end !== null && (
-        <span>
-          {t(trip.left_on ? "stay.atExit" : "stay.byToday", {
-            used: result.used_at_end,
-            max: maxDays,
-          })}
-        </span>
-      )}
-      {result && !result.counts && (
+      <Meter used={result.used_at_end} max={maxDays} />
+    </span>
+  );
+}
+
+/** Why a trip does not count, and where it breaks the rule. */
+export function TripChips({ trip, result }: { trip: TripDraft; result?: TripResult }) {
+  const { t, i18n } = useTranslation();
+  if (!result) return null;
+  return (
+    <>
+      {!result.counts && (
         <span className="chip st-gray">
           {t(trip.long_stay ? "stay.longStayChip" : "stay.outsideChip")}
         </span>
       )}
-      {result?.overstay_from && (
+      {result.overstay_from && (
         <span className="chip st-red">
-          {t("stay.overstayFrom", { date: date(result.overstay_from) })}
+          {t("stay.overstayFrom", { date: formatDate(result.overstay_from, i18n.language) })}
         </span>
       )}
+    </>
+  );
+}
+
+/** The answer for a trip typed into the calculator, right under its fields. */
+export function TripResultLine({
+  trip,
+  result,
+  maxDays,
+}: {
+  trip: TripDraft;
+  result?: TripResult;
+  maxDays: number;
+}) {
+  const { t } = useTranslation();
+  if (!result) return null;
+  return (
+    <div className="stay-facts">
+      {result.counts && (
+        <>
+          <strong>{t("stay.daysCount", { count: result.days })}</strong>
+          {result.used_at_end !== null && (
+            <span className="stay-usage">
+              <span>
+                {t(trip.left_on ? "stay.atExit" : "stay.byToday", {
+                  used: result.used_at_end,
+                  max: maxDays,
+                })}
+              </span>
+              <Meter used={result.used_at_end} max={maxDays} />
+            </span>
+          )}
+        </>
+      )}
+      <TripChips trip={trip} result={result} />
     </div>
   );
 }
@@ -181,6 +237,7 @@ export function TripCheck({ trips, heading = true }: { trips: TripDraft[]; headi
   return (
     <form className="stay-check" onSubmit={submit} aria-label={t("stay.checkTitle")}>
       {heading && <h3 className="h3">{t("stay.checkTitle")}</h3>}
+      {heading && <p className="muted small">{t("stay.checkHint")}</p>}
       <div className="form-grid">
         <label className="field">
           <span>{t("stay.entry")}</span>
@@ -218,6 +275,7 @@ export function TripCheck({ trips, heading = true }: { trips: TripDraft[]; headi
   );
 }
 
+/** The verdict first, in bold, then the numbers behind it, one to a line. */
 function CheckResult({
   check: c,
   enteredOn,
@@ -232,10 +290,13 @@ function CheckResult({
   const used = t("stay.usedBefore", { used: c.used_before, max: maxDays });
   if (c.stay_until === null) {
     return (
-      <p className="alert alert-error small">
-        {t("stay.cannotEnter", { date: date(enteredOn) })} {used}{" "}
-        {c.earliest_entry && t("stay.earliestEntry", { date: date(c.earliest_entry) })}
-      </p>
+      <div className="alert alert-error small stay-verdict" role="status">
+        <strong>{t("stay.cannotEnter", { date: date(enteredOn) })}</strong>
+        <ul>
+          <li>{used}</li>
+          {c.earliest_entry && <li>{t("stay.earliestEntry", { date: date(c.earliest_entry) })}</li>}
+        </ul>
+      </div>
     );
   }
   const until = t("stay.mayStay", {
@@ -244,24 +305,37 @@ function CheckResult({
   });
   if (c.fits === null) {
     return (
-      <p className="alert alert-ok small">
-        {used} {until}
-      </p>
+      <div className="alert alert-ok small stay-verdict" role="status">
+        <strong>{until}</strong>
+        <ul>
+          <li>{used}</li>
+        </ul>
+      </div>
     );
   }
   if (c.fits) {
     return (
-      <p className="alert alert-ok small">
-        {t("stay.fits", { count: c.length ?? 0 })} {used} {until}
-      </p>
+      <div className="alert alert-ok small stay-verdict" role="status">
+        <strong>{t("stay.fits", { count: c.length ?? 0 })}</strong>
+        <ul>
+          <li>{used}</li>
+          <li>{until}</li>
+        </ul>
+      </div>
     );
   }
   return (
-    <p className="alert alert-error small">
-      {t("stay.doesNotFit", { count: c.length ?? 0 })} {used} {until}{" "}
-      {c.earliest_entry
-        ? t("stay.fitsFrom", { count: c.length ?? 0, date: date(c.earliest_entry) })
-        : t("stay.tooLong", { max: maxDays })}
-    </p>
+    <div className="alert alert-error small stay-verdict" role="status">
+      <strong>{t("stay.doesNotFit", { count: c.length ?? 0 })}</strong>
+      <ul>
+        <li>{used}</li>
+        <li>{until}</li>
+        <li>
+          {c.earliest_entry
+            ? t("stay.fitsFrom", { count: c.length ?? 0, date: date(c.earliest_entry) })
+            : t("stay.tooLong", { max: maxDays })}
+        </li>
+      </ul>
+    </div>
   );
 }
