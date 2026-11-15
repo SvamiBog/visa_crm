@@ -38,6 +38,10 @@ export function CountriesPage() {
   const allRules = useAllRules();
   const [submissionId, setSubmissionId] = useState("");
   const [editing, setEditing] = useState<Editing | null>(null);
+  // A direction deleted or switched off from the list closes its own open form.
+  const deletion = useDeleteDirection((rule) => {
+    if (editing?.mode !== "new" && editing?.rule.id === rule.id) setEditing(null);
+  });
 
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
   const operatorById = useMemo(() => byId(operators.data), [operators.data]);
@@ -120,6 +124,7 @@ export function CountriesPage() {
       <section className="card">
         {allRules.isPending && <p className="muted">{t("common.loading")}</p>}
         {allRules.isError && <ErrorAlert error={allRules.error} />}
+        {deletion.error && <ErrorAlert error={deletion.error} />}
         {allRules.data?.length === 0 && (
           <p className="muted">{t(canEdit ? "directions.empty" : "directions.emptyReader")}</p>
         )}
@@ -193,6 +198,17 @@ export function CountriesPage() {
                           >
                             {t("directions.copy")}
                           </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            disabled={deletion.pending}
+                            aria-label={t("directions.deleteFor", {
+                              country: name.country(countryById.get(rule.destination_id)),
+                            })}
+                            onClick={() => deletion.run(rule)}
+                          >
+                            {t("directions.delete")}
+                          </button>
                         </div>
                       </td>
                     )}
@@ -215,9 +231,47 @@ function useRefreshRules() {
   return () => queryClient.invalidateQueries({ queryKey: RULES_KEY });
 }
 
+/** Deleting a direction: one no case uses is removed; otherwise she is offered to switch it
+ * off instead (backlog 1.20). Shared by the row of the list and the form of a direction. */
+function useDeleteDirection(onDone: (rule: Rule) => void) {
+  const { t } = useTranslation();
+  const name = useLocalName();
+  const countries = useCountries();
+  const refresh = useRefreshRules();
+  const done = (rule: Rule) => {
+    void refresh();
+    onDone(rule);
+  };
+  const remove = useMutation({
+    mutationFn: (rule: Rule) => apiDelete<void>(`/reference/rules/${rule.id}`),
+    onSuccess: (_, rule) => done(rule),
+  });
+  const switchOff = useMutation({
+    mutationFn: (rule: Rule) => apiPatch<Rule>(`/reference/rules/${rule.id}`, { is_active: false }),
+    onSuccess: (_, rule) => done(rule),
+  });
+
+  const run = (rule: Rule) => {
+    const country = name.country(countries.data?.find((c) => c.id === rule.destination_id));
+    if (!window.confirm(t("directions.confirmDelete", { country }))) return;
+    remove.mutate(rule, {
+      onError: (error) => {
+        if (errorCode(error) === "rule_in_use" && window.confirm(t("directions.inUseSwitchOff"))) {
+          switchOff.mutate(rule);
+        }
+      },
+    });
+  };
+  // «Used by cases» is not an error: it leads to the offer to switch the direction off.
+  const error =
+    (remove.isError && errorCode(remove.error) !== "rule_in_use" ? remove.error : null) ??
+    (switchOff.isError ? switchOff.error : null);
+  return { run, pending: remove.isPending || switchOff.isPending, error };
+}
+
 type Tri = "unknown" | "yes" | "no";
 
-/** A new direction (for one or several destinations), a copy of one, or a change. */
+/** A new direction, a copy of one, or a change. */
 function DirectionForm({
   editing,
   submissionId,
@@ -242,7 +296,7 @@ function DirectionForm({
     !!rule && (rule.appeals_accepted !== null || !!rule.notes || !!rule.identifier_type),
   );
 
-  const [destinations, setDestinations] = useState<string[]>([]);
+  const [destination, setDestination] = useState("");
   const [submission, setSubmission] = useState(rule?.submission_id ?? submissionId);
   const [booking, setBooking] = useState<BookingType>(rule?.booking_type ?? "direct_slot");
   const [windowDays, setWindowDays] = useState(String(rule?.window_days ?? 60));
@@ -286,7 +340,7 @@ function DirectionForm({
         ? apiPatch<Rule>(`/reference/rules/${existing.id}`, fields())
         : apiPost<Rule[]>("/reference/rules", {
             ...fields(),
-            destination_ids: destinations,
+            destination_ids: [destination],
             submission_id: submission,
             cities,
           }),
@@ -296,32 +350,7 @@ function DirectionForm({
     },
   });
 
-  const remove = useMutation({
-    mutationFn: (rule: Rule) => apiDelete<void>(`/reference/rules/${rule.id}`),
-    onSuccess: () => {
-      void refresh();
-      onClose();
-    },
-  });
-  const switchOff = useMutation({
-    mutationFn: (rule: Rule) => apiPatch<Rule>(`/reference/rules/${rule.id}`, { is_active: false }),
-    onSuccess: () => {
-      void refresh();
-      onClose();
-    },
-  });
-
-  const deleteDirection = (rule: Rule) => {
-    const country = name.country(countries.find((c) => c.id === rule.destination_id));
-    if (!window.confirm(t("directions.confirmDelete", { country }))) return;
-    remove.mutate(rule, {
-      onError: (error) => {
-        if (errorCode(error) === "rule_in_use" && window.confirm(t("directions.inUseSwitchOff"))) {
-          switchOff.mutate(rule);
-        }
-      },
-    });
-  };
+  const deletion = useDeleteDirection(() => onClose());
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -344,11 +373,21 @@ function DirectionForm({
 
       {!existing && (
         <div className="form-grid">
-          <DestinationPicker
-            value={destinations}
-            choices={destinationChoices}
-            onChange={setDestinations}
-          />
+          <label className="field">
+            <span>{t("directions.destination")}</span>
+            <select
+              required
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+            >
+              <option value="" />
+              {destinationChoices.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {name.country(c)}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="field">
             <span>{t("reference.submissionCountry")}</span>
             <select
@@ -356,7 +395,7 @@ function DirectionForm({
               value={submission}
               onChange={(e) => {
                 setSubmission(e.target.value);
-                setDestinations([]);
+                setDestination("");
               }}
             >
               <option value="" />
@@ -494,19 +533,14 @@ function DirectionForm({
       )}
 
       {save.isError && <ErrorAlert error={save.error} />}
-      {remove.isError && errorCode(remove.error) !== "rule_in_use" && (
-        <ErrorAlert error={remove.error} />
-      )}
-      {switchOff.isError && <ErrorAlert error={switchOff.error} />}
+      {deletion.error && <ErrorAlert error={deletion.error} />}
       <div className="form-actions">
         <button
           type="submit"
           className="btn btn-p"
-          disabled={save.isPending || (!existing && (destinations.length === 0 || !submission))}
+          disabled={save.isPending || (!existing && (!destination || !submission))}
         >
-          {existing
-            ? t("common.save")
-            : t("directions.create", { count: Math.max(destinations.length, 1) })}
+          {existing ? t("common.save") : t("directions.create")}
         </button>
         <button type="button" className="btn" onClick={() => onClose()}>
           {t("common.cancel")}
@@ -515,67 +549,14 @@ function DirectionForm({
           <button
             type="button"
             className="btn btn-danger"
-            disabled={remove.isPending || switchOff.isPending}
-            onClick={() => deleteDirection(existing)}
+            disabled={deletion.pending}
+            onClick={() => deletion.run(existing)}
           >
             {t("directions.delete")}
           </button>
         )}
       </div>
     </form>
-  );
-}
-
-/** Several destinations at once: the same booking for each, e.g. via the German embassy. */
-function DestinationPicker({
-  value,
-  choices,
-  onChange,
-}: {
-  value: string[];
-  choices: Country[];
-  onChange: (value: string[]) => void;
-}) {
-  const { t } = useTranslation();
-  const name = useLocalName();
-  const byCountry = useMemo(() => byId(choices), [choices]);
-  return (
-    <div className="field">
-      <span>{t("directions.destinations")}</span>
-      {value.length > 0 && (
-        <div className="chips">
-          {value.map((id) => (
-            <span key={id} className="chip st-gray chip-removable">
-              {name.country(byCountry.get(id))}
-              <button
-                type="button"
-                aria-label={t("directions.removeDestination", {
-                  country: name.country(byCountry.get(id)),
-                })}
-                onClick={() => onChange(value.filter((v) => v !== id))}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <select
-        aria-label={t("directions.destinations")}
-        value=""
-        onChange={(e) => e.target.value && onChange([...value, e.target.value])}
-      >
-        <option value="">{t("directions.addDestination")}</option>
-        {choices
-          .filter((c) => !value.includes(c.id))
-          .map((c) => (
-            <option key={c.id} value={c.id}>
-              {name.country(c)}
-            </option>
-          ))}
-      </select>
-      <span className="muted small">{t("directions.destinationsHint")}</span>
-    </div>
   );
 }
 
@@ -718,7 +699,7 @@ function CitiesField({
 }) {
   const { t } = useTranslation();
   return (
-    <fieldset className="module-block">
+    <fieldset className="module-block city-block">
       <legend>{t("reference.colCities")}</legend>
       <p className="muted small">{t("directions.citiesHint")}</p>
       {value.length > 0 && (
@@ -780,7 +761,7 @@ function RuleCities({ rule, suggestions }: { rule: Rule; suggestions: CitySugges
   const busy = add.isPending || setActive.isPending || remove.isPending;
 
   return (
-    <fieldset className="module-block">
+    <fieldset className="module-block city-block">
       <legend>{t("reference.colCities")}</legend>
       <p className="muted small">{t("directions.citiesHint")}</p>
       {centers.length > 0 && (

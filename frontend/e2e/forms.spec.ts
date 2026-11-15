@@ -48,8 +48,19 @@ const FORMS: Form[] = [
       await page.locator(".page-header").getByRole("button", { name: t("reference.edit") }).click();
     },
   },
-  // The questionnaire is not here: it edits rows of controls without labels, not a form
-  // grid, so there is nothing to line up.
+  {
+    // A visa and a refusal added: their fields sit in a grid of two to a row.
+    name: "questionnaire",
+    open: async (page, t) => {
+      await openCard(page);
+      const questionnaire = card(page, t("contacts.questionnaire"));
+      await questionnaire.getByRole("button", { name: t("reference.edit"), exact: true }).click();
+      await questionnaire.getByRole("button", { name: t("contacts.addVisa"), exact: true }).click();
+      await questionnaire
+        .getByRole("button", { name: t("contacts.addRefusal"), exact: true })
+        .click();
+    },
+  },
   {
     name: "trip check in the card",
     open: async (page, t) => {

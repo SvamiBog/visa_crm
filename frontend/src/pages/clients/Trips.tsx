@@ -4,9 +4,10 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../api";
 import { useDisclosure } from "../../components/Disclosure";
+import { formatDateShort } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { tripsKey, type ContactTrips as ContactTripsData, type Trip, type TripResult } from "../../stay";
-import { CountrySelect, StaySummaryView, TripCheck, TripFacts } from "../stay/StayParts";
+import { CountrySelect, StaySummaryView, TripCheck, TripChips, TripUsage } from "../stay/StayParts";
 import { ErrorAlert } from "./ui";
 
 // «Поездки и 90/180» in the client's card (backlog 2.6): the person's trips, the days
@@ -48,7 +49,7 @@ export function ContactTrips({ contactId }: { contactId: string }) {
           ) : (
             <StaySummaryView stay={data.data.stay} />
           )}
-          <ul className="booking-list">
+          <ul className="stay-list">
             {data.data.trips.map((trip, i) => (
               <TripItem
                 key={trip.id}
@@ -56,6 +57,7 @@ export function ContactTrips({ contactId }: { contactId: string }) {
                 trip={trip}
                 result={data.data.stay.trips[i]}
                 maxDays={data.data.stay.max_days}
+                windowDays={data.data.stay.window_days}
                 onEdit={() => setEditing(trip)}
               />
             ))}
@@ -76,20 +78,24 @@ export function ContactTrips({ contactId }: { contactId: string }) {
   );
 }
 
+/** One trip: where and what to do with it on top; below, when, how many days and how full
+ * the period was when it ended. */
 function TripItem({
   contactId,
   trip,
   result,
   maxDays,
+  windowDays,
   onEdit,
 }: {
   contactId: string;
   trip: Trip;
   result?: TripResult;
   maxDays: number;
+  windowDays: number;
   onEdit: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
@@ -99,28 +105,56 @@ function TripItem({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: tripsKey(contactId) }),
   });
   return (
-    <li className={result?.counts === false ? "booking-item row-off" : "booking-item"}>
-      <div className="booking-line">
-        <strong>{name.country(countryById.get(trip.country_id)) || "—"}</strong>
+    <li className={result?.counts === false ? "stay-item row-off" : "stay-item"}>
+      <div className="stay-head">
+        <div className="stay-country">
+          <strong>{name.country(countryById.get(trip.country_id)) || "—"}</strong>
+          <TripChips trip={trip} result={result} />
+          {trip.note && <span className="muted small stay-note">{trip.note}</span>}
+        </div>
+        <div className="stay-actions">
+          <button type="button" className="link-button" onClick={onEdit}>
+            {t("reference.edit")}
+          </button>
+          <button
+            type="button"
+            className="link-button"
+            disabled={remove.isPending}
+            onClick={() => {
+              if (window.confirm(t("stay.confirmDelete"))) remove.mutate();
+            }}
+          >
+            {t("vault.delete")}
+          </button>
+        </div>
       </div>
-      <TripFacts trip={trip} result={result} maxDays={maxDays} />
-      {trip.note && <p className="note-body small">{trip.note}</p>}
       {remove.isError && <ErrorAlert error={remove.error} />}
-      <div className="note-actions">
-        <button type="button" className="link-button" onClick={onEdit}>
-          {t("reference.edit")}
-        </button>
-        <button
-          type="button"
-          className="link-button"
-          disabled={remove.isPending}
-          onClick={() => {
-            if (window.confirm(t("stay.confirmDelete"))) remove.mutate();
-          }}
-        >
-          {t("vault.delete")}
-        </button>
-      </div>
+      <dl className="stay-dates">
+        <div>
+          <dt>{t("stay.entry")}</dt>
+          <dd>{formatDateShort(trip.entered_on, i18n.language)}</dd>
+        </div>
+        <div>
+          <dt>{t("stay.exit")}</dt>
+          <dd>
+            {trip.left_on ? (
+              formatDateShort(trip.left_on, i18n.language)
+            ) : (
+              <span className="muted">{t("stay.stillThere")}</span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("stay.colDays")}</dt>
+          <dd>{result?.counts ? t("stay.daysCount", { count: result.days }) : "—"}</dd>
+        </div>
+        <div className="stay-window">
+          <dt>{t("stay.colWindow", { days: windowDays })}</dt>
+          <dd>
+            <TripUsage trip={trip} result={result} maxDays={maxDays} />
+          </dd>
+        </div>
+      </dl>
     </li>
   );
 }

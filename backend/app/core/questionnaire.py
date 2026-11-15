@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.models import PurposeKind
+
 CountryCode = Annotated[str, Field(pattern=r"^[A-Z]{2}$")]
 ShortText = Annotated[str, Field(max_length=500)]
 
@@ -15,10 +17,15 @@ VisaKind = Literal["schengen", "national", "uk", "usa", "asia", "other"]
 
 
 class VisaRecord(BaseModel):
-    """A visa from the last 5 years: kind, issuing country, validity, where they went."""
+    """A visa from the last 5 years: kind, issuing country, what for, validity.
+
+    The purpose is one of the platform's (the same words as the checklists go by): «Шенген»
+    or «Национальная» alone does not say whether it was tourism or study. Visas written
+    before it existed have none."""
 
     kind: VisaKind
     country: CountryCode | None = None
+    purpose: PurposeKind | None = None
     valid_from: date | None = None
     valid_to: date | None = None
     note: ShortText | None = None

@@ -441,7 +441,8 @@ h1 {
 }
 
 .field input,
-.field select {
+.field select,
+.input-action input {
   min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--c-border-strong);
@@ -453,7 +454,8 @@ h1 {
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.input-action input:focus {
   outline: 2px solid var(--c-primary-soft);
   border-color: var(--c-primary);
 }
@@ -616,6 +618,14 @@ h1 {
 /* Cities of a direction: chips in a row, not pushed apart like the module stages */
 .module-block .chips .chip {
   margin-left: 0;
+}
+
+/* The hint, the city tags, the input and the suggestions each get the same gap */
+.module-block.city-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 16px 16px;
 }
 
 /* «Изменить» and «Копировать» side by side: rows stay one line high */
@@ -1368,6 +1378,89 @@ a.nav-a:hover {
   text-align: right;
 }
 
+/* Анкета в карточке: визы и отказы — по строке на каждую, а не одной строкой через «;» */
+.q-section {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.q-section .h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-muted);
+}
+
+.q-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.q-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.q-main,
+.q-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.q-meta {
+  color: var(--c-muted);
+  font-size: 13px;
+}
+
+.q-note {
+  flex-basis: 100%;
+  color: var(--c-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.q-deportation {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 12px 0 0;
+}
+
+/* The same entry in the form: its fields with labels, «Убрать» under them */
+.q-edit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+}
+
+/* Two fields to a row even in the narrow column of the card; the long ones take a whole row */
+.q-edit .form-grid {
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+  gap: 12px;
+}
+
+.q-edit .q-wide {
+  grid-column: 1 / -1;
+}
+
+.q-edit .link-button {
+  padding: 4px 0;
+}
+
 /* Files of the consent and the contract under their row in the card */
 .documents {
   display: flex;
@@ -1433,6 +1526,14 @@ a.nav-a:hover {
 
 .card-head .h2 {
   margin: 0;
+}
+
+/* Several buttons at the right of a card's heading */
+.card-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .chips {
@@ -2937,11 +3038,137 @@ a.kpi:hover {
   margin: 0;
 }
 
+/* The answer for one trip: a band under its fields, not small grey text */
 .stay-facts {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
+  gap: 4px 16px;
+  padding: 8px 12px;
+  background: var(--c-row);
+  border-radius: var(--radius-sm);
+}
+
+.stay-usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stay-usage .stay-meter {
+  flex: none;
+  width: 64px;
+  margin: 0;
+}
+
+.stay-pending,
+.stay-intro,
+.stay-hint {
+  margin: 0;
+}
+
+/* The trips on the left, the answer next to them while there is room */
+.stay-layout {
+  display: grid;
+  gap: 20px;
+  align-items: start;
+}
+
+/* Two figures side by side, in the narrow column of the card too */
+.stay-block .kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stay-again {
+  margin: 0;
+}
+
+@media (min-width: 1280px) {
+  .stay-layout {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  }
+
+  /* Stays in view while the dates are typed; scrolls inside if it is taller than the screen */
+  .stay-result {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+  }
+}
+
+/* The verdict of «Проверить поездку»: bold first, the figures behind it one to a line */
+.stay-verdict ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+/* Trips of the card: the country and its actions on top, then entry, exit and days in a
+   line, and below them how full the period was when the trip ended */
+.stay-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stay-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.stay-item:last-child {
+  border-bottom: 0;
+}
+
+.stay-item.row-off {
+  color: var(--c-gray);
+}
+
+.stay-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stay-country {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.stay-country .stay-note {
+  flex-basis: 100%;
+}
+
+.stay-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  margin: -8px -8px 0 0;
+  white-space: nowrap;
+}
+
+.stay-dates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 4px 0 0;
+}
+
+.stay-dates dt {
+  font-size: 12px;
+  color: var(--c-muted);
+}
+
+.stay-dates dd {
+  margin: 0;
+}
+
+.stay-dates .stay-window {
+  grid-column: 1 / -1;
 }
 
 .stay-check {

@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
+import { PURPOSE_KINDS } from "../../checklists";
 import {
   DECISIONS,
   VISA_KINDS,
   contactKey,
   formatDate,
   passportOf,
+  todayIn,
   useContactLists,
   type Consultation,
   type ContactCard,
@@ -18,6 +20,7 @@ import {
   type VisaRecord,
 } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
+import { useWorkspace } from "../../workspace";
 import { useMoney } from "./Finance";
 import { useSortedCountries } from "./ui";
 
@@ -402,17 +405,99 @@ function ConsultationForm({
 
 // --- Questionnaire -------------------------------------------------------------------
 
-export function QuestionnaireCard({ card }: { card: ContactCard }) {
+/** One answer of the questionnaire that is a list (visas, refusals): a heading and a line
+ * for each entry, or a single «—» row while there are none, so empty answers take no room. */
+function AnswerList({
+  label,
+  empty,
+  children,
+}: {
+  label: string;
+  empty: boolean;
+  children: ReactNode;
+}) {
+  if (empty) {
+    return (
+      <div className="kv">
+        <span className="muted">{label}</span>
+        <span>—</span>
+      </div>
+    );
+  }
+  return (
+    <div className="q-section">
+      <h3 className="h3">{label}</h3>
+      <ul className="q-list">{children}</ul>
+    </div>
+  );
+}
+
+/** «Польша · Шенген · Туризм» with the term on the right and whether it is still valid. */
+function VisaLine({
+  visa: v,
+  country,
+  today,
+}: {
+  visa: VisaRecord;
+  country: string;
+  today: string | undefined;
+}) {
   const { t, i18n } = useTranslation();
+  const date = (value: string | null) => formatDate(value, i18n.language);
+  const kind = t(`contacts.visaKind.${v.kind}`);
+  // A visa with no country (the USA, say) is named by its kind alone.
+  const title = country || kind;
+  const period =
+    v.valid_from && v.valid_to
+      ? t("contacts.visaPeriod", { from: date(v.valid_from), to: date(v.valid_to) })
+      : v.valid_to
+        ? t("contacts.visaUntil", { date: date(v.valid_to) })
+        : v.valid_from
+          ? t("contacts.visaFrom", { date: date(v.valid_from) })
+          : "";
+  const status =
+    !today || !v.valid_to
+      ? null
+      : v.valid_to < today
+        ? "expired"
+        : !v.valid_from || v.valid_from <= today
+          ? "active"
+          : null;
+  return (
+    <li className="q-item">
+      <div className="q-main">
+        <strong>{title}</strong>
+        {country && country !== kind && <span className="chip st-gray">{kind}</span>}
+        {v.purpose && <span className="chip st-gray">{t(`purposeKind.${v.purpose}`)}</span>}
+      </div>
+      {(period || status) && (
+        <div className="q-meta">
+          {period && <span>{period}</span>}
+          {status && (
+            <span className={status === "active" ? "chip st-green" : "chip st-gray"}>
+              {t(status === "active" ? "contacts.visaActive" : "contacts.visaExpired")}
+            </span>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+export function QuestionnaireCard({ card }: { card: ContactCard }) {
+  const { t } = useTranslation();
   const name = useLocalName();
   const countries = useCountries();
+  const workspace = useWorkspace();
+  const today = todayIn(workspace.data?.timezone);
   const byCode = useMemo(
     () => new Map((countries.data ?? []).map((c) => [c.code, c])),
     [countries.data],
   );
   const [editing, setEditing] = useState(false);
   const q = card.questionnaire;
-  const names = (codes: string[]) => codes.map((c) => name.country(byCode.get(c)) || c).join(", ");
+  const country = (code: string | null) => (code ? name.country(byCode.get(code)) || code : "");
+  const names = (codes: string[]) => codes.map(country).join(", ");
 
   return (
     <section className="card">
@@ -430,48 +515,37 @@ export function QuestionnaireCard({ card }: { card: ContactCard }) {
         <QuestionnaireForm card={card} onDone={() => setEditing(false)} />
       ) : (
         <>
-          <div className="kv">
-            <span className="muted">{t("contacts.visas")}</span>
-            <span>
-              {q.visas.length > 0
-                ? q.visas
-                    .map((v) =>
-                      [
-                        t(`contacts.visaKind.${v.kind}`),
-                        v.country && name.country(byCode.get(v.country)),
-                        v.valid_to && formatDate(v.valid_to, i18n.language),
-                      ]
-                        .filter(Boolean)
-                        .join(" · "),
-                    )
-                    .join("; ")
-                : "—"}
-            </span>
-          </div>
-          <div className="kv">
-            <span className="muted">{t("contacts.refusals")}</span>
-            <span>
-              {q.refusals.length > 0
-                ? q.refusals
-                    .map((r) =>
-                      [name.country(byCode.get(r.country)) || r.country, r.year, r.reason]
-                        .filter(Boolean)
-                        .join(" · "),
-                    )
-                    .join("; ")
-                : "—"}
-            </span>
-          </div>
+          <AnswerList label={t("contacts.visas")} empty={q.visas.length === 0}>
+            {q.visas.map((v, i) => (
+              <VisaLine key={i} visa={v} country={country(v.country)} today={today} />
+            ))}
+          </AnswerList>
+          <AnswerList label={t("contacts.refusals")} empty={q.refusals.length === 0}>
+            {q.refusals.map((r, i) => (
+              <li key={i} className="q-item">
+                <div className="q-main">
+                  <strong>{country(r.country)}</strong>
+                  {r.year && <span className="chip st-gray">{r.year}</span>}
+                </div>
+                {r.reason && <div className="q-note">{r.reason}</div>}
+              </li>
+            ))}
+          </AnswerList>
           <div className="kv">
             <span className="muted">{t("contacts.relativesAbroad")}</span>
             <span>{names(q.relatives_abroad) || "—"}</span>
           </div>
-          <div className="kv">
-            <span className="muted">{t("contacts.deportation")}</span>
-            <span>
-              {q.deportation ? t("contacts.yesWith", { note: q.deportation_note ?? "" }) : t("contacts.no")}
-            </span>
-          </div>
+          {q.deportation ? (
+            <p className="alert alert-error q-deportation">
+              <strong>{t("contacts.deportationYes")}</strong>
+              {q.deportation_note && <span>{q.deportation_note}</span>}
+            </p>
+          ) : (
+            <div className="kv">
+              <span className="muted">{t("contacts.deportation")}</span>
+              <span>{t("contacts.no")}</span>
+            </div>
+          )}
           <div className="kv">
             <span className="muted">{t("contacts.humanitarianTrips")}</span>
             <span>{names(q.humanitarian_trips) || "—"}</span>
@@ -533,40 +607,67 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
         <legend>{t("contacts.visas")}</legend>
         <div className="rows-editor">
           {q.visas.map((v, i) => (
-            <div key={i} className="row-editor">
-              <select
-                aria-label={t("contacts.visaKindLabel")}
-                value={v.kind}
-                onChange={(e) => setVisa(i, { kind: e.target.value as VisaRecord["kind"] })}
-              >
-                {VISA_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {t(`contacts.visaKind.${k}`)}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label={t("dict.country")}
-                value={v.country ?? ""}
-                onChange={(e) => setVisa(i, { country: e.target.value || null })}
-              >
-                {countryOptions}
-              </select>
-              <input
-                type="date"
-                aria-label={t("contacts.validFrom")}
-                value={v.valid_from ?? ""}
-                onChange={(e) => setVisa(i, { valid_from: e.target.value || null })}
-              />
-              <input
-                type="date"
-                aria-label={t("contacts.validTo")}
-                value={v.valid_to ?? ""}
-                onChange={(e) => setVisa(i, { valid_to: e.target.value || null })}
-              />
+            <div key={i} className="q-edit">
+              <div className="form-grid">
+                <label className="field">
+                  <span>{t("contacts.visaKindLabel")}</span>
+                  <select
+                    value={v.kind}
+                    onChange={(e) => setVisa(i, { kind: e.target.value as VisaRecord["kind"] })}
+                  >
+                    {VISA_KINDS.map((k) => (
+                      <option key={k} value={k}>
+                        {t(`contacts.visaKind.${k}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t("dict.country")}</span>
+                  <select
+                    value={v.country ?? ""}
+                    onChange={(e) => setVisa(i, { country: e.target.value || null })}
+                  >
+                    {countryOptions}
+                  </select>
+                </label>
+                <label className="field q-wide">
+                  <span>{t("contacts.visaPurpose")}</span>
+                  <select
+                    value={v.purpose ?? ""}
+                    onChange={(e) =>
+                      setVisa(i, { purpose: (e.target.value || null) as VisaRecord["purpose"] })
+                    }
+                  >
+                    <option value="">{t("contacts.purposeNone")}</option>
+                    {PURPOSE_KINDS.map((k) => (
+                      <option key={k} value={k}>
+                        {t(`purposeKind.${k}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t("contacts.validFrom")}</span>
+                  <input
+                    type="date"
+                    value={v.valid_from ?? ""}
+                    onChange={(e) => setVisa(i, { valid_from: e.target.value || null })}
+                  />
+                </label>
+                <label className="field">
+                  <span>{t("contacts.validTo")}</span>
+                  <input
+                    type="date"
+                    min={v.valid_from ?? undefined}
+                    value={v.valid_to ?? ""}
+                    onChange={(e) => setVisa(i, { valid_to: e.target.value || null })}
+                  />
+                </label>
+              </div>
               <button
                 type="button"
-                className="btn btn-sm"
+                className="link-button"
                 onClick={() => set("visas", q.visas.filter((_, j) => j !== i))}
               >
                 {t("dict.remove")}
@@ -580,7 +681,14 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
           onClick={() =>
             set("visas", [
               ...q.visas,
-              { kind: "schengen", country: null, valid_from: null, valid_to: null, note: null },
+              {
+                kind: "schengen",
+                country: null,
+                purpose: null,
+                valid_from: null,
+                valid_to: null,
+                note: null,
+              },
             ])
           }
         >
@@ -592,34 +700,42 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
         <legend>{t("contacts.refusals")}</legend>
         <div className="rows-editor">
           {q.refusals.map((r, i) => (
-            <div key={i} className="row-editor">
-              <select
-                aria-label={t("dict.country")}
-                required
-                value={r.country}
-                onChange={(e) => setRefusal(i, { country: e.target.value })}
-              >
-                {countryOptions}
-              </select>
-              <input
-                type="number"
-                min={1990}
-                max={2100}
-                aria-label={t("contacts.year")}
-                placeholder={t("contacts.year")}
-                value={r.year ?? ""}
-                onChange={(e) => setRefusal(i, { year: e.target.value ? Number(e.target.value) : null })}
-              />
-              <input
-                aria-label={t("contacts.reason")}
-                placeholder={t("contacts.reason")}
-                maxLength={500}
-                value={r.reason ?? ""}
-                onChange={(e) => setRefusal(i, { reason: e.target.value || null })}
-              />
+            <div key={i} className="q-edit">
+              <div className="form-grid">
+                <label className="field">
+                  <span>{t("dict.country")}</span>
+                  <select
+                    required
+                    value={r.country}
+                    onChange={(e) => setRefusal(i, { country: e.target.value })}
+                  >
+                    {countryOptions}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>{t("contacts.year")}</span>
+                  <input
+                    type="number"
+                    min={1990}
+                    max={2100}
+                    value={r.year ?? ""}
+                    onChange={(e) =>
+                      setRefusal(i, { year: e.target.value ? Number(e.target.value) : null })
+                    }
+                  />
+                </label>
+                <label className="field q-wide">
+                  <span>{t("contacts.reason")}</span>
+                  <input
+                    maxLength={500}
+                    value={r.reason ?? ""}
+                    onChange={(e) => setRefusal(i, { reason: e.target.value || null })}
+                  />
+                </label>
+              </div>
               <button
                 type="button"
-                className="btn btn-sm"
+                className="link-button"
                 onClick={() => set("refusals", q.refusals.filter((_, j) => j !== i))}
               >
                 {t("dict.remove")}
