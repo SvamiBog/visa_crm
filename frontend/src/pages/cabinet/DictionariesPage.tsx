@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { PURPOSE_KINDS, type PurposeKind } from "../../checklists";
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
 import { rulesSummary, SYSTEM_KINDS, type SystemKind, type VaultSystem } from "../../vault";
@@ -638,12 +638,21 @@ function Partners() {
   const { t } = useTranslation();
   const list = useList<Partner[]>("partners");
   const [editing, setEditing] = useState<Partner | "new" | null>(null);
+  // A partner deleted or switched off from the list closes its own open form.
+  const deletion = useDeletePartner((p) => {
+    if (editing !== null && editing !== "new" && editing.id === p.id) setEditing(null);
+  });
+  // The form deletes on its own: an old refusal from the list must not stay on screen.
+  const edit = (value: Partner | "new") => {
+    deletion.reset();
+    setEditing(value);
+  };
   return (
     <>
       <div className="toolbar">
         <p className="muted small">{t("dict.partnersHint")}</p>
         {editing === null && (
-          <button type="button" className="btn btn-p" onClick={() => setEditing("new")}>
+          <button type="button" className="btn btn-p" onClick={() => edit("new")}>
             {t("dict.addPartner")}
           </button>
         )}
@@ -656,6 +665,7 @@ function Partners() {
         />
       )}
       <section className="card">
+        {deletion.error && <ErrorAlert error={deletion.error} />}
         {list.isPending && <p className="muted">{t("common.loading")}</p>}
         {list.data?.length === 0 && <p className="muted">{t("dict.empty")}</p>}
         {list.data && list.data.length > 0 && (
@@ -685,9 +695,18 @@ function Partners() {
                       <StatusChip active={p.is_active} />
                     </td>
                     <td>
-                      <div className="actions">
-                        <button type="button" className="btn btn-sm" onClick={() => setEditing(p)}>
+                      <div className="actions actions-row">
+                        <button type="button" className="btn btn-sm" onClick={() => edit(p)}>
                           {t("reference.edit")}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          disabled={deletion.pending}
+                          aria-label={t("dict.deletePartnerFor", { name: p.name })}
+                          onClick={() => deletion.run(p)}
+                        >
+                          {t("dict.deletePartner")}
                         </button>
                       </div>
                     </td>
@@ -702,9 +721,56 @@ function Partners() {
   );
 }
 
+/** Deleting a partner: one no client card names is removed with its terms; otherwise she is
+ * offered to switch it off instead. Shared by the row of the list and the form of a partner. */
+function useDeletePartner(onDone: (partner: Partner) => void) {
+  const { t } = useTranslation();
+  const refresh = useRefresh("partners");
+  const done = (partner: Partner) => {
+    void refresh();
+    onDone(partner);
+  };
+  const remove = useMutation({
+    mutationFn: (partner: Partner) => apiDelete<void>(`${BASE}/partners/${partner.id}`),
+    onSuccess: (_, partner) => done(partner),
+  });
+  const switchOff = useMutation({
+    mutationFn: (partner: Partner) =>
+      apiPatch<Partner>(`${BASE}/partners/${partner.id}`, { is_active: false }),
+    onSuccess: (_, partner) => done(partner),
+  });
+
+  const run = (partner: Partner) => {
+    if (!window.confirm(t("dict.confirmDeletePartner", { name: partner.name }))) return;
+    remove.mutate(partner, {
+      onError: (error) => {
+        if (
+          errorCode(error) === "partner_in_use" &&
+          partner.is_active &&
+          window.confirm(t("dict.partnerInUseSwitchOff"))
+        ) {
+          switchOff.mutate(partner);
+        }
+      },
+    });
+  };
+  // «In use» for an active partner is not an error: it leads to the offer to switch it off.
+  // One that is already off can only stay as it is, so she is told why.
+  const offered = errorCode(remove.error) === "partner_in_use" && remove.variables?.is_active;
+  const error =
+    (remove.isError && !offered ? remove.error : null) ??
+    (switchOff.isError ? switchOff.error : null);
+  const reset = () => {
+    remove.reset();
+    switchOff.reset();
+  };
+  return { run, reset, pending: remove.isPending || switchOff.isPending, error };
+}
+
 function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => void }) {
   const { t } = useTranslation();
   const refresh = useRefresh("partners");
+  const deletion = useDeletePartner(() => onClose());
   const countries = useSortedCountries();
   const [name, setName] = useState(partner?.name ?? "");
   const [contact, setContact] = useState(partner?.contact ?? "");
@@ -855,6 +921,7 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
         {t("reference.activeLabel")}
       </label>
       {save.isError && <ErrorAlert error={save.error} />}
+      {deletion.error && <ErrorAlert error={deletion.error} />}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
           {t("common.save")}
@@ -862,6 +929,16 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
         <button type="button" className="btn" onClick={onClose}>
           {t("common.cancel")}
         </button>
+        {partner && (
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={deletion.pending}
+            onClick={() => deletion.run(partner)}
+          >
+            {t("dict.deletePartner")}
+          </button>
+        )}
       </div>
     </form>
   );
@@ -878,13 +955,22 @@ function Registrars() {
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
   const purposeById = useMemo(() => byId(purposes.data), [purposes.data]);
   const [editing, setEditing] = useState<Registrar | "new" | null>(null);
+  // A registrar deleted or switched off from the list closes its own open form.
+  const deletion = useDeleteRegistrar((r) => {
+    if (editing !== null && editing !== "new" && editing.id === r.id) setEditing(null);
+  });
+  // The form deletes on its own: an old refusal from the list must not stay on screen.
+  const edit = (value: Registrar | "new") => {
+    deletion.reset();
+    setEditing(value);
+  };
 
   return (
     <>
       <div className="toolbar">
         <p className="muted small">{t("dict.registrarsHint")}</p>
         {editing === null && (
-          <button type="button" className="btn btn-p" onClick={() => setEditing("new")}>
+          <button type="button" className="btn btn-p" onClick={() => edit("new")}>
             {t("dict.addRegistrar")}
           </button>
         )}
@@ -898,6 +984,7 @@ function Registrars() {
         />
       )}
       <section className="card">
+        {deletion.error && <ErrorAlert error={deletion.error} />}
         {list.isPending && <p className="muted">{t("common.loading")}</p>}
         {list.data?.length === 0 && <p className="muted">{t("dict.empty")}</p>}
         {list.data && list.data.length > 0 && (
@@ -943,9 +1030,18 @@ function Registrars() {
                       <StatusChip active={r.is_active} />
                     </td>
                     <td>
-                      <div className="actions">
-                        <button type="button" className="btn btn-sm" onClick={() => setEditing(r)}>
+                      <div className="actions actions-row">
+                        <button type="button" className="btn btn-sm" onClick={() => edit(r)}>
                           {t("reference.edit")}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          disabled={deletion.pending}
+                          aria-label={t("dict.deleteRegistrarFor", { name: r.name })}
+                          onClick={() => deletion.run(r)}
+                        >
+                          {t("dict.deleteRegistrar")}
                         </button>
                       </div>
                     </td>
@@ -958,6 +1054,55 @@ function Registrars() {
       </section>
     </>
   );
+}
+
+/** Deleting a registrar: one no case names and no payment went to is removed with its price
+ * list; otherwise she is offered to switch it off instead. Shared by the row of the list and
+ * the form of a registrar. */
+function useDeleteRegistrar(onDone: (registrar: Registrar) => void) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const done = (registrar: Registrar) => {
+    void queryClient.invalidateQueries({ queryKey: key("registrars") });
+    // The settlements page lists registrars too.
+    void queryClient.invalidateQueries({ queryKey: ["registrars", "ledgers"] });
+    onDone(registrar);
+  };
+  const remove = useMutation({
+    mutationFn: (registrar: Registrar) => apiDelete<void>(`${BASE}/registrars/${registrar.id}`),
+    onSuccess: (_, registrar) => done(registrar),
+  });
+  const switchOff = useMutation({
+    mutationFn: (registrar: Registrar) =>
+      apiPatch<Registrar>(`${BASE}/registrars/${registrar.id}`, { is_active: false }),
+    onSuccess: (_, registrar) => done(registrar),
+  });
+
+  const run = (registrar: Registrar) => {
+    if (!window.confirm(t("dict.confirmDeleteRegistrar", { name: registrar.name }))) return;
+    remove.mutate(registrar, {
+      onError: (error) => {
+        if (
+          errorCode(error) === "registrar_in_use" &&
+          registrar.is_active &&
+          window.confirm(t("dict.registrarInUseSwitchOff"))
+        ) {
+          switchOff.mutate(registrar);
+        }
+      },
+    });
+  };
+  // «In use» for an active registrar is not an error: it leads to the offer to switch it
+  // off. One that is already off can only stay as it is, so she is told why.
+  const offered = errorCode(remove.error) === "registrar_in_use" && remove.variables?.is_active;
+  const error =
+    (remove.isError && !offered ? remove.error : null) ??
+    (switchOff.isError ? switchOff.error : null);
+  const reset = () => {
+    remove.reset();
+    switchOff.reset();
+  };
+  return { run, reset, pending: remove.isPending || switchOff.isPending, error };
 }
 
 function RegistrarForm({
@@ -983,6 +1128,7 @@ function RegistrarForm({
   const [chosenCurrency, setCurrency] = useState<string | null>(registrar?.currency ?? null);
   const currency = chosenCurrency ?? money.data?.base_currency ?? CURRENCIES[0];
   const [lowBalance, setLowBalance] = useState(registrar?.low_balance ?? "");
+  const deletion = useDeleteRegistrar(() => onClose());
 
   const setRow = (index: number, patch: Partial<Price>) =>
     setPrices((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -1144,6 +1290,7 @@ function RegistrarForm({
         {t("reference.activeLabel")}
       </label>
       {save.isError && <ErrorAlert error={save.error} />}
+      {deletion.error && <ErrorAlert error={deletion.error} />}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
           {t("common.save")}
@@ -1151,6 +1298,16 @@ function RegistrarForm({
         <button type="button" className="btn" onClick={onClose}>
           {t("common.cancel")}
         </button>
+        {registrar && (
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={deletion.pending}
+            onClick={() => deletion.run(registrar)}
+          >
+            {t("dict.deleteRegistrar")}
+          </button>
+        )}
       </div>
     </form>
   );
