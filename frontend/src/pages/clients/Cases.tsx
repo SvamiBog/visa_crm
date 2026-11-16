@@ -196,8 +196,10 @@ function CasePanel({
   const finances = useHasModule("finances");
   const packageCheck = useHasModule("package_check");
   const [editing, setEditing] = useState(false);
+  // As on the board, the family standing at this stage moves with the case.
   const moveTo = useMutation({
-    mutationFn: (stage: CaseStage) => apiPatch<VisaCase>(`/cases/${c.id}`, { stage }),
+    mutationFn: (stage: CaseStage) =>
+      apiPatch<VisaCase>(`/cases/${c.id}`, { stage, apply_to_group: c.group.length > 0 }),
     onSuccess: () => void refresh(),
   });
 
@@ -797,6 +799,9 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
   const [emailOwner, setEmailOwner] = useState<EmailOwner | "">(c.application_email_owner ?? "");
   // The family's number and email are usually the same: filled in where still empty.
   const [fillGroup, setFillGroup] = useState(c.group.length > 0);
+  // A family is filed together: the edit goes to the whole group, apart from the result.
+  const [applyToGroup, setApplyToGroup] = useState(c.group.length > 0);
+  const groupHint = useId();
   const [questionnaireDue, setQuestionnaireDue] = useState(c.questionnaire_due_on ?? "");
   const [questionnaireReceived, setQuestionnaireReceived] = useState(
     c.questionnaire_received_on ?? "",
@@ -820,6 +825,7 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
         application_email: email.trim() || null,
         application_email_owner: email.trim() ? emailOwner || null : null,
         fill_group: c.group.length > 0 && fillGroup,
+        apply_to_group: c.group.length > 0 && applyToGroup,
         questionnaire_due_on: questionnaireDue || null,
         questionnaire_received_on: questionnaireReceived || null,
       }),
@@ -974,6 +980,24 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
           </label>
         )}
       </fieldset>
+      {c.group.length > 0 && (
+        <div>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              aria-describedby={groupHint}
+              checked={applyToGroup}
+              onChange={(e) => setApplyToGroup(e.target.checked)}
+            />
+            <span>
+              {t("cases.applyToGroup", { names: c.group.map((m) => m.full_name).join(", ") })}
+            </span>
+          </label>
+          <p id={groupHint} className="muted small">
+            {t("cases.applyToGroupHint")}
+          </p>
+        </div>
+      )}
       {save.isError && <ErrorAlert error={save.error} />}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
