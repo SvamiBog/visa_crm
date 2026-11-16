@@ -1266,7 +1266,7 @@ a.nav-a:hover {
 }
 
 .module-block > .rows-editor + .form-actions {
-  margin-bottom: 8px;
+  margin: 4px 0 12px;
 }
 
 .row-editor input {
