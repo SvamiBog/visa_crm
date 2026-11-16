@@ -40,6 +40,7 @@ export function SettingsPage() {
       <OwnSubscription />
       <EmailChange />
       <TwoFactor />
+      {me.data?.role === "specialist" && <EraseData />}
 
       <section className="card form-card">
         <h2 className="h2">{t("settings.theme")}</h2>
@@ -219,6 +220,117 @@ function TwoFactor() {
               {t("settings.twoFactorTurnOff")}
             </button>
             <button type="button" className="btn" onClick={() => setTurningOff(false)}>
+              {t("common.cancel")}
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
+
+/** Deleting all the workspace's data when the specialist moves to another system: only with
+ * two-factor login on, confirmed with the password and a code from the app. The account,
+ * settings, subscription and activity log stay. */
+function EraseData() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const me = useMe();
+  const [asking, setAsking] = useState(false);
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [understood, setUnderstood] = useState(false);
+  const erase = useMutation({
+    mutationFn: () => apiPost<void>("/workspace/erase", { password, code }),
+    onSuccess: () => {
+      setAsking(false);
+      setPassword("");
+      setCode("");
+      setUnderstood(false);
+      // Every list and card shown so far is gone.
+      void queryClient.invalidateQueries();
+    },
+    onError: () => setCode(""),
+  });
+  const twoFactorOn = me.data?.two_factor_enabled ?? false;
+
+  return (
+    <section className="card form-card">
+      <h2 className="h2">{t("settings.erase")}</h2>
+      <p className="muted small">{t("settings.eraseHint")}</p>
+      {erase.isSuccess && !asking && (
+        <div className="alert alert-ok" role="status">
+          {t("settings.erased")}
+        </div>
+      )}
+      {!twoFactorOn && <p className="small">{t("settings.eraseNeedsTwoFactor")}</p>}
+      {twoFactorOn && !asking && (
+        <div className="form-actions">
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={() => {
+              erase.reset();
+              setAsking(true);
+            }}
+          >
+            {t("settings.eraseStart")}
+          </button>
+        </div>
+      )}
+      {twoFactorOn && asking && (
+        <form
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            erase.mutate();
+          }}
+        >
+          <div className="alert alert-warn" role="note">
+            {t("settings.eraseWarning")}
+          </div>
+          <div className="form-grid">
+            <label className="field">
+              <span>{t("auth.currentPassword")}</span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>{t("settings.eraseCode")}</span>
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                required
+                pattern="[0-9 ]{6,7}"
+                maxLength={7}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
+            </label>
+          </div>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              required
+              checked={understood}
+              onChange={(e) => setUnderstood(e.target.checked)}
+            />
+            {t("settings.eraseConfirm")}
+          </label>
+          {erase.isError && <ErrorAlert error={erase.error} />}
+          <div className="form-actions">
+            <button
+              type="submit"
+              className="btn btn-danger"
+              disabled={erase.isPending || !understood}
+            >
+              {t("settings.eraseSubmit")}
+            </button>
+            <button type="button" className="btn" onClick={() => setAsking(false)}>
               {t("common.cancel")}
             </button>
           </div>
