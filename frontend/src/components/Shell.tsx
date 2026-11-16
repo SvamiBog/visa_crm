@@ -101,6 +101,43 @@ const TABS = 4;
 // The area's home page; every other page also covers its own pages below (a client's card).
 const ROOTS = ["/app", "/admin"];
 const exact = (to: string) => ROOTS.includes(to);
+// The on-screen keyboard takes at least this much of the screen's height.
+const KEYBOARD_MIN_HEIGHT = 150;
+
+/** Whether the on-screen keyboard is open: the visible area got shorter under a text field. */
+function useKeyboardOpen(): boolean {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    // The tallest visible area seen at this width: the screen without the keyboard.
+    let width = viewport.width;
+    let tallest = viewport.height;
+    const check = () => {
+      if (viewport.width !== width) {
+        width = viewport.width;
+        tallest = viewport.height;
+      }
+      tallest = Math.max(tallest, viewport.height);
+      const field = document.activeElement;
+      const typing =
+        field instanceof HTMLTextAreaElement ||
+        (field instanceof HTMLInputElement &&
+          !["checkbox", "radio", "file", "button", "submit"].includes(field.type));
+      setOpen(typing && tallest - viewport.height > KEYBOARD_MIN_HEIGHT);
+    };
+    viewport.addEventListener("resize", check);
+    document.addEventListener("focusin", check);
+    document.addEventListener("focusout", check);
+    return () => {
+      viewport.removeEventListener("resize", check);
+      document.removeEventListener("focusin", check);
+      document.removeEventListener("focusout", check);
+    };
+  }, []);
+  return open;
+}
+
 const isAt = (to: string, pathname: string) =>
   matchPath({ path: to, end: exact(to) }, pathname) !== null;
 
@@ -118,6 +155,7 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   // On a phone the menu opens from «Ещё» as a sheet above the bottom bar.
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const keyboardOpen = useKeyboardOpen();
   const workspace = useQuery({
     queryKey: ["workspace"],
     queryFn: () =>
@@ -183,7 +221,7 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   };
 
   return (
-    <div className="shell">
+    <div className={keyboardOpen ? "shell keyboard-open" : "shell"}>
       <a
         href="#content"
         className="skip-link"

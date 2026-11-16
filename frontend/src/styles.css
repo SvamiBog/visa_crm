@@ -2079,13 +2079,10 @@ a.nav-a:hover {
     border-top: 1px solid var(--c-nav-line);
   }
 
-  /* While typing, the keyboard needs the room; the bar is back when the field is left. */
-  .shell:has(
-      input:not([type="checkbox"], [type="radio"], [type="file"]):focus,
-      textarea:focus,
-      select:focus
-    )
-    .tabbar {
+  /* While the on-screen keyboard is open it needs the room. A field that merely keeps
+     the focus (a list after a choice, a field after the keyboard is closed) leaves the
+     bar in place: it is the only way to the menu. */
+  .shell.keyboard-open .tabbar {
     display: none;
   }
 
