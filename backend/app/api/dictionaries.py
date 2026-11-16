@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -22,7 +22,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import delete, select
+from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,13 +41,16 @@ from app.models import (
     PurposeKind,
     Registrar,
     RegistrarKind,
+    RegistrarPayment,
     RegistrarPrice,
     Tenant,
     UserRole,
     VaultSystem,
     VaultSystemKind,
+    VisaCase,
     VisaPurpose,
 )
+from app.models import Contact as ClientCard  # «Contact» here is a partner's contact field
 
 router = APIRouter(
     prefix="/dictionaries", tags=["dictionaries"], dependencies=[Depends(require_tenant_user)]
@@ -511,6 +514,23 @@ async def update_partner(
     return PartnerOut.model_validate(partner)
 
 
+@router.delete("/partners/{partner_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_partner(
+    partner_id: uuid.UUID, user: Specialist, session: TenantSession
+) -> Response:
+    """Only a partner no client card names: the client's cases count the partner's payout
+    from the card. Otherwise it is switched off. Its terms go with it."""
+    partner = await _get(session, Partner, partner_id)
+    if await session.scalar(select(exists().where(ClientCard.partner_id == partner.id))):
+        raise HTTPException(status.HTTP_409_CONFLICT, "partner_in_use")
+    await session.delete(partner)
+    # A card given this partner since the check: the database refuses (RESTRICT).
+    await _flush_or_conflict(session, "partner_in_use")
+    _audit(session, AuditAction.REFERENCE_DELETED, user, "partner", partner.id, partner.name)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.put("/partners/{partner_id}/terms")
 async def replace_partner_terms(
     partner_id: uuid.UUID, body: list[TermsIn], user: Specialist, session: TenantSession
@@ -573,6 +593,28 @@ async def update_registrar(
     _audit(session, AuditAction.REFERENCE_UPDATED, user, "registrar", registrar.id, registrar.name)
     await session.commit()
     return RegistrarOut.model_validate(registrar)
+
+
+@router.delete("/registrars/{registrar_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_registrar(
+    registrar_id: uuid.UUID, user: Specialist, session: TenantSession
+) -> Response:
+    """Only a registrar no case names and no payment went to: a case counts its talon by the
+    registrar, and payments are the settlements with them. Otherwise it is switched off.
+    Its price list goes with it."""
+    registrar = await _get(session, Registrar, registrar_id)
+    in_use = or_(
+        exists().where(VisaCase.registrar_id == registrar.id),
+        exists().where(RegistrarPayment.registrar_id == registrar.id),
+    )
+    if await session.scalar(select(in_use)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "registrar_in_use")
+    await session.delete(registrar)
+    # A case or a payment given this registrar since the check: the database refuses.
+    await _flush_or_conflict(session, "registrar_in_use")
+    _audit(session, AuditAction.REFERENCE_DELETED, user, "registrar", registrar.id, registrar.name)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put("/registrars/{registrar_id}/prices")

@@ -4,9 +4,10 @@ Spec: docs/clients-module.md → «Справочники».
 
 Every table carries tenant_id under Row-Level Security. Child rows point to their parent
 through (parent_id, tenant_id), so a price or a term can never refer to another workspace's
-registrar, partner or visa purpose. Entries are switched off rather than deleted: contacts
-and cases will refer to them. Prices, terms and prepayments are copied into a case when it
-is created, so their lists are replaced as a whole.
+registrar, partner or visa purpose. An entry contacts or cases refer to is switched off
+rather than deleted; only a partner or a registrar nothing uses can be deleted, with its
+terms or prices (docs/decisions.md). Prices, terms and prepayments are copied into a case
+when it is created, so their lists are replaced as a whole.
 """
 
 import uuid

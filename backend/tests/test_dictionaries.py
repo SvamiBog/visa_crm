@@ -210,6 +210,65 @@ async def test_partner_terms_by_country(client: AsyncClient, make_user: MakeUser
     assert len(response.json()["terms"]) == 1
 
 
+async def test_unused_partner_is_deleted_with_its_terms(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    partner = (await client.post(f"{BASE}/partners", json={"name": "Ольга"})).json()
+    terms = [{"country_id": None, "terms_type": "percent", "percent": "10"}]
+    response = await client.put(f"{BASE}/partners/{partner['id']}/terms", json=terms)
+    assert response.status_code == 200, response.text
+
+    response = await client.delete(f"{BASE}/partners/{partner['id']}")
+    assert response.status_code == 204, response.text
+    assert (await client.get(f"{BASE}/partners")).json() == []
+    [event] = (await client.get("/api/audit")).json()["events"][:1]
+    assert (event["action"], event["target_type"], event["target_id"]) == (
+        "reference.deleted",
+        "partner",
+        partner["id"],
+    )
+    # Deleted is gone: a second try finds nothing.
+    assert (await client.delete(f"{BASE}/partners/{partner['id']}")).status_code == 404
+
+
+async def test_partner_named_on_a_client_card_is_kept(client: AsyncClient, make_user: MakeUser):
+    """A client's cases count the partner's payout from the card, so a partner any card names
+    stays (it can be switched off); once no card names it, it can be deleted."""
+    await as_specialist(client, make_user)
+    partner = (await client.post(f"{BASE}/partners", json={"name": "Ольга"})).json()
+    contact = await client.post(
+        "/api/contacts", json={"first_name": "Анна", "partner_id": partner["id"]}
+    )
+    assert contact.status_code == 201, contact.text
+
+    response = await client.delete(f"{BASE}/partners/{partner['id']}")
+    assert response.status_code == 409 and response.json()["detail"] == "partner_in_use"
+    assert [p["id"] for p in (await client.get(f"{BASE}/partners")).json()] == [partner["id"]]
+
+    cleared = await client.patch(f"/api/contacts/{contact.json()['id']}", json={"partner_id": None})
+    assert cleared.status_code == 200, cleared.text
+    assert (await client.delete(f"{BASE}/partners/{partner['id']}")).status_code == 204
+
+
+async def test_only_the_specialist_deletes_her_own_partner(
+    client: AsyncClient, make_user: MakeUser
+):
+    tenant_id = await as_specialist(client, make_user)
+    partner = (await client.post(f"{BASE}/partners", json={"name": "Ольга"})).json()
+    client.cookies.clear()
+
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    await login(client, "olga@example.com")
+    assert (await client.delete(f"{BASE}/partners/{partner['id']}")).status_code == 403
+    client.cookies.clear()
+
+    await as_specialist(client, make_user, "bella@example.com")
+    assert (await client.delete(f"{BASE}/partners/{partner['id']}")).status_code == 404
+    client.cookies.clear()
+
+    await login(client, "anna@example.com")
+    assert [p["id"] for p in (await client.get(f"{BASE}/partners")).json()] == [partner["id"]]
+
+
 @pytest.mark.parametrize(
     "terms",
     [
@@ -278,6 +337,105 @@ async def test_registrar_price_list(client: AsyncClient, make_user: MakeUser):
         f"{BASE}/registrars/{registrar['id']}/prices", json=[{**prices[0], "amount": "0"}]
     )
     assert free.status_code == 422
+
+
+async def add_registrar(client: AsyncClient, name: str = "Иван") -> dict:
+    response = await client.post(f"{BASE}/registrars", json={"name": name, "kind": "individual"})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def test_unused_registrar_is_deleted_with_its_prices(
+    client: AsyncClient, make_user: MakeUser
+):
+    await as_specialist(client, make_user)
+    registrar = await add_registrar(client)
+    prices = [
+        {
+            "country_id": await country_id(client, "PL"),
+            "purpose_id": None,
+            "hall": "standard",
+            "amount": "60",
+            "currency": "USD",
+        }
+    ]
+    response = await client.put(f"{BASE}/registrars/{registrar['id']}/prices", json=prices)
+    assert response.status_code == 200, response.text
+
+    response = await client.delete(f"{BASE}/registrars/{registrar['id']}")
+    assert response.status_code == 204, response.text
+    assert (await client.get(f"{BASE}/registrars")).json() == []
+    [event] = (await client.get("/api/audit")).json()["events"][:1]
+    assert (event["action"], event["target_type"], event["target_id"]) == (
+        "reference.deleted",
+        "registrar",
+        registrar["id"],
+    )
+    # Deleted is gone: a second try finds nothing.
+    assert (await client.delete(f"{BASE}/registrars/{registrar['id']}")).status_code == 404
+
+
+async def test_registrar_on_a_case_is_kept(client: AsyncClient, make_user: MakeUser):
+    """A case counts the talon by its registrar, so a registrar any case names stays (it can
+    be switched off); once no case names it, it can be deleted."""
+    await as_specialist(client, make_user)
+    registrar = await add_registrar(client)
+    contact = (await client.post("/api/contacts", json={"first_name": "Анна"})).json()
+    opened = await client.post(
+        f"/api/contacts/{contact['id']}/cases",
+        json={
+            "destination_id": await country_id(client, "PL"),
+            "submission_country_id": await country_id(client, "BY"),
+            "registrar_id": registrar["id"],
+            "applicants": [{"contact_id": contact["id"]}],
+        },
+    )
+    assert opened.status_code == 201, opened.text
+
+    response = await client.delete(f"{BASE}/registrars/{registrar['id']}")
+    assert response.status_code == 409 and response.json()["detail"] == "registrar_in_use"
+    assert [r["id"] for r in (await client.get(f"{BASE}/registrars")).json()] == [registrar["id"]]
+
+    case_id = opened.json()[0]["id"]
+    cleared = await client.patch(f"/api/cases/{case_id}", json={"registrar_id": None})
+    assert cleared.status_code == 200, cleared.text
+    assert (await client.delete(f"{BASE}/registrars/{registrar['id']}")).status_code == 204
+
+
+async def test_registrar_with_payments_is_kept(client: AsyncClient, make_user: MakeUser):
+    """Payments to a registrar are the specialist's money records: deleting the registrar
+    would take them along, so it can only be switched off."""
+    await as_specialist(client, make_user)
+    registrar = await add_registrar(client)
+    paid = await client.post(
+        f"/api/registrars/{registrar['id']}/payments",
+        json={"paid_on": "2026-05-01", "amount": "300", "method": "transfer"},
+    )
+    assert paid.status_code == 201, paid.text
+
+    response = await client.delete(f"{BASE}/registrars/{registrar['id']}")
+    assert response.status_code == 409 and response.json()["detail"] == "registrar_in_use"
+    assert [r["id"] for r in (await client.get(f"{BASE}/registrars")).json()] == [registrar["id"]]
+
+
+async def test_only_the_specialist_deletes_her_own_registrar(
+    client: AsyncClient, make_user: MakeUser
+):
+    tenant_id = await as_specialist(client, make_user)
+    registrar = await add_registrar(client)
+    client.cookies.clear()
+
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    await login(client, "olga@example.com")
+    assert (await client.delete(f"{BASE}/registrars/{registrar['id']}")).status_code == 403
+    client.cookies.clear()
+
+    await as_specialist(client, make_user, "bella@example.com")
+    assert (await client.delete(f"{BASE}/registrars/{registrar['id']}")).status_code == 404
+    client.cookies.clear()
+
+    await login(client, "anna@example.com")
+    assert [r["id"] for r in (await client.get(f"{BASE}/registrars")).json()] == [registrar["id"]]
 
 
 async def test_prepayments(client: AsyncClient, make_user: MakeUser):
