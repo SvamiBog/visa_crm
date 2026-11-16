@@ -6,8 +6,8 @@ consultations, cases, payments, expenses, the queue, windowed applications, acco
 bookings. Codes link the sheets of one file. A row finds its record by the CRM's own code
 (an export), else by its content — a client by phone, Telegram nick or a unique name, a
 case by the client, the country, its source and which such row it is, a payment by its
-day, sum and currency — else the record is made. So a file made again by the AI, with other
-codes, finds what the last one made.
+day, sum and currency and which such row it is — else the record is made. So a file made
+again by the AI, with other codes, finds what the last one made.
 
 A file from the AI or made by hand only adds: an empty cell changes nothing, and a client's
 card only gets what it does not have yet. A row of an export (its own code is the CRM's and
@@ -16,8 +16,9 @@ record's, an empty cell clears the field, and a record changed in the CRM after 
 is left alone. A password is never cleared by an empty cell.
 
 The workspace's records are loaded once and looked up in memory. Each row runs in its own
-savepoint: a row the database refuses is skipped and reported, and the records are loaded
-again, since the rollback expired them.
+savepoint: a row the database refuses is skipped and reported, and what it did is taken
+back from the memory too — the records it made are forgotten, the ones it changed are read
+again (the rollback expired them) — without loading the workspace anew.
 
 A row in another currency without a rate of its own takes the site's latest National Bank
 rate (app/core/rates.py): the import asks the bank nothing. A run reports how far it is in
@@ -34,7 +35,7 @@ from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,6 +138,10 @@ class Progress:
     rows_total: int = 0
     # Set from outside: the run stops before its next row.
     stop: bool = False
+    # The row being gone through, for the log of a run that failed: the sheet's key in the
+    # format and the row's number, nothing of the file's values.
+    sheet: str | None = None
+    row: int | None = None
 
     def check(self) -> None:
         if self.stop:
@@ -213,8 +218,11 @@ class _Row:
     updated: Counter[str] = field(default_factory=Counter)
     # List entries the row adds: indexed only once the row is imported.
     new_entries: list[tuple[ValueType, str, Any]] = field(default_factory=list)
-    # Something was written: a failure after it reloads the records.
+    # Something was written: a failure after it is undone in the memory.
     wrote: bool = False
+    # The records the row made, and the payments and expenses it became.
+    made: list[Any] = field(default_factory=list)
+    took: list[uuid.UUID] = field(default_factory=list)
     # Whose card the row is about (app/core/import_cards.py): a client, or the
     # specialist's own accounts.
     client: uuid.UUID | None = None
@@ -308,12 +316,22 @@ class WorkbookImport:
         self.occurrences: Counter[str] = Counter()
         # List entries the file added.
         self.added: set[uuid.UUID] = set()
+        # Payments and expenses a row of the file became: equal rows are each their own.
+        self.taken: set[uuid.UUID] = set()
 
     # --- Loading ------------------------------------------------------------------------
 
     async def load(self) -> None:
         """The workspace's records the import looks up, by the keys it looks them up by."""
         s = self.session
+        if not self.locked:
+            # As app/api/cases.py: numbers go on per workspace under a transaction lock,
+            # taken before the cases are read: the next number is worked out from them.
+            await s.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"visa_cases:{self.tenant_id}"},
+            )
+            self.locked = True
         self.contacts: dict[uuid.UUID, Contact] = {}
         self.by_phone: dict[str, uuid.UUID] = {}
         self.by_telegram: dict[str, uuid.UUID] = {}
@@ -382,7 +400,7 @@ class WorkbookImport:
         for case in await s.scalars(select(VisaCase), execution_options=FRESH):
             self.cases[case.id] = case
             self.cases_of[case.contact_id].append(case)
-        self.with_case = {c.consultation_id for c in self.cases.values() if c.consultation_id}
+        self._index_cases()
         self.finances: dict[uuid.UUID, CaseFinance] = {
             f.case_id: f for f in await s.scalars(select(CaseFinance), execution_options=FRESH)
         }
@@ -423,15 +441,12 @@ class WorkbookImport:
         self.claimed |= {
             uuid.UUID(r.entities["case"]) for r in self.memory.values() if "case" in r.entities
         }
-        if not self.locked:
-            # As app/api/cases.py: numbers go on per workspace under a transaction lock.
-            await s.execute(
-                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                {"key": f"visa_cases:{self.tenant_id}"},
-            )
-            self.locked = True
-        last = await s.scalar(select(func.coalesce(func.max(VisaCase.number), 0)))
-        self.next_number = (last or 0) + 1
+
+    def _index_cases(self) -> None:
+        """What is worked out from the cases: the consultations that became one, and the
+        next number (the lock is held, and the owner's run sees every case)."""
+        self.with_case = {c.consultation_id for c in self.cases.values() if c.consultation_id}
+        self.next_number = max((c.number for c in self.cases.values()), default=0) + 1
 
     def _index_contact(self, contact: Contact) -> None:
         self.contacts[contact.id] = contact
@@ -476,10 +491,13 @@ class WorkbookImport:
             handler = getattr(self, f"_{key}")
             for row in sheet.rows:
                 progress.check()
+                progress.sheet, progress.row = key, row.number
                 await self._row(sheet, row, handler)
                 progress.rows_done += 1
             if key == "cases":
+                progress.row = None
                 await self._families(sheet.title)
+        progress.sheet = progress.row = None
         return self.report
 
     def _drop_disabled_columns(self, sheet: SheetData) -> None:
@@ -508,14 +526,14 @@ class WorkbookImport:
             self.report.skip(issue)
             self._touch(r, [issue])
             if r.wrote:
-                await self.load()
+                await self._undo(r)
             return
         except SQLAlchemyError:
             # The database refused the row (a rule the checks here do not know).
             issue = Issue("row_error", sheet.title, row.number)
             self.report.skip(issue)
             self._touch(r, [issue])
-            await self.load()
+            await self._undo(r)
             return
         for t, key, entry in r.new_entries:
             self.lists[t][key] = entry.id
@@ -530,6 +548,61 @@ class WorkbookImport:
         if (code := row.values.get("code")) is not None and r.sheet.spec.key in _CODED:
             self.codes[r.sheet.spec.key][code] = self._made_id
 
+    async def _undo(self, r: _Row) -> None:
+        """Take a skipped row back from the memory. The rollback of its savepoint removed
+        the records it made and expired the ones it changed: the first are forgotten, the
+        second read again, and what is looked up by their values is indexed anew."""
+        for obj in reversed(r.made):
+            self._forget(obj)
+        self.taken.difference_update(r.took)
+        for obj in list(self.session.identity_map.values()):
+            if inspect(obj).expired:
+                await self.session.refresh(obj)
+        contacts = list(self.contacts.values())
+        self.contacts, self.by_phone, self.by_telegram = {}, {}, {}
+        self.by_name = defaultdict(list)
+        for contact in contacts:
+            self._index_contact(contact)
+        entries = list(self.vault.values())
+        self.vault, self.accounts, self.logins = {}, {}, {}
+        for entry in entries:
+            self._index_account(entry)
+        self._index_cases()
+
+    def _forget(self, obj: Any) -> None:
+        """A record the skipped row made is not looked up any more."""
+
+        def drop(records: dict[uuid.UUID, Any], of: dict[uuid.UUID, list[Any]], key: Any) -> None:
+            records.pop(obj.id, None)
+            if obj in of.get(key, []):
+                of[key].remove(obj)
+
+        match obj:
+            case Contact():
+                self.contacts.pop(obj.id, None)
+            case ContactNote():
+                self.notes.discard((obj.contact_id, obj.body))
+            case Consultation():
+                drop(self.consultations, self.consultations_of, obj.contact_id)
+            case VisaCase():
+                drop(self.cases, self.cases_of, obj.contact_id)
+            case CaseFinance():
+                self.finances.pop(obj.case_id, None)
+            case CasePayment():
+                drop(self.payments, self.payments_of, obj.case_id)
+            case CaseExpense():
+                drop(self.expenses, self.expenses_of, obj.case_id)
+            case WaitingListEntry():
+                drop(self.entries, self.entries_of, obj.case_id)
+            case ApplicationAttempt():
+                drop(self.attempts, self.attempts_of, obj.case_id)
+            case Booking():
+                drop(self.bookings, self.bookings_of, obj.case_id)
+            case VaultEntry():
+                self.vault.pop(obj.id, None)
+            case ImportRow():
+                self.memory.pop(obj.key, None)
+
     def _touch(self, r: _Row, issues: list[Issue]) -> None:
         """The row's card: a check shows it with the lines of its rows."""
         if r.client is None and not r.own:
@@ -543,6 +616,7 @@ class WorkbookImport:
         r.wrote = True
         self.session.add(obj)
         self.made.add(obj.id)
+        r.made.append(obj)
         r.created[counter] += 1
 
     def _changed(self, r: _Row, obj: Any, counter: str, changed: bool) -> None:
@@ -693,7 +767,7 @@ class WorkbookImport:
         """The card of a person: by phone, by Telegram nick or by a unique name — unless
         that card has another phone or nick than the row."""
         phone, nick = v.get("phone"), (v.get("telegram") or "").casefold() or None
-        if phone and phone in self.by_phone:
+        if phone and phone in self.by_phone and self._given(v, self.by_phone[phone]):
             return self.by_phone[phone]
         if nick and nick in self.by_telegram:
             return self.by_telegram[nick]
@@ -709,6 +783,12 @@ class WorkbookImport:
             )
         ]
         return same[0] if len(same) == 1 else None
+
+    def _given(self, v: dict[str, Any], contact_id: uuid.UUID) -> bool:
+        """A family shares a phone: the row of a person with another given name is not the
+        phone's card. A surname changes, and a card or a row may be without a given name."""
+        mine, theirs = v.get("first_name"), self.contacts[contact_id].first_name
+        return not (mine and theirs) or normalize(mine) == normalize(theirs)
 
     async def _clients(self, r: _Row) -> None:
         v = r.values
@@ -897,7 +977,15 @@ class WorkbookImport:
             # The client came to work: «думает» in the file no longer holds.
             decision = None
         fee = v.get("fee_amount")
+        if fee is not None and fee <= 0:
+            # A free consultation has no fee: «0» is the empty cell.
+            fee = None
+            if r.snapshot:
+                r.row.blank.add("fee_amount")
         currency = v.get("fee_currency") or (self.base if fee is not None else None)
+        if fee is None and consultation.fee_amount is None:
+            # A currency alone is not a fee.
+            currency = None
         changed = self._assign(
             r,
             consultation,
@@ -1031,7 +1119,7 @@ class WorkbookImport:
         if not made:
             self._changed(r, case, "cases", changed)
         if key is not None:
-            self._remember(key, case)
+            self._remember(r, key, case)
         self._made_id = case.id
 
     def _consultation_of(self, r: _Row) -> Consultation | None:
@@ -1115,6 +1203,7 @@ class WorkbookImport:
             ("visa_valid_from", visa),
             ("visa_valid_to", visa),
             ("decided_on", case.outcome is not None),
+            ("stay_days", visa),
         ):
             value = v.get(key)
             if value is not None and not allowed:
@@ -1128,10 +1217,9 @@ class WorkbookImport:
         if start and end and end < start:
             r.warn("visa_valid_to", "date_order")
             details["visa_valid_to"] = ("visa_valid_to", None)
-        if (stay := v.get("stay_days")) is not None and stay not in STAY_DAYS:
+        if (stay := details["stay_days"][1]) is not None and stay not in STAY_DAYS:
             r.warn("stay_days", "out_of_range")
-            stay = None
-        details["stay_days"] = ("stay_days", stay)
+            details["stay_days"] = ("stay_days", None)
         changed |= self._assign(r, case, details)
         appeal = v.get("after_appeal")
         if appeal is None and r.blank("after_appeal"):
@@ -1166,7 +1254,7 @@ class WorkbookImport:
         case.stage = stage
         return True
 
-    def _remember(self, key: str, case: VisaCase) -> None:
+    def _remember(self, r: _Row, key: str, case: VisaCase) -> None:
         record = self.memory.get(key)
         entities = {"case": str(case.id)}
         if record is None:
@@ -1179,6 +1267,7 @@ class WorkbookImport:
                 entities=entities,
             )
             self.session.add(record)
+            r.made.append(record)
             self.memory[key] = record
         elif record.entities != entities:
             record.entities = entities
@@ -1216,6 +1305,7 @@ class WorkbookImport:
             if not changed:
                 return False
             self.session.add(finance)
+            r.made.append(finance)
             self.finances[case.id] = finance
             r.created["finances"] += 1
         elif changed:
@@ -1312,13 +1402,16 @@ class WorkbookImport:
         cases already have is kept; one case alone is not grouped."""
         try:
             async with self.session.begin_nested():
-                for case_id in self.ungrouped:
+                # A case of a row that was skipped after all is not there any more.
+                for case_id in self.ungrouped & self.cases.keys():
                     self.cases[case_id].group_id = None
                     if case_id not in self.made:
                         self.report.updated["cases"] += 1
                         self.changed.add(case_id)
                 for members in self.families.values():
-                    cases = [self.cases[i] for i in dict.fromkeys(members)]
+                    cases = [self.cases[i] for i in dict.fromkeys(members) if i in self.cases]
+                    if not cases:
+                        continue
                     groups = [c.group_id for c in cases if c.group_id is not None]
                     if len(cases) < 2 and not groups:
                         continue
@@ -1361,7 +1454,7 @@ class WorkbookImport:
                 (
                     p
                     for p in self.payments_of[case.id]
-                    if p.case_id == case.id
+                    if p.id not in self.taken
                     and (p.paid_on, p.amount, p.currency) == (v["paid_on"], amount, currency)
                 ),
                 None,
@@ -1384,6 +1477,8 @@ class WorkbookImport:
             self.payments[payment.id] = payment
             self.payments_of[case.id].append(payment)
         r.wrote = True
+        self.taken.add(payment.id)
+        r.took.append(payment.id)
         changed = self._assign(
             r,
             payment,
@@ -1423,7 +1518,7 @@ class WorkbookImport:
                 (
                     e
                     for e in self.expenses_of[case.id]
-                    if e.case_id == case.id
+                    if e.id not in self.taken
                     and (e.spent_on, e.amount) == (v["spent_on"], amount)
                     and normalize(e.description) == normalize(description)
                 ),
@@ -1447,6 +1542,8 @@ class WorkbookImport:
             self.expenses[expense.id] = expense
             self.expenses_of[case.id].append(expense)
         r.wrote = True
+        self.taken.add(expense.id)
+        r.took.append(expense.id)
         changed = self._assign(
             r,
             expense,

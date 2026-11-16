@@ -77,6 +77,8 @@ export type ImportUpload = {
   sampled: boolean;
   checked: boolean;
   report: ImportReport | null;
+  // The choices for unknown list values the file was checked with.
+  choices: ImportChoices;
 };
 
 // A card before the import: sections by the format's sheets, fields with its headers in

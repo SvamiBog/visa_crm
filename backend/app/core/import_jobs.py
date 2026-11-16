@@ -107,7 +107,16 @@ async def _run(job: ImportJob, work: Work) -> None:
     except Exception as error:
         # The message may carry a value of the file (a database error quotes the row): the
         # log gets the type and the frames it went through, never the text.
-        logger.error("Import job %s failed: %s\n%s", job.id, type(error).__name__, frames(error))
+        # Where it was is the sheet's key and the row's number.
+        logger.error(
+            "Import job %s (%s) failed at %s row %s: %s\n%s",
+            job.id,
+            job.kind,
+            job.progress.sheet,
+            job.progress.row,
+            type(error).__name__,
+            frames(error),
+        )
         job.status = "failed"
         job.error = "import_failed"
     finally:
