@@ -316,6 +316,14 @@ h1 {
   vertical-align: middle;
 }
 
+/* A group of buttons or links: always spaced, wraps on a narrow screen */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .tbl .actions {
   display: flex;
   flex-wrap: wrap;
@@ -458,6 +466,33 @@ h1 {
 .input-action input:focus {
   outline: 2px solid var(--c-primary-soft);
   border-color: var(--c-primary);
+}
+
+/* The browser's own file picker, drawn like the other fields: its button sits
+   inside the frame with even space around it, the file name next to it. */
+.field input[type="file"] {
+  max-width: 100%;
+  min-height: 0;
+  padding: 7px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.field input[type="file"]::file-selector-button {
+  min-height: 36px;
+  margin: 0 12px 0 0;
+  padding: 0 12px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-btn);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.field input[type="file"]:disabled,
+.field input[type="file"]:disabled::file-selector-button {
+  cursor: default;
 }
 
 .alert {
@@ -2836,11 +2871,6 @@ a.kpi:hover {
 
 .import-file {
   margin-bottom: 16px;
-}
-
-.import-file input[type="file"] {
-  min-height: 0;
-  padding: 10px 12px;
 }
 
 .import-report {
