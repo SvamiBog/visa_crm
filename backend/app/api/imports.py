@@ -364,6 +364,9 @@ def _start(
             found = await cards(engine)
             out = _report_out(run, report, saved=False)
             await session.rollback()
+        # Replaced while it made its cards: they are of the old choices, or of a file
+        # that is no longer waiting.
+        progress.check()
         if kind == "sample":
             upload.sample = found
             return None

@@ -7,6 +7,11 @@ Sheets and headers are matched by their Russian or English names; anything else 
 by with a warning. Each cell is read strictly (app/core/data_values.py). A bad cell in a
 required column skips its row, in another column only the cell; the report names the
 sheet, the row and the column, never the value.
+
+A file is read as it is, not as it says it is: the size a sheet declares is not trusted
+(some programs write «A1» whatever is on the sheet), and a formula saved without its
+result — a file written by a script, never opened in Excel — reads as an empty cell with a
+line in the report.
 """
 
 import io
@@ -61,6 +66,14 @@ MAX_EMPTY_ROWS = 5000
 LOOKUP_LENGTH = 200
 SECRET_LENGTH = 200
 _EXPORTED_TEXT = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})$")
+
+
+class _NoResult:
+    """A cell with a formula whose result the file does not hold."""
+
+
+NO_RESULT = _NoResult()
+RawCell = Cell | _NoResult
 
 
 class WorkbookError(ValueError):
@@ -189,7 +202,7 @@ class _RowCounter:
             raise WorkbookError("too_many_rows")
 
 
-def _xlsx_sheets(data: bytes) -> Iterator[tuple[str, Iterator[tuple[Cell, ...]]]]:
+def _xlsx_sheets(data: bytes) -> Iterator[tuple[str, Iterator[tuple[RawCell, ...]]]]:
     import openpyxl  # imported here: only uploads need it
 
     try:
@@ -199,16 +212,50 @@ def _xlsx_sheets(data: bytes) -> Iterator[tuple[str, Iterator[tuple[Cell, ...]]]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+            # The same file with its formulas: a cell that has one and no result is told
+            # from an empty cell.
+            formulas = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=False)
     except WorkbookError:
         raise
     except Exception as error:  # a broken or foreign file: openpyxl raises many kinds
         raise WorkbookError("file_unreadable") from error
     try:
-        for sheet in book.worksheets:
-            rows = sheet.iter_rows(values_only=True)
-            yield sheet.title, (tuple(row[:MAX_COLUMNS]) for row in rows)
+        for sheet, written in zip(book.worksheets, formulas.worksheets, strict=True):
+            for side in (sheet, written):
+                # Read to the last cell that is there, not to the size the sheet declares.
+                side.reset_dimensions()
+            yield sheet.title, _rows(sheet, written)
     finally:
         book.close()
+        formulas.close()
+
+
+def _rows(sheet: Any, written: Any) -> Iterator[tuple[RawCell, ...]]:
+    """The sheet's rows, cut to MAX_COLUMNS; the sheets are parsed as they are read, so a
+    broken one shows here."""
+    values = sheet.iter_rows(values_only=True)
+    sources = written.iter_rows(values_only=True)
+    while True:
+        try:
+            cells = next(values, None)
+            source = next(sources, None)
+        except Exception as error:
+            raise WorkbookError("file_unreadable") from error
+        if cells is None:
+            return
+        cells, source = cells[:MAX_COLUMNS], (source or ())[:MAX_COLUMNS]
+        if not any(isinstance(cell, str) and cell.startswith("=") for cell in source):
+            yield tuple(cells)
+            continue
+        yield tuple(
+            NO_RESULT
+            if cell is None
+            and index < len(source)
+            and isinstance(source[index], str)
+            and source[index].startswith("=")
+            else cell
+            for index, cell in enumerate(cells)
+        )
 
 
 def _header(column: Column, russian: bool) -> str:
@@ -219,13 +266,14 @@ def _read_sheet(
     spec: Sheet,
     title: str,
     russian: bool,
-    rows: Iterator[tuple[Cell, ...]],
+    rows: Iterator[tuple[RawCell, ...]],
     result: Workbook,
     counter: _RowCounter,
 ) -> SheetData | None:
-    header_row = next(rows, None)
-    if header_row is None:
+    first = next(rows, None)
+    if first is None:
         return None
+    header_row = _values(first)
     by_header = {normalize(name): c for c in spec.columns for name in (c.ru, c.en)}
     places: dict[str, int] = {}
     headers: dict[str, str] = {}
@@ -250,15 +298,17 @@ def _read_sheet(
     sheet = SheetData(spec, title, headers)
     codes: set[str] = set()
     empty = 0
-    for number, cells in enumerate(rows, start=2):
-        if all(cell_text(cell) is None for cell in cells):
+    for number, raw in enumerate(rows, start=2):
+        cells = _values(raw)
+        unsaved = {index for index, cell in enumerate(raw) if cell is NO_RESULT}
+        if not unsaved and all(cell_text(cell) is None for cell in cells):
             empty += 1
             if empty > MAX_EMPTY_ROWS:
                 break
             continue
         empty = 0
         counter.add()
-        row = _read_row(spec, title, number, cells, places, headers, result)
+        row = _read_row(spec, title, number, cells, unsaved, places, headers, result)
         if row is None:
             continue
         code = row.values.get("code")
@@ -278,6 +328,7 @@ def _read_row(
     title: str,
     number: int,
     cells: tuple[Cell, ...],
+    unsaved: set[int],
     places: dict[str, int],
     headers: dict[str, str],
     result: Workbook,
@@ -291,6 +342,14 @@ def _read_row(
         if column.kind == ColumnKind.REF:
             if column.key == "client_name" and (text := cell_text(cell)):
                 row.values["client_name"] = " ".join(text.split())
+            continue
+        if index in unsaved:
+            # Not an empty cell: a snapshot row does not clear its field.
+            issue = Issue("formula", title, number, headers[column.key])
+            if column.required:
+                result.skipped.append(issue)
+                return None
+            result.warnings.append(issue)
             continue
         if cell_text(cell) is None:
             if column.required:
@@ -307,6 +366,10 @@ def _read_row(
                 return None
             result.warnings.append(issue)
     return row
+
+
+def _values(cells: tuple[RawCell, ...]) -> tuple[Cell, ...]:
+    return tuple(None if isinstance(cell, _NoResult) else cell for cell in cells)
 
 
 def _parse(column: Column, cell: Cell) -> Any:
@@ -351,7 +414,7 @@ def _parse(column: Column, cell: Cell) -> Any:
     return parse_text(cell, LOOKUP_LENGTH)
 
 
-def _exported_at(rows: Iterator[tuple[Cell, ...]]) -> datetime | None:
+def _exported_at(rows: Iterator[tuple[RawCell, ...]]) -> datetime | None:
     for cells in rows:
         if len(cells) < 2 or normalize(cell_text(cells[0]) or "") not in _EXPORTED:
             continue

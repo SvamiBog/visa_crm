@@ -1461,6 +1461,7 @@
   "import.reason.percent": "not a percent: use a number up to 100",
   "import.reason.currency": "the currency must be BYN, EUR, USD or PLN",
   "import.reason.yes_no": "use \"yes\" or \"no\"",
+  "import.reason.formula": "the cell holds a formula without a saved result, type the value in",
   "import.reason.number": "use a whole number",
   "import.reason.phone": "the phone is not international: +375…",
   "import.reason.telegram": "not a Telegram username",

@@ -137,6 +137,10 @@ class Progress:
     rows_total: int = 0
     # Set from outside: the run stops before its next row.
     stop: bool = False
+    # The row being gone through, for the log of a run that failed: the sheet's key in the
+    # format and the row's number, nothing of the file's values.
+    sheet: str | None = None
+    row: int | None = None
 
     def check(self) -> None:
         if self.stop:
@@ -476,10 +480,13 @@ class WorkbookImport:
             handler = getattr(self, f"_{key}")
             for row in sheet.rows:
                 progress.check()
+                progress.sheet, progress.row = key, row.number
                 await self._row(sheet, row, handler)
                 progress.rows_done += 1
             if key == "cases":
+                progress.row = None
                 await self._families(sheet.title)
+        progress.sheet = progress.row = None
         return self.report
 
     def _drop_disabled_columns(self, sheet: SheetData) -> None:
@@ -897,7 +904,15 @@ class WorkbookImport:
             # The client came to work: «думает» in the file no longer holds.
             decision = None
         fee = v.get("fee_amount")
+        if fee is not None and fee <= 0:
+            # A free consultation has no fee: «0» is the empty cell.
+            fee = None
+            if r.snapshot:
+                r.row.blank.add("fee_amount")
         currency = v.get("fee_currency") or (self.base if fee is not None else None)
+        if fee is None and consultation.fee_amount is None:
+            # A currency alone is not a fee.
+            currency = None
         changed = self._assign(
             r,
             consultation,
@@ -1115,6 +1130,7 @@ class WorkbookImport:
             ("visa_valid_from", visa),
             ("visa_valid_to", visa),
             ("decided_on", case.outcome is not None),
+            ("stay_days", visa),
         ):
             value = v.get(key)
             if value is not None and not allowed:
@@ -1128,10 +1144,9 @@ class WorkbookImport:
         if start and end and end < start:
             r.warn("visa_valid_to", "date_order")
             details["visa_valid_to"] = ("visa_valid_to", None)
-        if (stay := v.get("stay_days")) is not None and stay not in STAY_DAYS:
+        if (stay := details["stay_days"][1]) is not None and stay not in STAY_DAYS:
             r.warn("stay_days", "out_of_range")
-            stay = None
-        details["stay_days"] = ("stay_days", stay)
+            details["stay_days"] = ("stay_days", None)
         changed |= self._assign(r, case, details)
         appeal = v.get("after_appeal")
         if appeal is None and r.blank("after_appeal"):
@@ -1312,13 +1327,16 @@ class WorkbookImport:
         cases already have is kept; one case alone is not grouped."""
         try:
             async with self.session.begin_nested():
-                for case_id in self.ungrouped:
+                # A case of a row that was skipped after all is not there any more.
+                for case_id in self.ungrouped & self.cases.keys():
                     self.cases[case_id].group_id = None
                     if case_id not in self.made:
                         self.report.updated["cases"] += 1
                         self.changed.add(case_id)
                 for members in self.families.values():
-                    cases = [self.cases[i] for i in dict.fromkeys(members)]
+                    cases = [self.cases[i] for i in dict.fromkeys(members) if i in self.cases]
+                    if not cases:
+                        continue
                     groups = [c.group_id for c in cases if c.group_id is not None]
                     if len(cases) < 2 and not groups:
                         continue

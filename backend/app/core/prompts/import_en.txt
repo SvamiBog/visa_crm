@@ -150,7 +150,7 @@ THE VISACRM FORMAT, VERSION 1
 One XLSX file. The first row of every sheet holds the headers, exactly as below. The order of sheets and columns does not matter; empty columns may be left out. "*" marks a required column; do not write it in the header.
 Values:
 - date — a date cell or text DD.MM.YYYY;
-- sum — a number;
+- sum — a number: the value itself, not a formula (the CRM reads the saved value of a cell, and a formula written by a script has none);
 - currency — the code BYN, EUR, USD or PLN, empty — the base currency;
 - yes/no — "yes" or "no";
 - phone — +375291234567;

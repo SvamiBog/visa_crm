@@ -1476,6 +1476,7 @@
   "import.reason.percent": "не процент: нужно число до 100",
   "import.reason.currency": "валюта должна быть BYN, EUR, USD или PLN",
   "import.reason.yes_no": "нужно «да» или «нет»",
+  "import.reason.formula": "в ячейке формула без сохранённого результата, впишите значение",
   "import.reason.number": "нужно целое число",
   "import.reason.phone": "телефон не в международном виде: +375…",
   "import.reason.telegram": "не ник Telegram",
