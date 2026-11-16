@@ -2057,8 +2057,12 @@ a.nav-a:hover {
 @media (max-width: 720px) {
   /* One column, no wrapping: otherwise the column grows to the widest table on the page
      and the whole page scrolls sideways instead of the table. */
+  /* The bar stands above the phone's own gesture strip: the page is drawn to the screen's
+     edge (viewport-fit=cover) and the bar is taller by the strip's height, so its buttons
+     never slide under the strip while the browser's toolbar hides on scroll. */
   .shell {
-    --tabbar-h: 60px;
+    --tabbar-safe: env(safe-area-inset-bottom, 0px);
+    --tabbar-h: calc(60px + var(--tabbar-safe));
     flex-direction: column;
   }
 
@@ -2075,6 +2079,7 @@ a.nav-a:hover {
     bottom: 0;
     z-index: 40;
     height: var(--tabbar-h);
+    padding-bottom: var(--tabbar-safe);
     background: var(--c-nav);
     border-top: 1px solid var(--c-nav-line);
   }
