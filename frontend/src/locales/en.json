@@ -648,6 +648,7 @@
   "mrz.valid": "The check digits agree.",
   "mrz.invalid": "The check digits do not agree: {{fields}}. Compare the lines with the passport and correct them.",
   "mrz.corrected": "A look-alike character in the passport number was fixed by its check digit. Compare the number with the passport.",
+  "mrz.namesUnsure": "The line with the surname and given names was read with doubt. Compare the names with the passport.",
   "mrz.expired": "The passport has expired.",
   "mrz.field.document_number": "number",
   "mrz.field.birth_date": "date of birth",

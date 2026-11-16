@@ -1,13 +1,12 @@
-// The English model for reading passports in the browser (src/ocr.ts), copied from its
-// npm package into public/, which Vite serves in dev and copies into the build. The
-// engine asks for <folder>/eng.traineddata.gz, so the file keeps its name and the folder
-// carries the model's version. Runs before `npm run dev` and `npm run build`.
+// The model for reading passports in the browser (src/ocr.ts), copied from ocr-model/
+// into public/, which Vite serves in dev and copies into the build. The engine asks for
+// <folder>/mrz.traineddata.gz, so the file keeps its name and the folder carries the
+// model's version: change the folder here and in src/ocr.ts when the model changes, so
+// that browsers do not read with a cached old one. Runs before `npm run dev` and
+// `npm run build`.
 import { copyFileSync, mkdirSync } from "node:fs";
-import { createRequire } from "node:module";
 
-const source = createRequire(import.meta.url).resolve(
-  "@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
-);
-const folder = new URL("../public/assets/ocr/eng-4.0.0_best_int/", import.meta.url);
+const source = new URL("../ocr-model/mrz.traineddata.gz", import.meta.url);
+const folder = new URL("../public/assets/ocr/mrz-fast-1/", import.meta.url);
 mkdirSync(folder, { recursive: true });
-copyFileSync(source, new URL("eng.traineddata.gz", folder));
+copyFileSync(source, new URL("mrz.traineddata.gz", folder));

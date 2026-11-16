@@ -329,16 +329,19 @@ function Reading({
     },
   });
 
+  // No check digit covers the names: the API reports a names line it had to mend apart.
+  const digits = mrz.failed.filter((f) => f !== "names");
+
   return (
     <>
-      {mrz.valid ? (
-        <p className="alert alert-ok small">{t("mrz.valid")}</p>
-      ) : (
+      {mrz.valid && <p className="alert alert-ok small">{t("mrz.valid")}</p>}
+      {digits.length > 0 && (
         <p className="alert alert-error small">
-          {t("mrz.invalid", {
-            fields: mrz.failed.map((f) => t(`mrz.field.${f}`)).join(", "),
-          })}
+          {t("mrz.invalid", { fields: digits.map((f) => t(`mrz.field.${f}`)).join(", ") })}
         </p>
+      )}
+      {mrz.failed.includes("names") && (
+        <p className="alert alert-warn small">{t("mrz.namesUnsure")}</p>
       )}
       {mrz.corrected.length > 0 && <p className="alert alert-warn small">{t("mrz.corrected")}</p>}
       {mrz.expired && <p className="alert alert-warn small">{t("mrz.expired")}</p>}

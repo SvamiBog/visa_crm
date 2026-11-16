@@ -7,8 +7,10 @@ the server (docs/decisions.md → «Распознавание паспорта�
 Formats: TD3 (passports: two lines of 44), TD2 (two lines of 36) and TD1 (ID cards: three
 lines of 30). Recognition mixes up look-alike characters, so each field is read by its
 type: digits in dates and check digits, letters in names and country codes, and by its
-mask in a personal number whose state fixes one (Belarus). A document number is
-alphanumeric; a look-alike there is swapped only when the check digit agrees.
+mask in a personal number whose state fixes one (Belarus). A document number is read by
+its shape where the state fixes one (Belarus, Ukraine); elsewhere it is alphanumeric and a
+look-alike is swapped only when the check digit agrees. No check digit covers the names:
+a names line that had to be mended is reported as the check «names».
 """
 
 import re
@@ -40,11 +42,28 @@ PADDING = re.compile(f"{FILLER}[{FILLER}CKL]{{2,}}$")
 # digit, A a letter. Belarus: the identification number — sex and century, birth date,
 # region, sequence number, series, check digit.
 PERSONAL_NUMBER_MASKS = {"BLR": "9999999A999AA9"}
+# The shape of the document number where the issuing state fixes it, by the first letter
+# of the document type; < is a filler. Belarus: a series of two letters and seven digits,
+# in the passport of 1996–2021 and in the biometric one. Ukraine: two letters and six
+# digits in a passport for travel abroad, nine digits in an ID card. A check digit alone
+# does not tell 0 from O here: «OO» for «00» under the weights 7 and 3 adds 240.
+DOCUMENT_NUMBER_MASKS = {
+    ("P", "BLR"): "AA9999999",
+    ("P", "UKR"): "AA999999<",
+    ("I", "UKR"): "999999999",
+}
 # How many characters a passport's data line may be off and still be read from its end.
 REALIGN_LIMIT = 4
 WEIGHTS = (7, 3, 1)
 # Checks in the order they are reported.
-CHECKS = ("document_number", "birth_date", "expiry_date", "personal_number", "composite")
+CHECKS = (
+    "document_number",
+    "birth_date",
+    "expiry_date",
+    "personal_number",
+    "composite",
+    "names",
+)
 
 
 class MrzNotFound(ValueError):
@@ -131,8 +150,9 @@ def _realign(line: str) -> str | None:
     return head[:-1][:9].ljust(9, FILLER) + head[-1] + tail
 
 
-def _find(text: str) -> tuple[str, list[str], bool]:
-    """The zone's format and lines, and whether its data line was realigned."""
+def _find(text: str) -> tuple[str, list[str], bool, bool]:
+    """The zone's format and lines, whether its data line was realigned and whether its
+    names line was cut or padded."""
     lines = [c for c in (_clean(raw) for raw in text.splitlines()) if len(c) >= 28]
     # Exact lines first, then a names line of another length, then a data line a few
     # characters off too: once lines of other lengths fit, noise with fillers above the
@@ -141,7 +161,14 @@ def _find(text: str) -> tuple[str, list[str], bool]:
         for i in range(len(lines)):
             found = _zone_at(lines, i, tolerance)
             if found is not None:
-                return *found, tolerance == "data"
+                kind, zone = found
+                names = i + 2 if kind == "TD1" else i
+                return (
+                    kind,
+                    zone,
+                    tolerance == "data",
+                    zone[-1 if kind == "TD1" else 0] != lines[names],
+                )
     raise MrzNotFound
 
 
@@ -178,16 +205,19 @@ def _digits(value: str) -> str:
     return value.translate(TO_DIGIT)
 
 
-def _names(value: str) -> tuple[str, str]:
-    """Surname and given names. Three fillers in a row start the padding: anything after
-    them is the padding read as letters. The padding can also be read as C, K or L right
-    after a name, before any three fillers: a filler followed only by those is padding."""
+def _names(value: str) -> tuple[str, str, bool]:
+    """Surname and given names, and whether they were read as they stand. Three fillers in
+    a row start the padding: anything after them is the padding read as letters. The
+    padding can also be read as C, K or L right after a name, before any three fillers: a
+    filler followed only by those is padding. Either way the names were mended."""
     value = _letters(value)
     end = value.find(FILLER * 3)
+    as_read = end < 0 or not value[end:].strip(FILLER)
     if end > 0:
         value = value[:end]
     surname, _, given = value.partition(FILLER * 2)
-    return _name(surname), _name(given)
+    as_read = as_read and not PADDING.search(surname) and not PADDING.search(given)
+    return _name(surname), _name(given), as_read
 
 
 def _name(value: str) -> str:
@@ -227,16 +257,28 @@ def _shift_names(names: str, nationality: str) -> str:
     return names[found - 2 :].ljust(len(names), FILLER)
 
 
+def _by_mask(value: str, mask: str | None) -> str:
+    """A field read place by place where the issuing state fixes its shape."""
+    if mask is None or len(mask) != len(value):
+        return value
+    read = {"9": _digits, "A": _letters, FILLER: lambda _: FILLER}
+    return "".join(read[kind](c) for c, kind in zip(value, mask, strict=True))
+
+
 def _personal(value: str, issuing_state: str) -> str:
     """The personal number read by its mask where the issuing state fixes one. A guessed
     swap is not tried here: in 14 characters a wrong one agrees with the check digit too
     often."""
-    mask = PERSONAL_NUMBER_MASKS.get(issuing_state)
-    if mask is None or len(mask) != len(value):
-        return value
-    return "".join(
-        _digits(c) if kind == "9" else _letters(c) for c, kind in zip(value, mask, strict=True)
-    )
+    return _by_mask(value, PERSONAL_NUMBER_MASKS.get(issuing_state))
+
+
+def _number(number: str, digit: str, document_type: str, state: str, still_ok) -> tuple[str, bool]:
+    """The document number: by its shape where the state fixes one, else as read, with one
+    look-alike swapped if the check digit asks for it."""
+    mask = DOCUMENT_NUMBER_MASKS.get((document_type[:1], state))
+    if mask is not None:
+        return _by_mask(number, mask), False
+    return _fix_number(number, digit, still_ok)
 
 
 def _fix_number(number: str, digit: str, still_ok) -> tuple[str, bool]:
@@ -308,16 +350,19 @@ def _splice(line: str, where: slice | int, value: str) -> str:
 
 
 def read_mrz(text: str, today: date) -> MrzReading:
-    kind, lines, realigned = _find(text)
+    kind, lines, realigned, mended = _find(text)
     if kind == "TD1":
-        return _read_td1(lines, today)
+        return _read_td1(lines, today, mended)
     layout = TD3 if kind == "TD3" else TD2
     names, data = lines
     # Digits where digits must be, so the check digits are counted on what was meant.
     for part in (layout.birth, layout.expiry):
         data = _splice(data, part, _digits(data[part]))
     data = _splice(data, layout.nationality, _letters(data[layout.nationality]))
-    names = _shift_names(names, data[layout.nationality])
+    shifted = _shift_names(names, data[layout.nationality])
+    mended = mended or shifted != names
+    names = shifted
+    document_type = _letters(names[0:2]).strip(FILLER)
     issuing_state = _letters(names[2:5]).strip(FILLER)
     data = _splice(data, layout.optional, _personal(data[layout.optional], issuing_state))
 
@@ -328,9 +373,11 @@ def read_mrz(text: str, today: date) -> MrzReading:
     # check digit agreeing would be chance, so the number is left as read and not checked.
     number, fixed = data[layout.number], False
     if not realigned:
-        number, fixed = _fix_number(
+        number, fixed = _number(
             number,
             data[layout.number_check],
+            document_type,
+            issuing_state,
             lambda candidate: composite_ok(_splice(data, layout.number, candidate)),
         )
     data = _splice(data, layout.number, number)
@@ -343,10 +390,11 @@ def read_mrz(text: str, today: date) -> MrzReading:
         or _checks(optional, data[layout.optional_check]),
         "composite": composite_ok(data),
     }
-    surname, given = _names(names[5:])
+    surname, given, as_read = _names(names[5:])
+    checks["names"] = as_read and not mended
     reading = MrzReading(
         format=kind,
-        document_type=_letters(names[0:2]).strip(FILLER),
+        document_type=document_type,
         issuing_state=issuing_state,
         surname=surname,
         given_names=given,
@@ -362,8 +410,10 @@ def read_mrz(text: str, today: date) -> MrzReading:
     return _finish(reading, checks)
 
 
-def _read_td1(lines: list[str], today: date) -> MrzReading:
+def _read_td1(lines: list[str], today: date, mended: bool) -> MrzReading:
     first, data, names = lines
+    document_type = _letters(first[0:2]).strip(FILLER)
+    issuing_state = _letters(first[2:5]).strip(FILLER)
     for part in (slice(0, 6), slice(8, 14)):
         data = _splice(data, part, _digits(data[part]))
     data = _splice(data, slice(15, 18), _letters(data[15:18]))
@@ -371,8 +421,12 @@ def _read_td1(lines: list[str], today: date) -> MrzReading:
     def composite_ok(line1: str) -> bool:
         return _checks(line1[5:30] + data[0:7] + data[8:15] + data[18:29], data[29])
 
-    number, fixed = _fix_number(
-        first[5:14], first[14], lambda candidate: composite_ok(_splice(first, 5, candidate))
+    number, fixed = _number(
+        first[5:14],
+        first[14],
+        document_type,
+        issuing_state,
+        lambda candidate: composite_ok(_splice(first, 5, candidate)),
     )
     first = _splice(first, 5, number)
     checks = {
@@ -382,12 +436,13 @@ def _read_td1(lines: list[str], today: date) -> MrzReading:
         "personal_number": True,
         "composite": composite_ok(first),
     }
-    surname, given = _names(names)
+    surname, given, as_read = _names(names)
+    checks["names"] = as_read and not mended
     optional = first[15:30].strip(FILLER) or data[18:29].strip(FILLER)
     reading = MrzReading(
         format="TD1",
-        document_type=_letters(first[0:2]).strip(FILLER),
-        issuing_state=_letters(first[2:5]).strip(FILLER),
+        document_type=document_type,
+        issuing_state=issuing_state,
         surname=surname,
         given_names=given,
         document_number=number.strip(FILLER),

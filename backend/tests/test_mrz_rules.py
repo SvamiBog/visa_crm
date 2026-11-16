@@ -133,9 +133,10 @@ def test_a_wrong_check_digit_is_reported():
 def test_filler_read_as_letters_is_dropped_from_the_names():
     text = TD3.replace("MARIA<<<<<<<<<", "MARIA<<<<K<<<<")
     assert read_mrz(text, TODAY).given_names == "ANNA MARIA"
-    # A line a character short at the end of the filler is padded.
+    # A line a character short at the end of the filler is padded; mended names are
+    # reported (test_mended_names_are_reported_as_not_checked).
     short = TD3.replace("<<<<<<<<<<<<<<<<<<<\n", "<<<<<<<<<<<<<<<<<<\n")
-    assert read_mrz(short, TODAY).valid
+    assert read_mrz(short, TODAY).failed == ["names"]
 
 
 def test_names_line_with_a_miscounted_filler_is_cut_to_the_data_line():
@@ -147,7 +148,7 @@ def test_names_line_with_a_miscounted_filler_is_cut_to_the_data_line():
     assert (len(longer), len(shorter)) == (45, 38)
     for names in (longer, shorter):
         mrz = read_mrz(f"{names}\n{data}", TODAY)
-        assert mrz.valid, mrz.failed
+        assert mrz.failed == ["names"]
         assert (mrz.issuing_state, mrz.surname, mrz.given_names) == ("BLR", "IVANOVA", "ANNA")
         assert mrz.document_number == "MP1234567"
 
@@ -180,7 +181,7 @@ def test_characters_added_before_the_issuing_state_are_dropped():
     _, data = belarus_passport().splitlines()
     mrz = read_mrz("FPEBLRIVANOVA<<ANNA" + "<" * 26 + f"\n{data}", TODAY)
     assert (mrz.issuing_state, mrz.surname, mrz.given_names) == ("BLR", "IVANOVA", "ANNA")
-    assert mrz.valid, mrz.failed
+    assert mrz.failed == ["names"]
     # A one-letter code is not looked for: it would be found inside the names.
     text = (
         TD3.replace("P<UTO", "P<D<<").replace("UTO7408", "D<<7408").replace("ERIKSSON", "DRIKSSON")
@@ -196,7 +197,7 @@ def test_noise_with_fillers_above_the_zone_is_not_taken_for_the_names():
     # Nor when the names line under it is a filler too long.
     longer = TD3.replace("<<<<<\n", "<<<<<KL\n")
     mrz = read_mrz(f"{noise}\n{longer}", TODAY)
-    assert mrz.valid, mrz.failed
+    assert (mrz.surname, mrz.failed) == ("ERIKSSON", ["names"])
 
 
 def test_filler_read_as_letters_right_after_the_names_is_dropped():
@@ -235,3 +236,90 @@ def test_text_without_a_zone():
         read_mrz("just a photo caption", TODAY)
     with pytest.raises(MrzNotFound):
         read_mrz("", TODAY)
+
+
+def passport(state: str, number: str, personal: str = "", names: str = "IVANOVA<<ANNA") -> str:
+    """A made-up passport of a state, with every check digit right."""
+    line2 = (
+        with_check(number.ljust(9, "<"))
+        + state
+        + with_check("850512")
+        + "F"
+        + with_check("300101")
+        + with_check(personal.ljust(14, "<"))
+    )
+    line2 += str(check_digit(line2[0:10] + line2[13:20] + line2[21:43]))
+    return f"P<{state}{names}".ljust(44, "<") + "\n" + line2
+
+
+def test_belarusian_passport_number_is_read_by_its_shape():
+    # Two letters and seven digits, in the old passport and in the biometric one of 2021.
+    # «00» read as «OO» where the weights are 7 and 3 adds 240: the check digit agrees
+    # with the wrong number, so only the shape of the number tells.
+    for number in ("MP1004567", "BP1004567"):
+        text = passport("BLR", number, "3120585A001PB8")
+        misread = text.replace(number, number.replace("00", "OO"))
+        assert misread != text
+        mrz = read_mrz(misread, TODAY)
+        assert mrz.document_number == number
+        assert mrz.valid, mrz.failed
+    # A digit read as another digit is still caught by the check digit.
+    mrz = read_mrz(passport("BLR", "MP1004567").replace("MP1004567", "MP10O3567"), TODAY)
+    assert mrz.document_number == "MP1003567"
+    assert mrz.failed == ["document_number", "composite"]
+
+
+def test_ukrainian_passport_number_is_read_by_its_shape():
+    # Two letters and six digits; the ninth place is a filler, counted in the check digit.
+    text = passport("UKR", "FE123456", "1991032701234")
+    mrz = read_mrz(text, TODAY)
+    assert (mrz.issuing_state, mrz.nationality, mrz.document_number) == ("UKR", "UKR", "FE123456")
+    assert mrz.personal_number == "1991032701234"
+    assert mrz.valid, mrz.failed
+    # Two look-alikes and the filler read as a letter: no single swap mends that.
+    mrz = read_mrz(text.replace("FE123456<", "FEI234S6K"), TODAY)
+    assert mrz.document_number == "FE123456"
+    assert mrz.valid, mrz.failed
+
+
+def test_ukrainian_id_card_number_is_nine_digits():
+    line1 = "IDUKR" + with_check("001234567") + "<" * 15
+    line2 = with_check("950220") + "F" + with_check("290220") + "UKR" + "19950220012"
+    line2 += str(check_digit(line1[5:30] + line2[0:7] + line2[8:15] + line2[18:29]))
+    text = f"{line1}\n{line2}\n" + "MELNYK<<IRYNA".ljust(30, "<")
+    assert read_mrz(text, TODAY).valid
+    mrz = read_mrz(text.replace("IDUKR00", "IDUKROO"), TODAY)
+    assert mrz.document_number == "001234567"
+    assert mrz.valid, mrz.failed
+
+
+def test_a_number_of_another_state_keeps_its_letters():
+    # No shape is known for the state: the number stays as read.
+    mrz = read_mrz(passport("POL", "ZS0O12345"), TODAY)
+    assert mrz.document_number == "ZS0O12345"
+    assert mrz.valid, mrz.failed
+
+
+def test_mended_names_are_reported_as_not_checked():
+    # No check digit covers the names. When the names line had to be mended — cut, padded,
+    # shifted, or its filler was read as letters — the names are shown, and the reading is
+    # not taken as checked: the specialist compares them with the passport.
+    text = passport("BLR", "MP1234567", "3120585A001PB8")
+    names, data = text.splitlines()
+    assert read_mrz(text, TODAY).failed == []
+    mended = (
+        names.replace("ANNA<<<<<<", "ANNA<<<KLL"),  # filler read as letters
+        names.replace("ANNA<<<<<<", "ANNA<KL<<<"),  # the same right after the name
+        names[:-3],  # a line too short
+        names + "<<",  # a line too long
+        "FPE" + names[2:-1],  # characters added before the state
+    )
+    for line in mended:
+        mrz = read_mrz(f"{line}\n{data}", TODAY)
+        assert mrz.failed == ["names"], line
+        assert not mrz.valid
+        assert mrz.surname == "IVANOVA"
+    # The names of an ID card are its third line.
+    td1 = read_mrz(TD1.replace("MARIA<<<<<<<<<<", "MARIA<<<LLKLLLL"), TODAY)
+    assert td1.failed == ["names"]
+    assert td1.given_names == "ANNA MARIA"
