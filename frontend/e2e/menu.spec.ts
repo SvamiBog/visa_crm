@@ -191,6 +191,32 @@ for (const lang of ["ru", "en"] as const) {
       await expect(analytics, "on a computer the menu is always open").toBeVisible();
     });
 
+    test("on a phone the bar stays after a choice in a list or a typed field", async ({
+      page,
+    }) => {
+      await logIn(page, EMAIL);
+      await page.setViewportSize(PHONE);
+      await page.goto("/app/checklists");
+      const bar = page.getByRole("navigation", { name: t("nav.tabs"), exact: true });
+      const more = bar.getByRole("button", { name: t("nav.more"), exact: true });
+      const country = page.locator("main select").first();
+
+      await country.selectOption({ index: 1 });
+      await country.focus();
+      await expect(country).toBeFocused();
+      await expect(more, "a list that keeps the focus does not hide the menu").toBeVisible();
+
+      await page.goto("/app/clients");
+      const search = page.locator("main input").first();
+      await search.focus();
+      await expect(more, "a focused field without a keyboard keeps the bar").toBeVisible();
+      // The keyboard opens: the visible area gets shorter while the field has the focus.
+      await page.setViewportSize({ width: PHONE.width, height: PHONE.height - 300 });
+      await expect(more, "the keyboard takes the bar's room").toBeHidden();
+      await page.setViewportSize(PHONE);
+      await expect(more, "the bar is back when the keyboard is closed").toBeVisible();
+    });
+
     test("on a phone the settings are one row above the page", async ({ page }) => {
       await logIn(page, EMAIL);
       await page.setViewportSize(PHONE);
