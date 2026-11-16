@@ -10,6 +10,22 @@ from app.models.visa_case import CaseStage, VisaOutcome
 
 VISA_DETAILS = ("visa_entries", "visa_valid_from", "visa_valid_to", "stay_days")
 
+# What a submission group has in common (owner's decision 2026-11-15, docs/decisions.md →
+# «Правка группы подачи»); the result, the questionnaire received and money are each
+# one's own.
+GROUP_FIELDS = (
+    "destination_id",
+    "submission_country_id",
+    "visa_center_id",
+    "purpose_id",
+    "registrar_id",
+    "hall",
+    "submission_on",
+    "questionnaire_due_on",
+)
+# A visa center belongs to its pair of countries, so the place goes as a whole.
+PLACE_FIELDS = ("destination_id", "submission_country_id", "visa_center_id")
+
 
 def advance(stage: CaseStage, changes: Mapping[str, Any]) -> CaseStage:
     """The case moves on by itself when a result or an appointment date is entered:
@@ -20,6 +36,32 @@ def advance(stage: CaseStage, changes: Mapping[str, Any]) -> CaseStage:
     if changes.get("submission_on") is not None and stage == CaseStage.WAITING:
         return CaseStage.DOCUMENTS
     return stage
+
+
+def for_group_member(
+    changed: Mapping[str, Any],
+    place: Mapping[str, Any],
+    stage_before: CaseStage,
+    member_stage: CaseStage,
+    member_outcome: VisaOutcome | None,
+) -> dict[str, Any]:
+    """What another member of the submission group takes from a change to one case.
+
+    `changed` holds the fields the case changed, with their new values, `place` its
+    place after the change, `stage_before` its stage before it. Only what was changed
+    goes on, and only to a member without a result: its case is over. The stage follows
+    as on the board, for a member that stood where the case stood, but not when a result
+    moved the case; otherwise the member moves on by the usual rule (`advance`)."""
+    if member_outcome is not None:
+        return {}
+    taken = {f: v for f, v in changed.items() if f in GROUP_FIELDS}
+    if any(f in changed for f in PLACE_FIELDS):
+        taken |= {f: place[f] for f in PLACE_FIELDS}
+    if "stage" in changed and changed.get("outcome") is None and member_stage == stage_before:
+        taken["stage"] = changed["stage"]
+    elif (stage := advance(member_stage, taken)) != member_stage:
+        taken["stage"] = stage
+    return taken
 
 
 def cleared_by_outcome(outcome: VisaOutcome | None) -> dict[str, Any]:

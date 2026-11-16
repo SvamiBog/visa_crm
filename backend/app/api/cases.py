@@ -20,7 +20,14 @@ from app.api.bookings import BookingOut, bookings_of
 from app.api.client_status import Tab, latest_consultation, tab_of
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
-from app.core.cases import VISA_DETAILS, advance, appeal_until, cleared_by_outcome
+from app.core.cases import (
+    PLACE_FIELDS,
+    VISA_DETAILS,
+    advance,
+    appeal_until,
+    cleared_by_outcome,
+    for_group_member,
+)
 from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
@@ -135,6 +142,9 @@ class CaseUpdate(BaseModel):
     # Fill the number and the email in for the rest of the submission group where they
     # are empty (owner's decision 2026-11-04); a member's own value is kept.
     fill_group: bool = False
+    # The same change for the rest of the group, apart from the result (owner's decision
+    # 2026-11-15, app/core/cases.py → for_group_member).
+    apply_to_group: bool = False
 
     @field_validator("vac_number", "application_email", mode="before")
     @classmethod
@@ -653,7 +663,7 @@ async def update_case(
 ) -> CaseOut:
     case = await _case(session, case_id)
     await _open_card_of(session, user, case)
-    changes = body.model_dump(exclude_unset=True, exclude={"fill_group"})
+    changes = body.model_dump(exclude_unset=True, exclude={"fill_group", "apply_to_group"})
     for required in ("destination_id", "submission_country_id", "stage", "after_appeal"):
         if changes.get(required, ...) is None:
             changes.pop(required)  # null means «leave as is» for required fields
@@ -666,6 +676,7 @@ async def update_case(
         new = {f: v for f, v in changes.items() if getattr(case, f) != v}
         changes["stage"] = advance(case.stage, new)
     changed = sorted(f for f, v in changes.items() if getattr(case, f) != v)
+    stage_before = case.stage
     for field, value in changes.items():
         setattr(case, field, value)
     # Before anything is looked up: a query sends the case to the database, where a
@@ -692,8 +703,33 @@ async def update_case(
         _audit(session, AuditAction.CASE_UPDATED, user, case, {"fields": ",".join(changed)})
     if body.fill_group and case.group_id is not None:
         await _fill_group(session, user, case)
+    if body.apply_to_group and case.group_id is not None and changed:
+        await _apply_to_group(session, user, case, {f: changes[f] for f in changed}, stage_before)
     await session.commit()
     return await _one_out(session, case)
+
+
+async def _apply_to_group(
+    session: AsyncSession,
+    user: CurrentUser,
+    case: VisaCase,
+    changed: dict[str, Any],
+    stage_before: CaseStage,
+) -> None:
+    """The family is filed together: what the case changed goes to the rest of its group,
+    apart from the result (owner's decision 2026-11-15). The place is the case's, already
+    checked, so the members need no check of their own."""
+    place = {f: getattr(case, f) for f in PLACE_FIELDS}
+    members = await session.scalars(
+        select(VisaCase).where(VisaCase.group_id == case.group_id, VisaCase.id != case.id)
+    )
+    for member in members:
+        taken = for_group_member(changed, place, stage_before, member.stage, member.outcome)
+        fields = sorted(f for f, v in taken.items() if getattr(member, f) != v)
+        for field in fields:
+            setattr(member, field, taken[field])
+        if fields:
+            _audit(session, AuditAction.CASE_UPDATED, user, member, {"fields": ",".join(fields)})
 
 
 async def _fill_group(session: AsyncSession, user: CurrentUser, case: VisaCase) -> None:

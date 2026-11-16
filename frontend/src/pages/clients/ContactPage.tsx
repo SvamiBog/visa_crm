@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -215,7 +215,12 @@ export function ContactPage() {
               </Slot>
             )}
             <Slot name="relations">
-              <Relations contactId={contact.id} relations={relations} />
+              <Relations
+                contactId={contact.id}
+                name={contact.full_name}
+                relations={relations}
+                withCases={card.data.cases !== null}
+              />
             </Slot>
           </div>
           <div className="column">
@@ -476,12 +481,17 @@ function DocumentFiles({
   );
 }
 
+/** `withCases`: the user may open cases, so the hint on filing a family together applies. */
 function Relations({
   contactId,
+  name,
   relations,
+  withCases,
 }: {
   contactId: string;
+  name: string;
   relations: ContactCard["relations"];
+  withCases: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -517,9 +527,14 @@ function Relations({
           ))}
         </ul>
       )}
+      {/* A link is family for good; filing together is per trip and lives in the case. */}
+      {relations.length > 0 && withCases && !adding && (
+        <p className="muted small">{t("contacts.familyCaseHint")}</p>
+      )}
       {adding ? (
         <LinkForm
           contactId={contactId}
+          name={name}
           exclude={new Set([contactId, ...relations.map((r) => r.related_id)])}
           onDone={() => {
             setAdding(false);
@@ -535,16 +550,37 @@ function Relations({
   );
 }
 
+// Offered under each name; any other word can be typed.
+const KIN = [
+  "mother",
+  "father",
+  "wife",
+  "husband",
+  "daughter",
+  "son",
+  "sister",
+  "brother",
+  "grandmother",
+  "grandfather",
+  "granddaughter",
+  "grandson",
+] as const;
+
+/** Who is who is asked under each person's name, not with «он» and «этот клиент»:
+ * `label` is who the picked client is to this one, `reverse` the other way round. */
 function LinkForm({
   contactId,
+  name,
   exclude,
   onDone,
 }: {
   contactId: string;
+  name: string;
   exclude: Set<string>;
   onDone: () => void;
 }) {
   const { t } = useTranslation();
+  const ids = useId();
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<ContactListItem | null>(null);
   const [label, setLabel] = useState("");
@@ -573,12 +609,45 @@ function LinkForm({
   return (
     <form className="form-card" onSubmit={submit}>
       {picked ? (
-        <p>
-          <strong>{picked.full_name}</strong>{" "}
-          <button type="button" className="link-button" onClick={() => setPicked(null)}>
-            {t("contacts.pickAnother")}
-          </button>
-        </p>
+        <>
+          <div>
+            <p>
+              <strong>{t("contacts.whoIsWho")}</strong>
+            </p>
+            <p className="muted small">{t("contacts.whoIsWhoHint")}</p>
+          </div>
+          <div className="form-grid">
+            <label className="field">
+              <span>{name}</span>
+              <input
+                maxLength={100}
+                list={`${ids}-kin`}
+                placeholder={t("contacts.kinPlaceholder")}
+                value={reverse}
+                onChange={(e) => setReverse(e.target.value)}
+              />
+            </label>
+            <div className="field">
+              <label htmlFor={`${ids}-picked`}>{picked.full_name}</label>
+              <input
+                id={`${ids}-picked`}
+                maxLength={100}
+                list={`${ids}-kin`}
+                placeholder={t("contacts.kinPlaceholder")}
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+              />
+              <button type="button" className="link-button" onClick={() => setPicked(null)}>
+                {t("contacts.pickAnother")}
+              </button>
+            </div>
+          </div>
+          <datalist id={`${ids}-kin`}>
+            {KIN.map((k) => (
+              <option key={k} value={t(`contacts.kin.${k}`)} />
+            ))}
+          </datalist>
+        </>
       ) : (
         <>
           <label className="field">
@@ -602,16 +671,6 @@ function LinkForm({
           )}
         </>
       )}
-      <div className="form-grid">
-        <label className="field">
-          <span>{t("contacts.relationLabel")}</span>
-          <input maxLength={100} value={label} onChange={(e) => setLabel(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("contacts.reverseLabel")}</span>
-          <input maxLength={100} value={reverse} onChange={(e) => setReverse(e.target.value)} />
-        </label>
-      </div>
       {link.isError && <ErrorAlert error={link.error} />}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={!picked || link.isPending}>

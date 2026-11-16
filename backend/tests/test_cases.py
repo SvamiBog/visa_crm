@@ -378,6 +378,103 @@ async def test_groups_are_not_merged(client: AsyncClient, make_user: MakeUser):
     assert response.status_code == 409 and response.json()["detail"] == "in_another_group"
 
 
+async def family_of_three(client: AsyncClient) -> list[dict]:
+    """Anna, her husband and her daughter filed together: one case each, in one group."""
+    anna = await new_contact(client)
+    codes = await countries(client)
+    response = await client.post(
+        f"{CONTACTS}/{anna['id']}/cases",
+        json={
+            "destination_id": codes["PL"],
+            "submission_country_id": codes["BY"],
+            "applicants": [
+                {"contact_id": anna["id"]},
+                {"first_name": "Сергей"},
+                {"first_name": "Мария"},
+            ],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def test_editing_one_case_changes_the_whole_family(client: AsyncClient, make_user: MakeUser):
+    """Owner's decision 2026-11-15 on the specialist's feedback: a family is filed
+    together, so one edit changes the whole group, apart from the result."""
+    await as_specialist(client, make_user)
+    anna, sergey, maria = await family_of_three(client)
+    purpose = (await client.post("/api/dictionaries/purposes", json={"name": "Туризм"})).json()
+    codes = await countries(client)
+    # Maria already has her result: her case is over and is left as it is.
+    await client.patch(
+        f"/api/cases/{maria['id']}", json={"outcome": "refusal", "decided_on": "2026-10-01"}
+    )
+
+    response = await client.patch(
+        f"/api/cases/{anna['id']}",
+        json={
+            "destination_id": codes["LT"],
+            "submission_country_id": codes["BY"],
+            "purpose_id": purpose["id"],
+            "hall": "premium",
+            "submission_on": "2026-12-01",
+            "questionnaire_due_on": "2026-11-20",
+            "questionnaire_received_on": "2026-11-18",
+            "apply_to_group": True,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["stage"] == "documents"
+    husband = (await client.get(f"/api/cases/{sergey['id']}")).json()
+    assert husband["destination_id"] == codes["LT"]
+    assert husband["purpose_id"] == purpose["id"] and husband["hall"] == "premium"
+    assert husband["submission_on"] == "2026-12-01"
+    assert husband["questionnaire_due_on"] == "2026-11-20"
+    assert husband["stage"] == "documents"
+    # Who sent the questionnaire is each one's own.
+    assert husband["questionnaire_received_on"] is None
+    daughter = (await client.get(f"/api/cases/{maria['id']}")).json()
+    assert daughter["destination_id"] == codes["PL"] and daughter["purpose_id"] is None
+    assert daughter["stage"] == "result"
+
+    # A result entered in one case stays its own and moves nobody.
+    await client.patch(
+        f"/api/cases/{anna['id']}",
+        json={"outcome": "visa", "decided_on": "2026-12-10", "apply_to_group": True},
+    )
+    husband = (await client.get(f"/api/cases/{sergey['id']}")).json()
+    assert husband["outcome"] is None and husband["stage"] == "documents"
+
+    events = (await client.get("/api/audit")).json()["events"]
+    assert any(e["action"] == "cases.updated" and e["target_id"] == sergey["id"] for e in events)
+
+
+async def test_without_the_mark_only_this_case_changes(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    anna, sergey, _ = await family_of_three(client)
+    response = await client.patch(f"/api/cases/{anna['id']}", json={"hall": "premium"})
+    assert response.status_code == 200, response.text
+    assert (await client.get(f"/api/cases/{sergey['id']}")).json()["hall"] is None
+
+
+async def test_a_stage_button_moves_the_family_standing_with_the_case(
+    client: AsyncClient, make_user: MakeUser
+):
+    """As on the board: members at the case's stage move with it, the others stay."""
+    await as_specialist(client, make_user)
+    anna, sergey, maria = await family_of_three(client)
+    await client.patch(f"/api/cases/{maria['id']}", json={"stage": "review"})
+
+    response = await client.patch(
+        f"/api/cases/{anna['id']}", json={"stage": "documents", "apply_to_group": True}
+    )
+    assert response.status_code == 200, response.text
+    stages = [
+        (await client.get(f"/api/cases/{c['id']}")).json()["stage"] for c in (anna, sergey, maria)
+    ]
+    assert stages == ["documents", "documents", "review"]
+
+
 async def test_other_workspaces_cases_are_not_found(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     anna = await new_contact(client)
