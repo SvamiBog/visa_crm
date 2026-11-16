@@ -106,6 +106,9 @@ class AuditAction(StrEnum):
     TEMPLATE_UPLOADED = "templates.uploaded"
     TEMPLATE_UPDATED = "templates.updated"
     TEMPLATE_DELETED = "templates.deleted"
+    # All the workspace's data deleted by the specialist (app/core/erase.py): the number of
+    # files only.
+    WORKSPACE_ERASED = "workspace.erased"
 
 
 class AuditEvent(Base):
