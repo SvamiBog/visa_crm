@@ -1242,9 +1242,31 @@ a.nav-a:hover {
   align-items: center;
 }
 
+/* Wide enough for «Фиксированная сумма»; on a phone each such select takes its own line */
 .row-editor select {
-  flex: 1 1 160px;
+  flex: 1 1 200px;
   min-width: 0;
+  text-overflow: ellipsis;
+}
+
+/* An amount and its currency wrap to the next line together */
+.row-editor-pair {
+  display: flex;
+  gap: 8px;
+}
+
+/* A currency code: stays beside its amount */
+.row-editor select.select-narrow {
+  flex: 0 1 90px;
+}
+
+/* Rows inside a framed block: a gap after the hint and under the «add a row» button */
+.module-block > p + .rows-editor {
+  margin-top: 8px;
+}
+
+.module-block > .rows-editor + .form-actions {
+  margin-bottom: 8px;
 }
 
 .row-editor input {
