@@ -233,3 +233,211 @@ async def test_a_broken_file_is_refused_on_upload(client: AsyncClient, make_user
     )
 
     assert (response.status_code, response.json()["detail"]) == (422, "file_unreadable")
+
+
+# --- Matching -----------------------------------------------------------------------------
+
+CASES = [
+    ["Код кейса", "Код клиента", "Страна визы"],
+    ["C-1", "K-1", "Польша"],
+]
+
+
+async def test_equal_payments_of_one_day_are_each_kept(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Two instalments of the same sum on one day are two payments, in a repeated file too."""
+    await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    day = date(2025, 3, 1)
+    book_ = {
+        "Клиенты": CLIENTS,
+        "Кейсы": CASES,
+        "Платежи": [
+            ["Код кейса", "Дата", "Сумма"],
+            ["C-1", day, 100],
+            ["C-1", day, 100],
+        ],
+        "Расходы": [
+            ["Код кейса", "Дата", "Описание", "Сумма"],
+            ["C-1", day, "Курьер", 20],
+            ["C-1", day, "Курьер", 20],
+        ],
+    }
+
+    first = await run(client, book_)
+    again = await run(client, book_)
+    book_["Платежи"].append(["C-1", day, 100])
+    third = await run(client, book_)
+
+    assert (first["created"]["payments"], first["created"]["expenses"]) == (2, 2)
+    assert again["created"] == {} and again["updated"] == {}
+    assert third["created"] == {"payments": 1}
+    sums = await rows(owner_engine, "SELECT sum(amount) AS paid FROM case_payments")
+    assert sums == [{"paid": 300}]
+
+
+async def test_a_phone_shared_by_a_family_does_not_merge_its_people(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """The row of a person with another given name is not the phone's card: the person
+    gets a card of their own, without the phone, and the report says so."""
+    await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    book_ = {
+        "Клиенты": [
+            ["Код клиента", "Фамилия", "Имя", "Телефон", "Email"],
+            ["K-1", "Петрова", "Анна", "+375291112233", None],
+            ["K-2", "Петрова", "Мария", "+375291112233", "maria@example.com"],
+        ]
+    }
+
+    first = await run(client, book_)
+    again = await run(client, book_)
+
+    assert first["created"] == {"contacts": 2}
+    assert lines(first, "warnings") == [("phone_taken", "Клиенты", 3, "Телефон")]
+    assert again["created"] == {} and again["updated"] == {}
+    contacts = await rows(
+        owner_engine, "SELECT full_name, phone, email FROM contacts ORDER BY full_name"
+    )
+    assert contacts == [
+        {"full_name": "Петрова Анна", "phone": "+375291112233", "email": None},
+        {"full_name": "Петрова Мария", "phone": None, "email": "maria@example.com"},
+    ]
+
+
+# --- The choices of the check -------------------------------------------------------------
+
+
+async def test_the_file_is_loaded_with_the_choices_it_was_checked_with(
+    client: AsyncClient, make_user: MakeUser
+):
+    await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    sheets = {"Клиенты": [["Код клиента", "Имя", "Канал прихода"], ["K-1", "Анна", "Сарафан"]]}
+    upload = await uploaded(client, body(sheets))
+    path = f"{API}/uploads/{upload['id']}"
+    skip = {"choices": {"channel": {"сарафан": "skip"}}}
+    assert (await finished_import(client, await client.post(f"{path}/check", json=skip)))[
+        "status"
+    ] == "done"
+
+    # The page opened again gets the choices back.
+    assert (await client.get(f"{API}/uploads/current")).json()["choices"] == skip["choices"]
+    other = await client.post(f"{path}/import", json={})
+    assert (other.status_code, other.json()["detail"]) == (409, "import_choices_changed")
+
+    job = await finished_import(client, await client.post(f"{path}/import", json=skip))
+    assert job["status"] == "done" and job["report"]["created"] == {"contacts": 1}
+
+
+# --- Refused rows -------------------------------------------------------------------------
+
+
+async def test_refused_rows_are_undone_without_reading_the_workspace_again(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Rows the database refuses after they wrote are taken back from what the import
+    remembers; the rows after them go on as if the refused ones were not in the file."""
+    await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    loads = 0
+    load = WorkbookImport.load
+
+    async def counted(self) -> None:
+        nonlocal loads
+        loads += 1
+        await load(self)
+
+    monkeypatch.setattr(WorkbookImport, "load", counted)
+    for sheet in ("clients", "consultations", "cases", "payments", "expenses", "bookings"):
+
+        def refusing(handler):
+            async def handle(self, r):
+                await handler(self, r)
+                if str(r.values.get("code", "")).startswith("BAD"):
+                    await self.session.flush()
+                    raise IntegrityError("refused", {}, Exception())
+
+            return handle
+
+        monkeypatch.setattr(
+            WorkbookImport, f"_{sheet}", refusing(getattr(WorkbookImport, f"_{sheet}"))
+        )
+    day = date(2025, 3, 1)
+    await run(client, {"Клиенты": [CLIENTS[0], CLIENTS[1]], "Кейсы": CASES})
+    loads = 0
+
+    report = await run(
+        client,
+        {
+            "Клиенты": [
+                ["Код клиента", "Фамилия", "Имя", "Телефон", "Email"],
+                ["BAD-1", "Петрова", "Анна", "+375291112233", "anna@example.com"],
+                ["BAD-2", "Сидоренко", "Ольга", "+375295550011", None],
+                ["K-3", "Сидоренко", "Ольга", "+375295550011", None],
+                ["K-1", "Петрова", "Анна", "+375291112233", None],
+            ],
+            "Консультации": [
+                ["Код консультации", "Код клиента", "Дата", "Решение"],
+                ["BAD-Q", "K-3", day, "думает"],
+                ["Q-1", "K-3", day, "думает"],
+            ],
+            "Кейсы": [
+                ["Код кейса", "Код клиента", "Страна визы", "Источник", "Стоимость"],
+                ["BAD-C", "K-3", "Польша", "А", 500],
+                ["C-3", "K-3", "Польша", "А", 600],
+                ["BAD-C1", "K-1", "Польша", None, 700],
+            ],
+            "Платежи": [
+                ["Код", "Код кейса", "Дата", "Сумма"],
+                ["BAD-P", "C-3", day, 100],
+                ["P-1", "C-3", day, 100],
+            ],
+            "Расходы": [
+                ["Код", "Код кейса", "Дата", "Описание", "Сумма"],
+                ["BAD-E", "C-3", day, "Курьер", 20],
+                ["E-1", "C-3", day, "Курьер", 20],
+            ],
+            "Брони": [
+                ["Код", "Код кейса", "Место"],
+                ["BAD-B", "C-3", "Hotel"],
+                ["B-1", "C-3", "Hotel"],
+            ],
+        },
+    )
+
+    # The import: once for its check, once for the load.
+    assert loads == 2
+    assert report["skipped_count"] == 8
+    assert {i["reason"] for i in report["skipped"]} == {"row_error"}
+    assert report["created"] == {
+        "contacts": 1,
+        "consultations": 1,
+        "cases": 1,
+        "finances": 1,
+        "payments": 1,
+        "expenses": 1,
+        "bookings": 1,
+    }
+    assert report["updated"] == {}
+    contacts = await rows(owner_engine, "SELECT full_name, email FROM contacts ORDER BY full_name")
+    assert contacts == [
+        {"full_name": "Петрова Анна", "email": None},
+        {"full_name": "Сидоренко Ольга", "email": None},
+    ]
+    cases = await rows(
+        owner_engine,
+        "SELECT c.number, f.price, k.decision FROM visa_cases c "
+        "LEFT JOIN case_finances f ON f.case_id = c.id "
+        "LEFT JOIN consultations k ON k.id = c.consultation_id ORDER BY c.number",
+    )
+    # The refused case took no number, and no price went to the case of an earlier file.
+    assert [(c["number"], c["price"], c["decision"]) for c in cases] == [
+        (1, None, None),
+        (2, 600, "yes"),
+    ]

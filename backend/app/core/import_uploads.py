@@ -34,6 +34,9 @@ class Upload:
     sample: list[Card] | None = None
     cards: list[Card] | None = None
     report: Any = None
+    # The choices for unknown list values the cards were made with: the file is loaded
+    # with the same ones.
+    choices: dict[str, dict[str, str]] | None = None
 
 
 _uploads: dict[uuid.UUID, Upload] = {}

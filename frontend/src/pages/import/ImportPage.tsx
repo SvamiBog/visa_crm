@@ -59,6 +59,21 @@ const COUNT_ORDER = [
 const SHOWN_ISSUES = 30;
 type Kind = ImportJob["kind"];
 
+// The choices that say something, in one order: «new» is what a value gets anyway.
+function chosenKey(choices: ImportChoices): string {
+  return JSON.stringify(
+    Object.keys(choices)
+      .sort()
+      .map((type) => [
+        type,
+        Object.entries(choices[type] ?? {})
+          .filter(([, choice]) => choice !== "new")
+          .sort(([a], [b]) => a.localeCompare(b)),
+      ])
+      .filter(([, picked]) => picked.length > 0),
+  );
+}
+
 export function ImportPage() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -86,6 +101,17 @@ export function ImportPage() {
       }));
     }
   }, [running.data, current?.id, jobs]);
+
+  // A check that ended, or the page opened again: the choices are those of the check.
+  const checkedChoices = current?.checked ? current.choices : null;
+  const checkedKey = JSON.stringify([current?.id, checkedChoices]);
+  useEffect(() => {
+    if (checkedChoices) setChoices(checkedChoices);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the key stands for the choices
+  }, [checkedKey]);
+  // The cards were made with other choices than the ones now picked: checked again first.
+  const choicesChanged =
+    checkedChoices !== null && chosenKey(choices) !== chosenKey(checkedChoices);
 
   const result = importJob.data?.status === "done" ? importJob.data.report : null;
   const imported = result !== null;
@@ -261,7 +287,9 @@ export function ImportPage() {
                     <button
                       type="button"
                       className="btn btn-p"
-                      disabled={starting.isPending || current.report.imported === 0}
+                      disabled={
+                        starting.isPending || current.report.imported === 0 || choicesChanged
+                      }
                       onClick={() => start("import")}
                     >
                       {t("import.confirm")}
@@ -276,7 +304,9 @@ export function ImportPage() {
                     </button>
                     {cancel}
                   </div>
-                  <p className="muted small">{t("import.confirmHint")}</p>
+                  <p className="muted small">
+                    {t(choicesChanged ? "import.choicesChanged" : "import.confirmHint")}
+                  </p>
                 </>
               )}
             </>

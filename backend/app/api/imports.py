@@ -105,6 +105,15 @@ def _choice(choice: str) -> bool:
     return True
 
 
+def _chosen(choices: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+    """The choices that say something: «new» is what an unknown value gets anyway."""
+    kept = {
+        kind: {key: choice for key, choice in values.items() if choice != NEW}
+        for kind, values in choices.items()
+    }
+    return {kind: values for kind, values in kept.items() if values}
+
+
 class IssueOut(BaseModel):
     # Runs of the old import (1.14, 1.16) had one sheet: no sheet, a row always.
     sheet: str | None = None
@@ -178,6 +187,8 @@ class UploadOut(BaseModel):
     sampled: bool
     checked: bool
     report: ReportOut | None
+    # The choices of the check: the page opened again goes on with them.
+    choices: dict[str, dict[str, str]]
 
 
 class FieldOut(BaseModel):
@@ -370,7 +381,7 @@ def _start(
         if kind == "sample":
             upload.sample = found
             return None
-        upload.cards, upload.report = found, out
+        upload.cards, upload.report, upload.choices = found, out, choices
         return out
 
     try:
@@ -381,7 +392,7 @@ def _start(
         raise HTTPException(status.HTTP_409_CONFLICT, "import_running") from error
     if kind == "check":
         # The cards of an older check no longer hold until this one is done.
-        upload.cards = upload.report = None
+        upload.cards = upload.report = upload.choices = None
     return _job_out(job)
 
 
@@ -410,6 +421,7 @@ def _upload_out(upload: Upload) -> UploadOut:
         sampled=upload.sample is not None,
         checked=upload.cards is not None,
         report=upload.report,
+        choices=upload.choices or {},
     )
 
 
@@ -536,7 +548,10 @@ async def start_import(upload_id: uuid.UUID, body: ChoicesIn, user: Specialist) 
     upload = _upload(upload_id, user)
     if upload.cards is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "import_not_checked")
-    return _start(upload, user, "import", body.choices)
+    if _chosen(body.choices) != _chosen(upload.choices or {}):
+        # The cards she looked through were made with other choices: checked again first.
+        raise HTTPException(status.HTTP_409_CONFLICT, "import_choices_changed")
+    return _start(upload, user, "import", upload.choices or {})
 
 
 @router.get("/jobs")
