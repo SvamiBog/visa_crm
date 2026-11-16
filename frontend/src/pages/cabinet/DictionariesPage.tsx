@@ -871,7 +871,7 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
                 />
               )}
               {row.terms_type === "fixed" && (
-                <>
+                <span className="row-editor-pair">
                   <input
                     aria-label={t("dict.amount")}
                     inputMode="decimal"
@@ -880,6 +880,7 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
                     onChange={(e) => setRow(index, { amount: e.target.value })}
                   />
                   <select
+                    className="select-narrow"
                     aria-label={t("dict.currency")}
                     value={row.currency ?? "BYN"}
                     onChange={(e) => setRow(index, { currency: e.target.value })}
@@ -888,7 +889,7 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
                       <option key={c}>{c}</option>
                     ))}
                   </select>
-                </>
+                </span>
               )}
               <button
                 type="button"
@@ -1251,6 +1252,7 @@ function RegistrarForm({
                 onChange={(e) => setRow(index, { amount: e.target.value })}
               />
               <select
+                className="select-narrow"
                 aria-label={t("dict.currency")}
                 value={row.currency}
                 onChange={(e) => setRow(index, { currency: e.target.value })}
