@@ -6,12 +6,11 @@ import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../api";
 import { ME_KEY, useMe, type Me } from "../auth";
 import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
 import { formatDate } from "../contacts";
+import { changeLanguage, LANGUAGES } from "../i18n";
 import { useOwnSubscription } from "../subscriptions";
 import { useMoney } from "./clients/Finance";
 import { Row } from "./clients/ui";
 import { applyTheme, DEFAULT_THEME, THEMES, type UiTheme } from "../theme";
-
-const LANGUAGES = ["ru", "en"] as const;
 
 /** The user's own settings: login email, style and language. */
 export function SettingsPage() {
@@ -87,7 +86,7 @@ export function SettingsPage() {
                 name="language"
                 value={lng}
                 checked={i18n.language === lng}
-                onChange={() => void i18n.changeLanguage(lng)}
+                onChange={() => void changeLanguage(lng)}
               />
               {t(`lang.${lng}`)}
             </label>
