@@ -11,9 +11,24 @@ function isTheme(value: unknown): value is UiTheme {
   return typeof value === "string" && (THEMES as readonly string[]).includes(value);
 }
 
+/** A phone colours its status bar and the browser's toolbar by `theme-color`: it takes
+    the page's background of the chosen style, so the dark style has no white bar. */
+function syncBrowserColour() {
+  const colour = getComputedStyle(document.documentElement).getPropertyValue("--c-bg").trim();
+  if (!colour) return;
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.append(meta);
+  }
+  meta.content = colour;
+}
+
 export function applyTheme(theme: string) {
   const value = isTheme(theme) ? theme : DEFAULT_THEME;
   document.documentElement.dataset.uiTheme = value;
+  syncBrowserColour();
   try {
     localStorage.setItem(STORAGE_KEY, value);
   } catch {
