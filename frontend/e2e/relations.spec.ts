@@ -25,7 +25,9 @@ type Card = { relations: { related_id: string; label: string | null }[] };
 async function unlinkedPair(page: Page, which: number): Promise<[Item, Item]> {
   const found = await page.request.post("/api/contacts/search", { data: {} });
   expect(found.ok()).toBe(true);
-  const items = (await found.json()).items as Item[];
+  // Oldest first: the demo's own cards. The newest are cards other tests make and delete
+  // while this one runs (partners.spec.ts), and a deleted card ends the test with «Не найдено».
+  const items = ((await found.json()).items as Item[]).reverse();
   const unique = (item: Item) => items.filter((i) => i.full_name === item.full_name).length === 1;
   let seen = 0;
   for (let i = 0; i + 1 < items.length; i += 2) {

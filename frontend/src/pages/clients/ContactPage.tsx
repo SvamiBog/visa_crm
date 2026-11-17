@@ -147,7 +147,7 @@ export function ContactPage() {
         </div>
         <div className="actions">
           {telegramUrl(contact.telegram) && (
-            <a className="btn" href={telegramUrl(contact.telegram)!} target="_blank" rel="noreferrer">
+            <a className="btn btn-telegram" href={telegramUrl(contact.telegram)!} target="_blank" rel="noreferrer">
               {t("contacts.writeTelegram")}
             </a>
           )}
