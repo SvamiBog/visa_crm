@@ -7,7 +7,8 @@ import { readFileSync } from "node:fs";
 //   header and in a case's «Финансы» on a phone);
 // - a button has a fill of its own, not the colour of the card or the page under it
 //   (on the dark theme they were empty black boxes);
-// - «Удалить карточку» is red before it is touched: a phone has no hover.
+// - «Удалить карточку» is red before it is touched: a phone has no hover;
+// - «Написать в Telegram» is filled with Telegram's blue in every theme.
 // Both languages; the theme is switched in place, so all four are checked on one load.
 
 type Lang = "ru" | "en";
@@ -28,19 +29,28 @@ const PASSWORD = process.env.DEMO_PASSWORD ?? "";
 
 type Card = { can_delete: boolean; cases: unknown[] | null };
 
-/** A card that can still be deleted (no history) and a card with a case and its money. */
-async function demoCards(page: Page): Promise<{ plain: string; withCase: string }> {
+type Found = { id: string; telegram: string | null };
+
+/** A card that can still be deleted (no history), a card with a case and its money, and
+    a card whose Telegram is a username, so it shows «Написать в Telegram». */
+async function demoCards(
+  page: Page,
+): Promise<{ plain: string; withCase: string; chat: string }> {
   const found = await page.request.post("/api/contacts/search", { data: {} });
   expect(found.ok()).toBe(true);
   let plain = "";
   let withCase = "";
-  for (const { id } of (await found.json()).items as { id: string }[]) {
+  let chat = "";
+  // Oldest first: the demo's own cards, not the ones other tests make and delete meanwhile.
+  for (const { id, telegram } of ((await found.json()).items as Found[]).reverse()) {
+    // The rule of telegramUrl in src/contacts.ts.
+    if (!chat && telegram && /^[A-Za-z0-9_]{5,32}$/.test(telegram)) chat = id;
     const card = (await (await page.request.get(`/api/contacts/${id}`)).json()) as Card;
     if (!plain && card.can_delete) plain = id;
     if (!withCase && card.cases?.length) withCase = id;
-    if (plain && withCase) return { plain, withCase };
+    if (plain && withCase && chat) return { plain, withCase, chat };
   }
-  throw new Error("The demo has no card without history or no card with a case");
+  throw new Error("The demo has no card without history, with a case or with a Telegram");
 }
 
 /** Buttons of the page (not the menu) that sit in one row closer than MIN_GAP. */
@@ -81,16 +91,16 @@ function unfilledButtons(page: Page): Promise<string[]> {
   });
 }
 
-/** The theme's red, as the browser computes it. */
-function themeRed(page: Page): Promise<string> {
-  return page.evaluate(() => {
+/** A colour variable of styles.css (`--c-red`), as the browser computes it. */
+function themeColor(page: Page, variable: string): Promise<string> {
+  return page.evaluate((name) => {
     const probe = document.createElement("span");
-    probe.style.color = "var(--c-red)";
+    probe.style.color = `var(${name})`;
     document.body.append(probe);
-    const red = getComputedStyle(probe).color;
+    const color = getComputedStyle(probe).color;
     probe.remove();
-    return red;
-  });
+    return color;
+  }, variable);
 }
 
 for (const lang of ["ru", "en"] as const) {
@@ -109,14 +119,20 @@ for (const lang of ["ru", "en"] as const) {
         data: { email: EMAIL, password: PASSWORD },
       });
       expect(login.ok(), await login.text()).toBe(true);
-      const { plain, withCase } = await demoCards(page);
+      const { plain, withCase, chat } = await demoCards(page);
+      const header = page.locator(".page-header");
+      const writeTelegram = header.getByRole("link", {
+        name: t("contacts.writeTelegram"),
+        exact: true,
+      });
 
       for (const [id, ready] of [
-        [plain, t("contacts.deleteCard")],
-        [withCase, t("finance.addPayment")],
-      ]) {
+        [plain, page.getByRole("button", { name: t("contacts.deleteCard"), exact: true })],
+        [withCase, page.getByRole("button", { name: t("finance.addPayment"), exact: true })],
+        [chat, writeTelegram],
+      ] as const) {
         await page.goto(`/app/clients/${id}`);
-        await expect(page.getByRole("button", { name: ready, exact: true })).toBeVisible();
+        await expect(ready).toBeVisible();
         await expect(page.getByRole("heading", { name: t("contacts.timeline") })).toBeVisible();
 
         for (const theme of THEMES) {
@@ -133,13 +149,21 @@ for (const lang of ["ru", "en"] as const) {
             )
             .toEqual([]);
           if (id === plain) {
-            const remove = page
-              .locator(".page-header")
-              .getByRole("button", { name: t("contacts.deleteCard"), exact: true });
+            const remove = header.getByRole("button", {
+              name: t("contacts.deleteCard"),
+              exact: true,
+            });
             // The colour is there as soon as the theme is set; a short wait keeps a red run quick.
             await expect
               .soft(remove, `«Удалить карточку» is red untouched (${where})`)
-              .toHaveCSS("color", await themeRed(page), { timeout: 1000 });
+              .toHaveCSS("color", await themeColor(page, "--c-red"), { timeout: 1000 });
+          }
+          if (id === chat) {
+            await expect
+              .soft(writeTelegram, `«Написать в Telegram» is Telegram's blue (${where})`)
+              .toHaveCSS("background-color", await themeColor(page, "--c-telegram"), {
+                timeout: 1000,
+              });
           }
         }
       }

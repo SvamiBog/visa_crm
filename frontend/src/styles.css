@@ -204,6 +204,10 @@
   font-family: var(--font-body);
   color: var(--c-text);
   accent-color: var(--c-primary);
+  /* Telegram's own blue, the same in every theme: the button that opens a client's chat */
+  --c-telegram: #229ed9;
+  --c-telegram-press: #1b86b9;
+  --c-on-telegram: #ffffff;
 }
 
 * {
@@ -396,6 +400,20 @@ h1 {
   color: var(--c-red);
 }
 
+/* «Написать в Telegram» in the messenger's colour, so it is found at a glance */
+.btn-telegram {
+  background: var(--c-telegram);
+  border-color: var(--c-telegram);
+  color: var(--c-on-telegram);
+  font-weight: 600;
+}
+
+.btn-telegram:active:not(:disabled) {
+  background: var(--c-telegram-press);
+  border-color: var(--c-telegram-press);
+  color: var(--c-on-telegram);
+}
+
 @media (hover: hover) {
   .btn:hover:not(:disabled) {
     background: var(--c-primary-soft);
@@ -413,6 +431,12 @@ h1 {
     background: var(--c-red-bg);
     border-color: var(--c-red);
     color: var(--c-red);
+  }
+
+  .btn-telegram:hover:not(:disabled) {
+    background: var(--c-telegram-press);
+    border-color: var(--c-telegram-press);
+    color: var(--c-on-telegram);
   }
 }
 
