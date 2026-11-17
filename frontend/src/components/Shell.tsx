@@ -6,6 +6,7 @@ import { apiGet, apiPost } from "../api";
 import { ME_KEY, useMe, type Role } from "../auth";
 import type { SubscriptionState } from "../subscriptions";
 import { Icon, type IconName } from "./Icon";
+import { PageArea } from "./LazyPage";
 import { Logo } from "./Logo";
 
 type Area = "admin" | "cabinet";
@@ -184,6 +185,11 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   // Until the modules come, the settings menu's place is kept: the page does not move
   // aside (down on a phone) when the menu appears.
   const submenuSpace = submenu || (inSettings && !ready);
+  // The browser's tab names the section (WCAG 2.4.2), never a client: titles stay in the
+  // browser's history. The longest match wins, so a client's card is «Клиенты».
+  const section = [...MENU[area].flatMap((group) => group.items), ...SETTINGS[area], ACCOUNT]
+    .filter((page) => isAt(page.to, pathname))
+    .sort((a, b) => b.to.length - a.to.length)[0];
   const logout = useMutation({
     mutationFn: () => apiPost<void>("/auth/logout"),
     onSettled: () => {
@@ -197,6 +203,15 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
     setMenuOpen(false);
     setAccountOpen(false);
   }, [pathname]);
+  const sectionKey = section?.key;
+  useEffect(() => {
+    const app = t("app.title");
+    document.title = sectionKey ? `${t(sectionKey)} · ${app}` : app;
+    // Login and the other pages outside the shell carry the app's name alone.
+    return () => {
+      document.title = app;
+    };
+  }, [sectionKey, t]);
   useEffect(() => {
     if (!menuOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -355,10 +370,12 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
                 </div>
               </nav>
             )}
-            <div className="settings-body">{children}</div>
+            <div className="settings-body">
+              <PageArea>{children}</PageArea>
+            </div>
           </div>
         ) : (
-          children
+          <PageArea>{children}</PageArea>
         )}
       </main>
       {menuOpen && (

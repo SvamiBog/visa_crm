@@ -55,7 +55,7 @@ export function VaultPage() {
               entry={entry}
               systemName={systemName(entry.system_id)}
               onEdit={() => setEditing(entry)}
-              level={2}
+              headingLevel={2}
             >
               <div className="kv">
                 <span className="muted">{t("vault.accountsOnIt")}</span>
