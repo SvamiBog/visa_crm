@@ -26,15 +26,32 @@ export function SettingsPage() {
     onSuccess: (updated) => queryClient.setQueryData(ME_KEY, updated),
     onError: () => applyTheme(current),
   });
+  // The subscription stands first: the page waits for it, so the cards below do not jump
+  // down when it arrives.
+  const specialist = me.data?.role === "specialist";
+  const own = useOwnSubscription(specialist);
+  const loading = me.isPending || (specialist && own.isPending);
+
+  const header = (
+    <header className="page-header">
+      <div>
+        <h1>{t("settings.title")}</h1>
+        <div className="muted">{t("settings.subtitle")}</div>
+      </div>
+    </header>
+  );
+  if (loading) {
+    return (
+      <div className="page">
+        {header}
+        <p className="muted">{t("common.loading")}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>{t("settings.title")}</h1>
-          <div className="muted">{t("settings.subtitle")}</div>
-        </div>
-      </header>
+      {header}
 
       <OwnSubscription />
       <EmailChange />

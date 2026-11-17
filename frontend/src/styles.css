@@ -1081,7 +1081,9 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
 @media (pointer: coarse) {
   .nav-a,
   .account-toggle,
-  .btn-sm {
+  .btn-sm,
+  .link-button,
+  .disclosure-title {
     min-height: 44px;
   }
 }
@@ -1235,15 +1237,17 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 16px;
 }
 
 /* Fields in a row line up: each takes three rows of the grid (label, control, hint)
    shared with its neighbours, so a label that wraps onto two lines does not push its
-   control below theirs (frontend/e2e/forms.spec.ts). */
+   control below theirs (frontend/e2e/forms.spec.ts). A field narrows with its column:
+   a file picker's own width does not push the page sideways on a phone. */
 .form-grid > * {
   grid-row: span 3;
+  min-width: 0;
 }
 
 .form-grid > .field {
@@ -2278,6 +2282,11 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   .settings-a.active {
     border-color: var(--c-primary);
   }
+
+  /* The menu's place while the modules load (components/Shell.tsx): one row of items */
+  .settings-nav-wait {
+    min-height: 44px;
+  }
 }
 
 /* Phone: the frequent pages on a bar at the bottom, under the thumb; «Ещё» opens the rest
@@ -3101,6 +3110,8 @@ a.kpi:active {
 
 .import-file input[type="file"] {
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
   padding: 10px 12px;
 }
 

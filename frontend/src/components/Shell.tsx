@@ -182,6 +182,9 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   // modules arrive.
   const inSettings = [...SETTINGS[area], ACCOUNT].some((page) => isAt(page.to, pathname));
   const submenu = ready && settings.length > 1;
+  // Until the modules come, the settings menu's place is kept: the page does not move
+  // aside (down on a phone) when the menu appears.
+  const submenuSpace = submenu || (inSettings && !ready);
   // The browser's tab names the section (WCAG 2.4.2), never a client: titles stay in the
   // browser's history. The longest match wins, so a client's card is «Клиенты».
   const section = [...MENU[area].flatMap((group) => group.items), ...SETTINGS[area], ACCOUNT]
@@ -340,7 +343,10 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
           </div>
         )}
         {inSettings ? (
-          <div className={submenu ? "settings-layout with-nav" : "settings-layout"}>
+          <div className={submenuSpace ? "settings-layout with-nav" : "settings-layout"}>
+            {submenuSpace && !submenu && (
+              <div className="settings-nav settings-nav-wait" aria-hidden="true" />
+            )}
             {submenu && (
               <nav ref={settingsNavRef} className="settings-nav" aria-label={t("nav.settings")}>
                 <div
