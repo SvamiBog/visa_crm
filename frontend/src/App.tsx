@@ -1,34 +1,53 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, type ReactNode } from "react";
+import { Suspense, useEffect, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { apiGet } from "./api";
 import { homePath, useMe, type Role } from "./auth";
+import { lazyPage } from "./components/LazyPage";
 import { Shell } from "./components/Shell";
-import { ReferencePage } from "./pages/admin/ReferencePage";
-import { SpecialistsPage } from "./pages/admin/SpecialistsPage";
-import { SubscriptionsPage } from "./pages/admin/SubscriptionsPage";
-import { AnalyticsPage } from "./pages/analytics/AnalyticsPage";
-import { ImportPage } from "./pages/import/ImportPage";
-import { AuditPage } from "./pages/AuditPage";
-import { CountriesPage } from "./pages/cabinet/CountriesPage";
-import { ChecklistsPage } from "./pages/checklists/ChecklistsPage";
+import { BookingsPage } from "./pages/bookings/BookingsPage";
+import { HomePage } from "./pages/cabinet/HomePage";
 import { ClientsPage } from "./pages/clients/ClientsPage";
 import { ContactPage } from "./pages/clients/ContactPage";
-import { BookingsPage } from "./pages/bookings/BookingsPage";
-import { QueuesPage } from "./pages/queues/QueuesPage";
-import { RegistrarsPage } from "./pages/registrars/RegistrarsPage";
-import { VaultPage } from "./pages/vault/VaultPage";
-import { DictionariesPage } from "./pages/cabinet/DictionariesPage";
-import { EmployeesPage } from "./pages/cabinet/EmployeesPage";
-import { HomePage } from "./pages/cabinet/HomePage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { LoginPage } from "./pages/LoginPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { StayCalculatorPage } from "./pages/stay/StayCalculatorPage";
-import { TemplatesPage } from "./pages/templates/TemplatesPage";
+import { QueuesPage } from "./pages/queues/QueuesPage";
 import { TwoFactorSetupPage } from "./pages/TwoFactorSetupPage";
+import { VaultPage } from "./pages/vault/VaultPage";
 import { applyTheme } from "./theme";
+
+// The pages of everyday work (the first group of the menu) and the login pages come with the
+// app; the rest are fetched the first time they open, so the first visit loads less.
+const AnalyticsPage = lazyPage(() => import("./pages/analytics/AnalyticsPage"), "AnalyticsPage");
+const AuditPage = lazyPage(() => import("./pages/AuditPage"), "AuditPage");
+const ChecklistsPage = lazyPage(
+  () => import("./pages/checklists/ChecklistsPage"),
+  "ChecklistsPage",
+);
+const CountriesPage = lazyPage(() => import("./pages/cabinet/CountriesPage"), "CountriesPage");
+const DictionariesPage = lazyPage(
+  () => import("./pages/cabinet/DictionariesPage"),
+  "DictionariesPage",
+);
+const EmployeesPage = lazyPage(() => import("./pages/cabinet/EmployeesPage"), "EmployeesPage");
+const ImportPage = lazyPage(() => import("./pages/import/ImportPage"), "ImportPage");
+const ReferencePage = lazyPage(() => import("./pages/admin/ReferencePage"), "ReferencePage");
+const RegistrarsPage = lazyPage(
+  () => import("./pages/registrars/RegistrarsPage"),
+  "RegistrarsPage",
+);
+const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage");
+const SpecialistsPage = lazyPage(() => import("./pages/admin/SpecialistsPage"), "SpecialistsPage");
+const StayCalculatorPage = lazyPage(
+  () => import("./pages/stay/StayCalculatorPage"),
+  "StayCalculatorPage",
+);
+const SubscriptionsPage = lazyPage(
+  () => import("./pages/admin/SubscriptionsPage"),
+  "SubscriptionsPage",
+);
+const TemplatesPage = lazyPage(() => import("./pages/templates/TemplatesPage"), "TemplatesPage");
 
 function Loading() {
   const { t } = useTranslation();
@@ -101,7 +120,8 @@ export default function App() {
   }, [theme]);
 
   return (
-    <>
+    // Lazy pages wait in the Shell's page area; this catches only one rendered outside it.
+    <Suspense fallback={<Loading />}>
       <EnvBanner />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -334,6 +354,6 @@ export default function App() {
         />
         <Route path="*" element={<RootRedirect />} />
       </Routes>
-    </>
+    </Suspense>
   );
 }

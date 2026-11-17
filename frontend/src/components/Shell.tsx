@@ -6,6 +6,7 @@ import { apiGet, apiPost } from "../api";
 import { ME_KEY, useMe, type Role } from "../auth";
 import type { SubscriptionState } from "../subscriptions";
 import { Icon, type IconName } from "./Icon";
+import { PageArea } from "./LazyPage";
 import { Logo } from "./Logo";
 
 type Area = "admin" | "cabinet";
@@ -349,10 +350,12 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
                 </div>
               </nav>
             )}
-            <div className="settings-body">{children}</div>
+            <div className="settings-body">
+              <PageArea>{children}</PageArea>
+            </div>
           </div>
         ) : (
-          children
+          <PageArea>{children}</PageArea>
         )}
       </main>
       {menuOpen && (
