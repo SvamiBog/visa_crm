@@ -98,15 +98,15 @@
 
 /* C: warm, rounded, serif headings; the menu is light */
 [data-ui-theme="warm"] {
-  --c-primary: #b4532a;
+  --c-primary: #a04824;
   --c-primary-hover: #8f3f1e;
   --c-primary-soft: #f6e0d3;
   --c-on-primary: #fff8f2;
-  --c-link: #b4532a;
+  --c-link: #a04824;
   --c-bg: #f6f1ea;
   --c-surface: #fffdf9;
   --c-text: #2b2420;
-  --c-muted: #7a6e64;
+  --c-muted: #71655b;
   --c-border: #e8dfd2;
   --c-border-strong: #dccfbf;
   --c-row: #efe7da;
@@ -118,7 +118,7 @@
   --c-nav-hover: #e3d8c9;
   --c-nav-active: #dccfbf;
   --c-nav-line: #dccfbf;
-  --c-nav-muted: #8a7d71;
+  --c-nav-muted: #6f6358;
   --c-red-bg: #f6d9d3;
   --c-red: #9a2b1e;
   --c-orange-bg: #f6e0d3;
@@ -166,7 +166,7 @@
   --c-nav-hover: #f0f0f0;
   --c-nav-active: #e6e6e6;
   --c-nav-line: #eaeaea;
-  --c-nav-muted: #8a8a8a;
+  --c-nav-muted: #6b6b6b;
   --c-red-bg: #fdf1ef;
   --c-red: #b3261e;
   --c-orange-bg: #fdf4ea;
@@ -204,9 +204,10 @@
   font-family: var(--font-body);
   color: var(--c-text);
   accent-color: var(--c-primary);
-  /* Telegram's own blue, the same in every theme: the button that opens a client's chat */
-  --c-telegram: #229ed9;
-  --c-telegram-press: #1b86b9;
+  /* Telegram's blue, the same in every theme: the button that opens a client's chat.
+     A step darker than the logo's #229ed9, so its white label reads (4.9:1). */
+  --c-telegram: #1a78ab;
+  --c-telegram-press: #16699a;
   --c-on-telegram: #ffffff;
 }
 
@@ -225,6 +226,8 @@ body {
   background: var(--c-bg);
   font-size: 14px;
   line-height: 1.45;
+  /* No lone «г.» or «дн.» on a line of its own */
+  text-wrap: pretty;
 }
 
 a {
@@ -234,6 +237,19 @@ a {
 
 a:hover {
   color: var(--c-primary-hover);
+}
+
+/* Keyboard focus: one ring in the theme's accent, not the browser's black frame */
+:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}
+
+/* A field shows its focus on its own edge: the border and a line around it in the accent */
+:is(input:not([type="checkbox"], [type="radio"]), select, textarea):focus-visible {
+  outline: 1px solid var(--c-primary);
+  outline-offset: 0;
+  border-color: var(--c-primary);
 }
 
 h1,
@@ -246,6 +262,7 @@ h1 {
   margin: 0;
   font-size: 26px;
   font-weight: 600;
+  text-wrap: balance;
 }
 
 .muted {
@@ -539,7 +556,8 @@ h1 {
 .field input:focus,
 .field select:focus,
 .input-action input:focus {
-  outline: 2px solid var(--c-primary-soft);
+  outline: 1px solid var(--c-primary);
+  outline-offset: 0;
   border-color: var(--c-primary);
 }
 
@@ -2481,9 +2499,13 @@ a.nav-a:hover {
   padding-right: 0;
 }
 
-.money-cell {
+/* A column of figures: right-aligned with its heading, digits of equal width so the
+   places line up (only here: in Onest a tabular «1» looks like «1 9» in running text) */
+.money-cell,
+.tbl th.money-cell {
   text-align: right;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .money-total td {
@@ -2559,11 +2581,17 @@ a.nav-a:hover {
   gap: 8px;
 }
 
-/* Главный экран: показатели, воронка, очереди */
+/* Главный экран: показатели, воронка, очереди.
+   The figures are one panel divided by thin lines, not a row of separate tiles: each
+   figure draws a line on its left and top, and the ones on the panel's edge fall
+   under its border (overflow: hidden), so the lines stay right however the row wraps. */
 .kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
-  gap: 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
 .kpi {
@@ -2571,17 +2599,22 @@ a.nav-a:hover {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  margin: -1px 0 0 -1px;
   padding: 16px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius);
+  border-top: 1px solid var(--c-border);
+  border-left: 1px solid var(--c-border);
   color: var(--c-text);
   text-decoration: none;
 }
 
 a.kpi:hover {
-  border-color: var(--c-border-strong);
+  background: var(--c-row);
   text-decoration: none;
+}
+
+/* The panel clips what is outside it, so the focus ring goes inside the figure */
+a.kpi:focus-visible {
+  outline-offset: -3px;
 }
 
 .kpi-label,
@@ -2595,6 +2628,7 @@ a.kpi:hover {
   font-size: 24px;
   font-weight: 600;
   overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .kpi-value small {

@@ -134,7 +134,7 @@ export function EmployeesPage() {
                   <th>{t("employees.colName")}</th>
                   <th>{t("auth.email")}</th>
                   <th>{t("admin.colModules")}</th>
-                  <th>{t("employees.colCases")}</th>
+                  <th className="money-cell">{t("employees.colCases")}</th>
                   <th>{t("admin.colStatus")}</th>
                   <th>{t("employees.colTwoFactor")}</th>
                   <th aria-label={t("admin.colActions")} />
@@ -150,7 +150,7 @@ export function EmployeesPage() {
                         ? e.modules.map((m) => t(`modules.name.${m}`)).join(", ")
                         : t("employees.noModules")}
                     </td>
-                    <td className="muted">{e.case_count}</td>
+                    <td className="muted money-cell">{e.case_count}</td>
                     <td>
                       <StatusChip e={e} />
                     </td>
