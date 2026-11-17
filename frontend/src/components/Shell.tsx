@@ -181,6 +181,11 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   // modules arrive.
   const inSettings = [...SETTINGS[area], ACCOUNT].some((page) => isAt(page.to, pathname));
   const submenu = ready && settings.length > 1;
+  // The browser's tab names the section (WCAG 2.4.2), never a client: titles stay in the
+  // browser's history. The longest match wins, so a client's card is «Клиенты».
+  const section = [...MENU[area].flatMap((group) => group.items), ...SETTINGS[area], ACCOUNT]
+    .filter((page) => isAt(page.to, pathname))
+    .sort((a, b) => b.to.length - a.to.length)[0];
   const logout = useMutation({
     mutationFn: () => apiPost<void>("/auth/logout"),
     onSettled: () => {
@@ -194,6 +199,15 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
     setMenuOpen(false);
     setAccountOpen(false);
   }, [pathname]);
+  const sectionKey = section?.key;
+  useEffect(() => {
+    const app = t("app.title");
+    document.title = sectionKey ? `${t(sectionKey)} · ${app}` : app;
+    // Login and the other pages outside the shell carry the app's name alone.
+    return () => {
+      document.title = app;
+    };
+  }, [sectionKey, t]);
   useEffect(() => {
     if (!menuOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {

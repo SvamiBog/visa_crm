@@ -14,6 +14,9 @@
   --c-muted: #5e6778;
   --c-border: #e3e6ec;
   --c-border-strong: #d3d8e1;
+  /* The edge of a text field or a list: 3:1 on the card and the page (WCAG 1.4.11), so an
+     empty field is seen without its label */
+  --c-field-border: #848d9e;
   --c-row: #eef0f4;
   /* An ordinary button: a fill of its own, off both the card and the page */
   --c-btn: #edf0f5;
@@ -66,6 +69,7 @@
   --c-muted: #8b93a3;
   --c-border: #232833;
   --c-border-strong: #2f3542;
+  --c-field-border: #606a7d;
   --c-row: #222731;
   /* Raised above the card: on the dark theme a button is not a black box */
   --c-btn: #252b36;
@@ -98,17 +102,19 @@
 
 /* C: warm, rounded, serif headings; the menu is light */
 [data-ui-theme="warm"] {
-  --c-primary: #b4532a;
+  /* The accent, links and grey text: 4.5:1 on the page, the rows and the selected tab */
+  --c-primary: #a34b26;
   --c-primary-hover: #8f3f1e;
   --c-primary-soft: #f6e0d3;
   --c-on-primary: #fff8f2;
-  --c-link: #b4532a;
+  --c-link: #a34b26;
   --c-bg: #f6f1ea;
   --c-surface: #fffdf9;
   --c-text: #2b2420;
-  --c-muted: #7a6e64;
+  --c-muted: #70655c;
   --c-border: #e8dfd2;
   --c-border-strong: #dccfbf;
+  --c-field-border: #968878;
   --c-row: #efe7da;
   --c-btn: #f1e9de;
   --c-btn-border: #dccfbf;
@@ -118,7 +124,8 @@
   --c-nav-hover: #e3d8c9;
   --c-nav-active: #dccfbf;
   --c-nav-line: #dccfbf;
-  --c-nav-muted: #8a7d71;
+  /* The labels of the phone's bottom bar and the menu's headings: 4.5:1 on the menu */
+  --c-nav-muted: #675d54;
   --c-red-bg: #f6d9d3;
   --c-red: #9a2b1e;
   --c-orange-bg: #f6e0d3;
@@ -157,6 +164,7 @@
   --c-muted: #6b6b6b;
   --c-border: #eaeaea;
   --c-border-strong: #d4d4d4;
+  --c-field-border: #8f8f8f;
   --c-row: #f0f0f0;
   --c-btn: #f3f3f3;
   --c-btn-border: #d4d4d4;
@@ -166,7 +174,8 @@
   --c-nav-hover: #f0f0f0;
   --c-nav-active: #e6e6e6;
   --c-nav-line: #eaeaea;
-  --c-nav-muted: #8a8a8a;
+  /* The labels of the phone's bottom bar and the menu's headings: 4.5:1 on the menu */
+  --c-nav-muted: #6b6b6b;
   --c-red-bg: #fdf1ef;
   --c-red: #b3261e;
   --c-orange-bg: #fdf4ea;
@@ -204,9 +213,11 @@
   font-family: var(--font-body);
   color: var(--c-text);
   accent-color: var(--c-primary);
-  /* Telegram's own blue, the same in every theme: the button that opens a client's chat */
-  --c-telegram: #229ed9;
-  --c-telegram-press: #1b86b9;
+  /* Telegram's blue, the same in every theme: the button that opens a client's chat. A
+     shade darker than the messenger's own #229ed9, which holds white text at only 3:1;
+     this one holds it at 4.6:1 (WCAG AA). */
+  --c-telegram: #1b7cab;
+  --c-telegram-press: #166f9a;
   --c-on-telegram: #ffffff;
 }
 
@@ -370,6 +381,12 @@ h1 {
   cursor: default;
 }
 
+/* The keyboard's frame: the same ring as links and the menu, not the browser's own */
+.btn:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}
+
 .btn-p {
   background: var(--c-primary);
   border-color: var(--c-primary);
@@ -528,7 +545,7 @@ h1 {
 .input-action input {
   min-height: 44px;
   padding: 0 12px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -965,7 +982,8 @@ a.nav-a:hover {
 /* A finger needs a bigger target than a mouse. */
 @media (pointer: coarse) {
   .nav-a,
-  .account-toggle {
+  .account-toggle,
+  .btn-sm {
     min-height: 44px;
   }
 }
@@ -1300,7 +1318,7 @@ a.nav-a:hover {
 .row-editor select {
   min-height: 40px;
   padding: 0 10px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -1379,7 +1397,7 @@ a.nav-a:hover {
 .field textarea {
   min-height: 80px;
   padding: 10px 12px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -1392,7 +1410,7 @@ a.nav-a:hover {
   width: 100%;
   min-height: 80px;
   padding: 10px 12px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -1529,13 +1547,13 @@ a.nav-a:hover {
 
 .q-meta {
   color: var(--c-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .q-note {
   flex-basis: 100%;
   color: var(--c-muted);
-  font-size: 13px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
@@ -2506,6 +2524,18 @@ a.nav-a:hover {
   font-size: 12px;
 }
 
+/* A payment's «Изменить» and «Удалить» on a phone: a finger-sized target each, apart */
+@media (pointer: coarse) {
+  .finance-actions {
+    gap: 8px;
+  }
+
+  .finance-actions .link-button {
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+}
+
 /* Registrar settlements */
 .chips-inline {
   display: inline-flex;
@@ -2888,7 +2918,7 @@ a.kpi:hover {
   flex: 1 1 180px;
   min-height: 36px;
   padding: 0 10px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -2994,7 +3024,7 @@ a.kpi:hover {
 .import-unknown select {
   min-height: 40px;
   max-width: 100%;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -3411,7 +3441,7 @@ a.kpi:hover {
   min-height: 36px;
   max-width: 100%;
   padding: 0 8px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
