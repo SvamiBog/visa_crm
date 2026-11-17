@@ -208,6 +208,40 @@
   --c-telegram: #229ed9;
   --c-telegram-press: #1b86b9;
   --c-on-telegram: #ffffff;
+  /* Motion, the same in every theme (decisions «Отклик на нажатие»). The built-in
+     easings are too weak: a strong ease-out for what answers a press or comes in, the
+     iOS sheet curve for a panel that slides up. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* A phone: no grey flash of the browser on a tap (each control shows its own pressed
+   state below) and no text blown up when the phone is turned sideways. */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* A tap is a click at once: the browser does not wait to see whether it is a double tap. */
+a,
+button,
+label,
+summary,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* Holding a finger on a control does not select its label or open the link's preview. */
+button,
+.btn,
+.tab,
+.bar-a {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.bar-a {
+  -webkit-touch-callout: none;
 }
 
 * {
@@ -232,8 +266,10 @@ a {
   text-decoration: none;
 }
 
-a:hover {
-  color: var(--c-primary-hover);
+@media (hover: hover) and (pointer: fine) {
+  a:hover {
+    color: var(--c-primary-hover);
+  }
 }
 
 h1,
@@ -256,8 +292,9 @@ h1 {
   font-size: 12px;
 }
 
+/* The small viewport: the first screen fits under the phone browser's address bar. */
 .center-screen {
-  min-height: 100vh;
+  min-height: 100svh;
   display: grid;
   place-items: center;
 }
@@ -342,7 +379,8 @@ h1 {
    action, filled with the accent; .btn — an ordinary action with a fill of its own;
    .btn-danger — deletes or switches off, red before it is touched (a phone has no
    hover). A phone shows the pressed state (:active); hover is for a mouse only, so a
-   tapped button does not stay lit. */
+   tapped button does not stay lit. A pressed button also gives way a little (scale), so
+   the press is felt the moment the finger lands. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -357,6 +395,13 @@ h1 {
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition: transform 160ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
 }
 
 .btn:active:not(:disabled) {
@@ -414,7 +459,7 @@ h1 {
   color: var(--c-on-telegram);
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .btn:hover:not(:disabled) {
     background: var(--c-primary-soft);
     border-color: var(--c-primary);
@@ -469,6 +514,46 @@ h1 {
   padding-inline: 0;
 }
 
+/* Pressed. A phone has no hover and the browser's tap flash is off (html above), so
+   every control answers the finger itself, at once; letting go fades back. Links and
+   text buttons dim like a phone's own text buttons; rows of a menu take their hover
+   fill; a figure on the home page gives way like a button. */
+a:not(.btn, .kpi, .nav-a, .settings-a),
+.link-button,
+.tab,
+.disclosure-title,
+.stepper button,
+.sidebar-link,
+.bar-a {
+  transition: opacity 150ms var(--ease-out);
+}
+
+a:not(.btn, .kpi, .nav-a, .settings-a):active,
+.link-button:active:not(:disabled),
+.tab:active,
+.disclosure-title:active,
+.stepper button:active:not(:disabled),
+.sidebar-link:active:not(:disabled),
+.bar-a:active {
+  opacity: 0.6;
+  transition-duration: 0ms;
+}
+
+.nav-a:not(.active):active,
+.account-toggle:active {
+  background: var(--c-nav-hover);
+  color: var(--c-nav-strong);
+}
+
+.settings-a:not(.active):active,
+.view-switch button:not(.on):active {
+  background: var(--c-row);
+}
+
+.chip-removable button:active {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
 /* A card's heading that opens and closes the card's content; the chevron turns down
    when open */
 .disclosure-title {
@@ -501,8 +586,10 @@ h1 {
   transform: rotate(45deg);
 }
 
-.disclosure-title:hover {
-  color: var(--c-text);
+@media (hover: hover) and (pointer: fine) {
+  .disclosure-title:hover {
+    color: var(--c-text);
+  }
 }
 
 .disclosure-title:focus-visible,
@@ -555,7 +642,7 @@ h1 {
 
 /* Login and password screens */
 .auth-screen {
-  min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -716,8 +803,9 @@ h1 {
   flex-wrap: nowrap;
 }
 
-/* Two-factor login */
-.code-input {
+/* Two-factor login. The input sits in a .field, whose input rule would otherwise set
+   the body's font back. */
+.field .code-input {
   font-family: var(--font-num);
   font-size: 22px;
   letter-spacing: 6px;
@@ -789,14 +877,14 @@ h1 {
    on a phone it is the sheet of «Ещё» (see the phone block below). */
 .shell {
   display: flex;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .sidebar {
   flex: 0 0 232px;
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
   background: var(--c-nav);
   padding: 20px 12px 16px;
@@ -881,9 +969,11 @@ h1 {
   color: var(--c-nav-text);
 }
 
-a.nav-a:hover {
-  background: var(--c-nav-hover);
-  color: var(--c-nav-strong);
+@media (hover: hover) and (pointer: fine) {
+  a.nav-a:hover {
+    background: var(--c-nav-hover);
+    color: var(--c-nav-strong);
+  }
 }
 
 .nav-a.active {
@@ -919,10 +1009,16 @@ a.nav-a:hover {
   text-align: left;
 }
 
-.account-toggle:hover,
 .account-toggle[aria-expanded="true"] {
   background: var(--c-nav-hover);
   color: var(--c-nav-strong);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .account-toggle:hover {
+    background: var(--c-nav-hover);
+    color: var(--c-nav-strong);
+  }
 }
 
 .account-email {
@@ -958,8 +1054,10 @@ a.nav-a:hover {
   text-align: left;
 }
 
-.sidebar-link:hover {
-  color: var(--c-nav-strong);
+@media (hover: hover) and (pointer: fine) {
+  .sidebar-link:hover {
+    color: var(--c-nav-strong);
+  }
 }
 
 /* A finger needs a bigger target than a mouse. */
@@ -1070,8 +1168,10 @@ a.nav-a:hover {
   color: var(--c-text);
 }
 
-.settings-a:hover {
-  background: var(--c-row);
+@media (hover: hover) and (pointer: fine) {
+  .settings-a:hover {
+    background: var(--c-row);
+  }
 }
 
 .settings-a.active {
@@ -1216,8 +1316,10 @@ a.nav-a:hover {
   cursor: pointer;
 }
 
-.tab:hover {
-  color: var(--c-text);
+@media (hover: hover) and (pointer: fine) {
+  .tab:hover {
+    color: var(--c-text);
+  }
 }
 
 .tab.active {
@@ -1773,8 +1875,10 @@ a.nav-a:hover {
   cursor: pointer;
 }
 
-.stepper button:hover:not(:disabled) {
-  color: var(--c-text);
+@media (hover: hover) and (pointer: fine) {
+  .stepper button:hover:not(:disabled) {
+    color: var(--c-text);
+  }
 }
 
 .stepper li.current button {
@@ -1860,6 +1964,7 @@ a.nav-a:hover {
   font-size: 12px;
   color: var(--c-muted);
   font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 .view-switch {
@@ -2176,13 +2281,14 @@ a.nav-a:hover {
     padding: 16px 16px calc(var(--tabbar-h) + 20px);
   }
 
+  /* Above the sheet of «Ещё», so the sheet slides up from behind the bar. */
   .tabbar {
     display: flex;
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 40;
+    z-index: 41;
     height: var(--tabbar-h);
     padding-bottom: var(--tabbar-safe);
     background: var(--c-nav);
@@ -2207,7 +2313,7 @@ a.nav-a:hover {
     right: 0;
     top: auto;
     bottom: var(--tabbar-h);
-    z-index: 42;
+    z-index: 40;
     height: auto;
     max-height: calc(100dvh - var(--tabbar-h) - 48px);
     padding: 12px 12px 8px;
@@ -2227,8 +2333,9 @@ a.nav-a:hover {
     display: block;
     position: fixed;
     inset: 0 0 var(--tabbar-h);
-    z-index: 41;
+    z-index: 39;
     background: color-mix(in srgb, var(--c-nav) 55%, transparent);
+    animation: fade-in 280ms var(--ease-out);
   }
 
   /* The row of settings runs to the screen's edges. */
@@ -2242,15 +2349,31 @@ a.nav-a:hover {
   }
 }
 
-@media (max-width: 720px) and (prefers-reduced-motion: no-preference) {
+/* The sheet rises from behind the bar by its own height, on the iOS sheet curve, and the
+   shade fades in with it. It closes at once: a tap on a link is answered by the new page,
+   not by a sheet still on its way down. So there is nothing to interrupt, and keyframes
+   also run in the older phone browsers that lack @starting-style. With reduced motion
+   the sheet only fades in. */
+@media (max-width: 720px) {
   .sidebar.open {
-    animation: sheet-up 0.18s ease-out;
+    animation: sheet-up 280ms var(--ease-drawer);
+  }
+}
+
+@media (max-width: 720px) and (prefers-reduced-motion: reduce) {
+  .sidebar.open {
+    animation: fade-in 200ms ease;
   }
 }
 
 @keyframes sheet-up {
   from {
-    transform: translateY(24px);
+    transform: translateY(100%);
+  }
+}
+
+@keyframes fade-in {
+  from {
     opacity: 0;
   }
 }
@@ -2481,9 +2604,11 @@ a.nav-a:hover {
   padding-right: 0;
 }
 
+/* Sums one under another: digits of one width, so the column lines up */
 .money-cell {
   text-align: right;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .money-total td {
@@ -2577,11 +2702,24 @@ a.nav-a:hover {
   border-radius: var(--radius);
   color: var(--c-text);
   text-decoration: none;
+  transition: transform 160ms var(--ease-out);
 }
 
-a.kpi:hover {
+@media (hover: hover) and (pointer: fine) {
+  a.kpi:hover {
+    border-color: var(--c-border-strong);
+    text-decoration: none;
+  }
+}
+
+a.kpi:active {
   border-color: var(--c-border-strong);
-  text-decoration: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a.kpi:active {
+    transform: scale(0.98);
+  }
 }
 
 .kpi-label,
@@ -2594,6 +2732,7 @@ a.kpi:hover {
   font-family: var(--font-num);
   font-size: 24px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
@@ -3225,7 +3364,7 @@ a.kpi:hover {
   .stay-result {
     position: sticky;
     top: 16px;
-    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
     overflow-y: auto;
   }
 }
@@ -3475,5 +3614,29 @@ a.kpi:hover {
     display: block;
     font-size: 12px;
     color: var(--c-muted);
+  }
+}
+
+/* A phone zooms the whole page into a text field whose letters are under 16px and leaves
+   it zoomed when the field is left. On a touch screen every field is 16px. These rules
+   repeat the fields' own selectors, so they win over their `font: inherit`: a new rule
+   for a field goes into this list too (frontend/e2e/touch.spec.ts checks the screens). */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea,
+  .field input,
+  .field select,
+  .field textarea,
+  .input-action input,
+  .inline-form input,
+  .row-editor input,
+  .row-editor select,
+  .timeline textarea,
+  .center-note input,
+  .import-prompt,
+  .import-unknown select,
+  .plain-list .actions select {
+    font-size: 16px;
   }
 }

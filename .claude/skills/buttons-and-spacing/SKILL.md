@@ -21,7 +21,7 @@ A visa specialist works from a phone as much as from a desktop. A button there m
 - One main button per screen or open form (decisions «Отделка интерфейса»); on the client's card it is «+ Платёж». More main buttons is not "more colour", it is no main action.
 - A small action inside a row or a line of text («Изменить» of a payment, «Показать все поля») is a `link-button`, not a `btn`.
 - `btn-sm` (36px) in a card's head and in a list; the full `btn` (44px) for a page's header and a form's own buttons.
-- States: hover (mouse only, under `@media (hover: hover)`) and pressed (`:active`, also a phone) tint an ordinary button with `--c-primary-soft`; disabled is `opacity: 0.55`. A tapped button must not stay lit, so no hover rules outside that media query.
+- States: hover (mouse only, under `@media (hover: hover) and (pointer: fine)`) and pressed (`:active`, also a phone) tint an ordinary button with `--c-primary-soft`; pressed also scales it to 0.97 (decisions «Отклик на нажатие», not with reduced motion); disabled is `opacity: 0.55`. A tapped button must not stay lit, so no hover rules outside that media query.
 
 ### Colours come from the theme
 
