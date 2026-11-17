@@ -15,6 +15,9 @@
   --c-border: #e3e6ec;
   --c-border-strong: #d3d8e1;
   --c-row: #eef0f4;
+  /* An ordinary button: a fill of its own, off both the card and the page */
+  --c-btn: #edf0f5;
+  --c-btn-border: #d3d8e1;
   --c-nav: #121a2b;
   --c-nav-text: #c9d1e2;
   --c-nav-strong: #ffffff;
@@ -64,6 +67,9 @@
   --c-border: #232833;
   --c-border-strong: #2f3542;
   --c-row: #222731;
+  /* Raised above the card: on the dark theme a button is not a black box */
+  --c-btn: #252b36;
+  --c-btn-border: #3a4252;
   --c-nav: #090b0f;
   --c-nav-text: #b5bcc9;
   --c-nav-strong: #f4f6fa;
@@ -104,6 +110,8 @@
   --c-border: #e8dfd2;
   --c-border-strong: #dccfbf;
   --c-row: #efe7da;
+  --c-btn: #f1e9de;
+  --c-btn-border: #dccfbf;
   --c-nav: #ede4d8;
   --c-nav-text: #4a3f37;
   --c-nav-strong: #2b2420;
@@ -150,6 +158,8 @@
   --c-border: #eaeaea;
   --c-border-strong: #d4d4d4;
   --c-row: #f0f0f0;
+  --c-btn: #f3f3f3;
+  --c-btn-border: #d4d4d4;
   --c-nav: #fafafa;
   --c-nav-text: #333333;
   --c-nav-strong: #111111;
@@ -323,7 +333,12 @@ h1 {
   justify-content: flex-end;
 }
 
-/* Buttons and form fields: 44px tap targets for phone use */
+/* Buttons and form fields: 44px tap targets for phone use.
+   Three kinds (skill .claude/skills/buttons-and-spacing): .btn-p — the block's main
+   action, filled with the accent; .btn — an ordinary action with a fill of its own;
+   .btn-danger — deletes or switches off, red before it is touched (a phone has no
+   hover). A phone shows the pressed state (:active); hover is for a mouse only, so a
+   tapped button does not stay lit. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -331,17 +346,19 @@ h1 {
   min-height: 44px;
   padding: 0 16px;
   border-radius: var(--radius-btn);
-  border: 1px solid var(--c-border-strong);
-  background: var(--c-surface);
+  border: 1px solid var(--c-btn-border);
+  background: var(--c-btn);
   color: var(--c-text);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
 }
 
-.btn:hover:not(:disabled) {
+.btn:active:not(:disabled) {
+  background: var(--c-primary-soft);
   border-color: var(--c-primary);
-  color: var(--c-primary);
+  color: var(--c-primary-hover);
 }
 
 .btn:disabled {
@@ -353,9 +370,10 @@ h1 {
   background: var(--c-primary);
   border-color: var(--c-primary);
   color: var(--c-on-primary);
+  font-weight: 600;
 }
 
-.btn-p:hover:not(:disabled) {
+.btn-p:active:not(:disabled) {
   background: var(--c-primary-hover);
   border-color: var(--c-primary-hover);
   color: var(--c-on-primary);
@@ -367,9 +385,44 @@ h1 {
   font-size: 14px;
 }
 
-.btn-danger:hover:not(:disabled) {
+.btn-danger {
+  border-color: color-mix(in srgb, var(--c-red) 45%, var(--c-btn-border));
+  color: var(--c-red);
+}
+
+.btn-danger:active:not(:disabled) {
+  background: var(--c-red-bg);
   border-color: var(--c-red);
   color: var(--c-red);
+}
+
+@media (hover: hover) {
+  .btn:hover:not(:disabled) {
+    background: var(--c-primary-soft);
+    border-color: var(--c-primary);
+    color: var(--c-primary-hover);
+  }
+
+  .btn-p:hover:not(:disabled) {
+    background: var(--c-primary-hover);
+    border-color: var(--c-primary-hover);
+    color: var(--c-on-primary);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: var(--c-red-bg);
+    border-color: var(--c-red);
+    color: var(--c-red);
+  }
+}
+
+/* A row of buttons: in a page's header, a card's head, a form. 8px between them, and
+   they wrap on a phone instead of running off the screen. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .btn-block {
@@ -384,6 +437,12 @@ h1 {
   color: var(--c-link);
   cursor: pointer;
   text-align: center;
+}
+
+/* A link on its own line under a card's rows («Показать все поля») starts at the
+   rows' edge */
+.card > .link-button {
+  padding-inline: 0;
 }
 
 /* A card's heading that opens and closes the card's content; the chevron turns down
@@ -2389,6 +2448,15 @@ a.nav-a:hover {
   vertical-align: top;
 }
 
+/* Labels and sums start where the heading «Финансы» does */
+.money-table td:first-child {
+  padding-left: 0;
+}
+
+.money-table td:last-child {
+  padding-right: 0;
+}
+
 .money-cell {
   text-align: right;
   white-space: nowrap;
@@ -3029,6 +3097,17 @@ a.kpi:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* The column's gap is the only space between its parts: no margins on top of it, and
+   no gap for a list with no trips yet. */
+.stay-block > .card-head,
+.stay-block > p {
+  margin: 0;
+}
+
+.stay-list:empty {
+  display: none;
 }
 
 .stay-meter {
