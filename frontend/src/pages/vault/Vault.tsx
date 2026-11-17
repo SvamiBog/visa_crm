@@ -96,20 +96,25 @@ export function ContactVault({ contactId, cases }: { contactId: string; cases: V
 }
 
 /** One account. The password is fetched only by «show» or «copy», and each time the
- * fetch is written to the audit log. */
+ * fetch is written to the audit log. Its title is an h3 under the card's «Сейф»; the page
+ * of the specialist's own accounts has no such h2 and asks for an h2 (`level`), so a
+ * screen reader's outline does not skip a level. */
 export function VaultEntryView({
   entry,
   systemName,
   caseLabel,
   onEdit,
+  level = 3,
   children,
 }: {
   entry: VaultEntry;
   systemName: string;
   caseLabel?: string;
   onEdit: () => void;
+  level?: 2 | 3;
   children?: ReactNode;
 }) {
+  const Title = level === 2 ? "h2" : "h3";
   const { t, i18n } = useTranslation();
   const refresh = useRefreshVault();
   const [shown, setShown] = useState<string | null>(null);
@@ -158,7 +163,7 @@ export function VaultEntryView({
   return (
     <article className="vault-entry">
       <div className="card-head">
-        <h3 className="h3">{systemName}</h3>
+        <Title className="h3">{systemName}</Title>
         <span className="vault-tags">
           {caseLabel && <span className="chip st-blue">{caseLabel}</span>}
           {entry.created_manually && (

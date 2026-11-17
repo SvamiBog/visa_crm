@@ -181,6 +181,9 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
   // modules arrive.
   const inSettings = [...SETTINGS[area], ACCOUNT].some((page) => isAt(page.to, pathname));
   const submenu = ready && settings.length > 1;
+  // Until the modules come, the settings menu's place is kept: the page does not move
+  // aside (down on a phone) when the menu appears.
+  const submenuSpace = submenu || (inSettings && !ready);
   const logout = useMutation({
     mutationFn: () => apiPost<void>("/auth/logout"),
     onSettled: () => {
@@ -325,7 +328,10 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
           </div>
         )}
         {inSettings ? (
-          <div className={submenu ? "settings-layout with-nav" : "settings-layout"}>
+          <div className={submenuSpace ? "settings-layout with-nav" : "settings-layout"}>
+            {submenuSpace && !submenu && (
+              <div className="settings-nav settings-nav-wait" aria-hidden="true" />
+            )}
             {submenu && (
               <nav ref={settingsNavRef} className="settings-nav" aria-label={t("nav.settings")}>
                 <div

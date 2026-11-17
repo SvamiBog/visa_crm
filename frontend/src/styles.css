@@ -14,6 +14,9 @@
   --c-muted: #5e6778;
   --c-border: #e3e6ec;
   --c-border-strong: #d3d8e1;
+  /* The edge of a text field or a list: 3:1 on the card and the page (WCAG 1.4.11),
+     so an empty field is seen as a field */
+  --c-field-border: #888e99;
   --c-row: #eef0f4;
   /* An ordinary button: a fill of its own, off both the card and the page */
   --c-btn: #edf0f5;
@@ -66,6 +69,7 @@
   --c-muted: #8b93a3;
   --c-border: #232833;
   --c-border-strong: #2f3542;
+  --c-field-border: #606775;
   --c-row: #222731;
   /* Raised above the card: on the dark theme a button is not a black box */
   --c-btn: #252b36;
@@ -98,17 +102,20 @@
 
 /* C: warm, rounded, serif headings; the menu is light */
 [data-ui-theme="warm"] {
-  --c-primary: #b4532a;
+  /* 4.5:1 on its own soft fill: the active item of a menu and the avatar stay readable */
+  --c-primary: #a24d29;
   --c-primary-hover: #8f3f1e;
   --c-primary-soft: #f6e0d3;
   --c-on-primary: #fff8f2;
-  --c-link: #b4532a;
+  --c-link: #a24d29;
   --c-bg: #f6f1ea;
   --c-surface: #fffdf9;
   --c-text: #2b2420;
-  --c-muted: #7a6e64;
+  /* 4.5:1 on the page, the card and a table's row */
+  --c-muted: #71665d;
   --c-border: #e8dfd2;
   --c-border-strong: #dccfbf;
+  --c-field-border: #93897e;
   --c-row: #efe7da;
   --c-btn: #f1e9de;
   --c-btn-border: #dccfbf;
@@ -118,7 +125,8 @@
   --c-nav-hover: #e3d8c9;
   --c-nav-active: #dccfbf;
   --c-nav-line: #dccfbf;
-  --c-nav-muted: #8a7d71;
+  /* 4.5:1 on the light menu: the 12px group names and the tab bar's labels */
+  --c-nav-muted: #685d54;
   --c-red-bg: #f6d9d3;
   --c-red: #9a2b1e;
   --c-orange-bg: #f6e0d3;
@@ -157,6 +165,7 @@
   --c-muted: #6b6b6b;
   --c-border: #eaeaea;
   --c-border-strong: #d4d4d4;
+  --c-field-border: #949494;
   --c-row: #f0f0f0;
   --c-btn: #f3f3f3;
   --c-btn-border: #d4d4d4;
@@ -166,7 +175,8 @@
   --c-nav-hover: #f0f0f0;
   --c-nav-active: #e6e6e6;
   --c-nav-line: #eaeaea;
-  --c-nav-muted: #8a8a8a;
+  /* 4.5:1 on the light menu: the 12px group names and the tab bar's labels */
+  --c-nav-muted: #6d6d6d;
   --c-red-bg: #fdf1ef;
   --c-red: #b3261e;
   --c-orange-bg: #fdf4ea;
@@ -204,9 +214,10 @@
   font-family: var(--font-body);
   color: var(--c-text);
   accent-color: var(--c-primary);
-  /* Telegram's own blue, the same in every theme: the button that opens a client's chat */
-  --c-telegram: #229ed9;
-  --c-telegram-press: #1b86b9;
+  /* Telegram's blue, the same in every theme: the button that opens a client's chat.
+     A shade deeper than the messenger's #229ed9, so its white label reads at 4.5:1. */
+  --c-telegram: #1a7eb0;
+  --c-telegram-press: #1773a1;
   --c-on-telegram: #ffffff;
 }
 
@@ -258,6 +269,8 @@ h1 {
 
 .center-screen {
   min-height: 100vh;
+  /* The visible height on a phone, under the browser's own bars */
+  min-height: 100dvh;
   display: grid;
   place-items: center;
 }
@@ -528,7 +541,7 @@ h1 {
 .input-action input {
   min-height: 44px;
   padding: 0 12px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -556,6 +569,7 @@ h1 {
 /* Login and password screens */
 .auth-screen {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -790,6 +804,7 @@ h1 {
 .shell {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .sidebar {
@@ -965,8 +980,21 @@ a.nav-a:hover {
 /* A finger needs a bigger target than a mouse. */
 @media (pointer: coarse) {
   .nav-a,
-  .account-toggle {
+  .account-toggle,
+  .btn-sm,
+  .link-button,
+  .disclosure-title {
     min-height: 44px;
+  }
+
+  /* 16px in a field: a phone's browser does not zoom the page in when the field is
+     tapped (iOS zooms into anything smaller). !important over the fields' own
+     `font: inherit` in more exact selectors (.row-editor select, .plain-list …); the
+     code field keeps its larger digits. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(.code-input),
+  select,
+  textarea {
+    font-size: 16px !important;
   }
 }
 
@@ -1117,15 +1145,17 @@ a.nav-a:hover {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 16px;
 }
 
 /* Fields in a row line up: each takes three rows of the grid (label, control, hint)
    shared with its neighbours, so a label that wraps onto two lines does not push its
-   control below theirs (frontend/e2e/forms.spec.ts). */
+   control below theirs (frontend/e2e/forms.spec.ts). A field narrows with its column:
+   a file picker's own width does not push the page sideways on a phone. */
 .form-grid > * {
   grid-row: span 3;
+  min-width: 0;
 }
 
 .form-grid > .field {
@@ -1300,7 +1330,7 @@ a.nav-a:hover {
 .row-editor select {
   min-height: 40px;
   padding: 0 10px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -1379,7 +1409,7 @@ a.nav-a:hover {
 .field textarea {
   min-height: 80px;
   padding: 10px 12px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -1392,7 +1422,7 @@ a.nav-a:hover {
   width: 100%;
   min-height: 80px;
   padding: 10px 12px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -2155,6 +2185,11 @@ a.nav-a:hover {
   .settings-a.active {
     border-color: var(--c-primary);
   }
+
+  /* The menu's place while the modules load (components/Shell.tsx): one row of items */
+  .settings-nav-wait {
+    min-height: 44px;
+  }
 }
 
 /* Phone: the frequent pages on a bar at the bottom, under the thumb; «Ещё» opens the rest
@@ -2888,7 +2923,7 @@ a.kpi:hover {
   flex: 1 1 180px;
   min-height: 36px;
   padding: 0 10px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -2932,6 +2967,8 @@ a.kpi:hover {
 
 .import-file input[type="file"] {
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
   padding: 10px 12px;
 }
 
@@ -2994,7 +3031,7 @@ a.kpi:hover {
 .import-unknown select {
   min-height: 40px;
   max-width: 100%;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
@@ -3411,7 +3448,7 @@ a.kpi:hover {
   min-height: 36px;
   max-width: 100%;
   padding: 0 8px;
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
