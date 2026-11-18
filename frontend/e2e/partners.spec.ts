@@ -55,14 +55,11 @@ async function addPartner(request: APIRequestContext, name: string): Promise<Par
   return (await created.json()) as Partner;
 }
 
-/** Says «OK» to every browser dialog and keeps their texts in order. */
-function acceptDialogs(page: Page): string[] {
-  const texts: string[] = [];
-  page.on("dialog", (dialog) => {
-    texts.push(dialog.message());
-    void dialog.accept();
-  });
-  return texts;
+/** The site asks exactly this; its button of that name answers, and the window closes. */
+async function answer(page: Page, question: string, button: string): Promise<void> {
+  const ask = page.getByRole("dialog", { name: question, exact: true });
+  await ask.getByRole("button", { name: button, exact: true }).click();
+  await expect(ask).toBeHidden();
 }
 
 for (const lang of ["ru", "en"] as const) {
@@ -98,24 +95,21 @@ for (const lang of ["ru", "en"] as const) {
       });
       expect(card.ok(), await card.text()).toBe(true);
 
-      const dialogs = acceptDialogs(page);
       await page.goto("/app/dictionaries");
       await page.getByRole("tab", { name: t("dict.tab.partners") }).click();
       const deleteButton = (name: string) =>
         page.getByRole("button", { name: t("dict.deletePartnerFor", { name }) });
 
       await deleteButton(unused).click();
+      await answer(page, t("dict.confirmDeletePartner", { name: unused }), t("confirm.delete"));
       await expect(page.getByRole("row").filter({ hasText: unused })).toHaveCount(0);
-      expect(dialogs).toEqual([t("dict.confirmDeletePartner", { name: unused })]);
 
       // A card names this one: after «Delete?» comes the offer to switch it off.
       await deleteButton(used).click();
+      await answer(page, t("dict.confirmDeletePartner", { name: used }), t("confirm.delete"));
+      await answer(page, t("dict.partnerInUseSwitchOff"), t("confirm.switchOff"));
       const row = page.getByRole("row").filter({ hasText: used });
       await expect(row).toContainText(t("reference.off"));
-      expect(dialogs.slice(1)).toEqual([
-        t("dict.confirmDeletePartner", { name: used }),
-        t("dict.partnerInUseSwitchOff"),
-      ]);
       // «In use» led to the offer, so no error is shown.
       await expect(page.locator(".alert-error")).toHaveCount(0);
     });

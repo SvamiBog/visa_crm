@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { apiGet } from "./api";
 import { homePath, useMe, type Role } from "./auth";
+import { ConfirmProvider } from "./components/ConfirmDialog";
 import { Shell } from "./components/Shell";
 import { ReferencePage } from "./pages/admin/ReferencePage";
 import { SpecialistsPage } from "./pages/admin/SpecialistsPage";
@@ -101,7 +102,7 @@ export default function App() {
   }, [theme]);
 
   return (
-    <>
+    <ConfirmProvider>
       <EnvBanner />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -334,6 +335,6 @@ export default function App() {
         />
         <Route path="*" element={<RootRedirect />} />
       </Routes>
-    </>
+    </ConfirmProvider>
   );
 }

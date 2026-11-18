@@ -3,6 +3,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError, apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPut } from "../../api";
 import { useMe } from "../../auth";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { useDisclosure } from "../../components/Disclosure";
 import { formatSize, readBase64 } from "../../files";
 import {
@@ -180,6 +181,7 @@ function FileNameField({ value, onChange }: { value: string; onChange: (v: strin
 
 function TemplateItem({ template, canEdit }: { template: DocumentTemplate; canEdit: boolean }) {
   const { t, i18n } = useTranslation();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const codes = useTemplateCodes();
   const byKey = useMemo(() => new Map((codes.data ?? []).map((c) => [c.key, c])), [codes.data]);
@@ -211,11 +213,11 @@ function TemplateItem({ template, canEdit }: { template: DocumentTemplate; canEd
     onSuccess: refresh,
     onError: chosen.setError,
   });
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     const question = template.clients
       ? t("templates.confirmDeleteUsed", { name: template.name, count: template.clients })
       : t("templates.confirmDelete", { name: template.name });
-    if (window.confirm(question)) remove.mutate();
+    if (await confirm({ message: question, action: t("confirm.delete") })) remove.mutate();
   };
 
   if (editing) {

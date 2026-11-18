@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../api";
 import { formatDate, type CaseStage } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
+import { deferDelete, useDeleting } from "../../undo";
 import { CaseChip } from "../clients/Cases";
 import { useMoney } from "../clients/Finance";
 import { ErrorAlert, todayIso } from "../clients/ui";
@@ -157,6 +158,7 @@ function RegistrarList() {
 
 function RegistrarLedger({ id }: { id: string }) {
   const { t, i18n } = useTranslation();
+  const deleting = useDeleting();
   const money = useMoney();
   const name = useLocalName();
   const countries = useCountries();
@@ -263,7 +265,12 @@ function RegistrarLedger({ id }: { id: string }) {
               <tbody>
                 {l.lines.map((line) =>
                   line.kind === "payment" ? (
-                    <tr key={line.payment_id}>
+                    <tr
+                      key={line.payment_id}
+                      className={
+                        deleting.has(`/registrar-payments/${line.payment_id}`) ? "deleting" : undefined
+                      }
+                    >
                       <td className="nowrap">{date(line.on)}</td>
                       <td>
                         {t("registrars.payment")} · {t(`registrars.method.${line.method}`)}
@@ -406,9 +413,12 @@ function PaymentActions({
   onEdit: () => void;
 }) {
   const { t } = useTranslation();
+  const deleting = useDeleting();
   const queryClient = useQueryClient();
+  const url = `/registrar-payments/${paymentId}`;
+  const waiting = deleting.has(url);
   const remove = useMutation({
-    mutationFn: () => apiDelete<Ledger>(`/registrar-payments/${paymentId}`),
+    mutationFn: () => apiDelete<Ledger>(url),
     onSuccess: (data) => {
       queryClient.setQueryData(ledgerKey(registrarId), data);
       void queryClient.invalidateQueries({ queryKey: ["registrars", "ledgers"] });
@@ -416,16 +426,20 @@ function PaymentActions({
   });
   return (
     <div className="actions">
-      <button type="button" className="link-button" onClick={onEdit}>
+      <button type="button" className="link-button" onClick={onEdit} disabled={waiting}>
         {t("reference.edit")}
       </button>
       <button
         type="button"
         className="link-button"
-        disabled={remove.isPending}
-        onClick={() => {
-          if (window.confirm(t("registrars.confirmDelete"))) remove.mutate();
-        }}
+        disabled={remove.isPending || waiting}
+        onClick={() =>
+          deferDelete({
+            key: url,
+            message: t("undo.paymentDeleted"),
+            commit: () => remove.mutateAsync(),
+          })
+        }
       >
         {t("vault.delete")}
       </button>
