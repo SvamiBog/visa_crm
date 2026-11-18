@@ -97,7 +97,7 @@ export function PageArea({ children }: { children: ReactNode }) {
       <Suspense
         fallback={
           <div className="page">
-            <p className="muted">{t("common.loading")}</p>
+            <p className="muted page-loading">{t("common.loading")}</p>
           </div>
         }
       >
