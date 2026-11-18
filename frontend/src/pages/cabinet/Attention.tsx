@@ -57,6 +57,16 @@ type Reminder = {
 
 const remindersKey = (contactId?: string) => ["reminders", contactId ?? "all"] as const;
 
+/** The query of the reminders, shared with the home screen: it waits for them before it
+ * draws, so the list does not push the figures down when it arrives. */
+export function remindersQuery(contactId?: string) {
+  return {
+    queryKey: remindersKey(contactId),
+    queryFn: () =>
+      apiGet<Reminder[]>(contactId ? `/reminders?contact_id=${contactId}` : "/reminders"),
+  };
+}
+
 // One family, one line (specialist run, 2026-11-04): a submission group's reminders of
 // the same kind and day go together — the family submits together and pays together.
 const FAMILY_KINDS: Kind[] = ["submission", "balance_due", "balance_queued", "package"];
@@ -217,11 +227,7 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
   const queryClient = useQueryClient();
-  const list = useQuery({
-    queryKey: remindersKey(contactId),
-    queryFn: () =>
-      apiGet<Reminder[]>(contactId ? `/reminders?contact_id=${contactId}` : "/reminders"),
-  });
+  const list = useQuery(remindersQuery(contactId));
   const done = useMutation({
     // A family's line is «Готово» for each of its members.
     mutationFn: (keys: string[]) =>

@@ -208,7 +208,9 @@ export function QueuesPage() {
                   <SortHeader {...entries.header("registrar")}>{t("cases.registrar")}</SortHeader>
                   <SortHeader {...entries.header("queued")}>{t("queues.queuedOn")}</SortHeader>
                   <SortHeader {...entries.header("letter")}>{t("queues.letterDate")}</SortHeader>
-                  <SortHeader {...entries.header("waits")}>{t("queues.waits")}</SortHeader>
+                  <SortHeader className="money-cell" {...entries.header("waits")}>
+                    {t("queues.waits")}
+                  </SortHeader>
                 </tr>
               </thead>
               <tbody>
@@ -241,7 +243,7 @@ export function QueuesPage() {
                         </div>
                       )}
                     </td>
-                    <td className="nowrap">{t("queues.daysShort", { count: r.days_waiting })}</td>
+                    <td className="money-cell">{t("queues.daysShort", { count: r.days_waiting })}</td>
                   </tr>
                 ))}
               </tbody>
@@ -260,7 +262,7 @@ export function QueuesPage() {
                   <SortHeader {...attempts.header("applicant")}>{t("queues.applicant")}</SortHeader>
                   <th>{t("queues.number")}</th>
                   <SortHeader {...attempts.header("place")}>{t("queues.place")}</SortHeader>
-                  <SortHeader {...attempts.header("attempt")}>
+                  <SortHeader className="money-cell" {...attempts.header("attempt")}>
                     {t("queues.attemptNumber")}
                   </SortHeader>
                   <SortHeader {...attempts.header("sent")}>{t("queues.sentOn")}</SortHeader>
@@ -279,7 +281,7 @@ export function QueuesPage() {
                     </td>
                     <td className="mono nowrap">{a.vac_number}</td>
                     <td>{place(a.visa_center_id, a.purpose_id)}</td>
-                    <td>{a.number}</td>
+                    <td className="money-cell">{a.number}</td>
                     <td className="nowrap">{date(a.sent_on)}</td>
                     <td className="nowrap">
                       {date(a.deadline_on)}
