@@ -153,16 +153,25 @@ def create_app() -> FastAPI:
         # An old build's file is gone after a deploy: 404, which the app answers by
         # reloading (frontend/src/components/LazyPage.tsx).
         app.mount("/assets", BuiltAssets(directory=dist / "assets"), name="assets")
+        staging = get_settings().env == "staging"
 
         @app.get("/{path:path}", include_in_schema=False)
-        async def spa(path: str) -> FileResponse:
+        async def spa(path: str) -> Response:
             if path.startswith("api/"):
                 raise HTTPException(status_code=404)
             # resolve() + is_relative_to() blocks "../" paths escaping frontend/dist.
             file = (dist / path).resolve()
             if path and file.is_relative_to(dist) and file.is_file():
                 return FileResponse(file)
-            return FileResponse(dist / "index.html", headers={"Cache-Control": "no-cache"})
+            index = dist / "index.html"
+            headers = {"Cache-Control": "no-cache"}
+            if staging:
+                # The page carries its mark, so the strip «Тестовый стенд…»
+                # (frontend/src/App.tsx) is drawn with the first paint and pushes nothing down.
+                page = await asyncio.to_thread(index.read_bytes)
+                page = page.replace(b"<html ", b'<html data-env="staging" ', 1)
+                return Response(page, media_type="text/html", headers=headers)
+            return FileResponse(index, headers=headers)
 
     return app
 

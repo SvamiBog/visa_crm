@@ -12,8 +12,12 @@ import { expect, test } from "@playwright/test";
 // before, so each page holds back the answer that changes its layout (`slow`) by HOLD_MS, as
 // a slow connection would.
 //
-// Google's fonts are left out: a font that comes late redraws the text in its own width, and
-// that is a matter of how the fonts load, not of the order the page draws its data in.
+// The fonts are left out (the system font stays): a font that comes late redraws the text in
+// its own width, and that is a matter of how the fonts load, not of the order the page draws
+// its data in.
+//
+// CI runs the staging stand, whose strip «Тестовый стенд…» stands above every page: it is
+// drawn with the first paint, so it counts here too (backend/app/main.py, App.tsx).
 
 const GOOD_CLS = 0.05;
 const HOLD_MS = 1000;
@@ -40,13 +44,8 @@ declare global {
 }
 
 test.beforeEach(async ({ context, page }) => {
-  await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
-  // CI runs the stand as staging, whose strip (EnvBanner in src/App.tsx) comes with
-  // /api/health and moves every page down once. The real system has no strip, so the test
-  // answers as the real system.
-  await context.route(/\/api\/health$/, (route) =>
-    route.fulfill({ json: { status: "ok", env: "production" } }),
-  );
+  // Our own font files (frontend/src/fonts.css), served next to the build.
+  await context.route(/\.woff2$/, (route) => route.abort());
   // In the context, not the page: one observer per document, counted from its first paint.
   await context.addInitScript(() => {
     window.__layoutShift = 0;

@@ -95,15 +95,12 @@ function Settings() {
   );
 }
 
-/** On the staging stand: a strip on every page, so nobody takes it for the real system. */
+/** On the staging stand: a strip on every page, so nobody takes it for the real system. The
+ * server marks the page itself (backend/app/main.py), so the strip is drawn with the first
+ * paint: waiting for /api/health, it pushed every page down once it came. */
 function EnvBanner() {
   const { t } = useTranslation();
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: () => apiGet<{ env: string }>("/health"),
-    staleTime: Infinity,
-  });
-  if (health.data?.env !== "staging") return null;
+  if (document.documentElement.dataset.env !== "staging") return null;
   return (
     <div className="env-banner" role="note">
       {t("env.staging")}
