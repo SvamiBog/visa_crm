@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { apiGet, apiPost, errorCode } from "../api";
 import { homePath, ME_KEY, useMe, type Me } from "../auth";
 import { Logo } from "../components/Logo";
+import { PasswordField } from "../components/PasswordField";
 
 type Setup = { secret: string; otpauth_uri: string; qr_code: string };
 
@@ -72,16 +73,12 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
         <h1 className="auth-title">{t("twoFactor.setupTitle")}</h1>
         <p className="muted">{t("twoFactor.setupIntro")}</p>
         <p>{t("twoFactor.passwordHint")}</p>
-        <label className="field">
-          <span>{t("auth.currentPassword")}</span>
-          <input
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
+        <PasswordField
+          label={t("auth.currentPassword")}
+          autoComplete="current-password"
+          value={password}
+          onChange={setPassword}
+        />
         {setup.isError && (
           <div className="alert alert-error" role="alert">
             {t(`errors.${errorCode(setup.error)}`, { defaultValue: t("errors.unknown") })}
