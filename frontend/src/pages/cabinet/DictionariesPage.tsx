@@ -193,11 +193,23 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
     add.mutate();
   };
 
+  // The form of a new entry is drawn once the list has come: the list arriving above it
+  // pushed it down.
+  if (list.isPending) {
+    return (
+      <>
+        <p className="muted small">{t(`dict.${name}Hint`)}</p>
+        <section className="card">
+          <p className="muted">{t("common.loading")}</p>
+        </section>
+      </>
+    );
+  }
+
   return (
     <>
       <p className="muted small">{t(`dict.${name}Hint`)}</p>
       <section className="card">
-        {list.isPending && <p className="muted">{t("common.loading")}</p>}
         {list.data?.length === 0 && <p className="muted">{t("dict.empty")}</p>}
         {list.data && list.data.length > 0 && (
           <ul className="plain-list">
@@ -267,37 +279,30 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
         )}
         {update.isError && <ErrorAlert error={update.error} />}
       </section>
-      {/* Drawn once the list has come: the list arriving above pushed the form down. */}
-      {!list.isPending && (
-        <form className="card form-card" onSubmit={submit}>
+      <form className="card form-card" onSubmit={submit}>
+        <label className="field">
+          <span>{t(`dict.new.${name}`)}</span>
+          <input
+            required
+            maxLength={100}
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+        </label>
+        {withKind && (
           <label className="field">
-            <span>{t(`dict.new.${name}`)}</span>
-            <input
-              required
-              maxLength={100}
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-            />
+            <span>{t("dict.purposeKind")}</span>
+            <KindSelect value={newKind} onChange={setNewKind} />
+            <small className="muted">{t("dict.purposeKindHint")}</small>
           </label>
-          {withKind && (
-            <label className="field">
-              <span>{t("dict.purposeKind")}</span>
-              <KindSelect value={newKind} onChange={setNewKind} />
-              <small className="muted">{t("dict.purposeKindHint")}</small>
-            </label>
-          )}
-          {add.isError && <ErrorAlert error={add.error} />}
-          <div className="form-actions">
-            <button
-              type="submit"
-              className="btn btn-p"
-              disabled={add.isPending || !newName.trim()}
-            >
-              {t("dict.add")}
-            </button>
-          </div>
-        </form>
-      )}
+        )}
+        {add.isError && <ErrorAlert error={add.error} />}
+        <div className="form-actions">
+          <button type="submit" className="btn btn-p" disabled={add.isPending || !newName.trim()}>
+            {t("dict.add")}
+          </button>
+        </div>
+      </form>
     </>
   );
 }
