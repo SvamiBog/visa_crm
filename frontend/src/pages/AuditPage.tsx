@@ -2,6 +2,13 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet } from "../api";
+import { SortHeader } from "../components/SortHeader";
+import { useSortParam, type Sort, type SortDir } from "../sorting";
+
+// The log is ordered by time only: the server pages it by the event id (newest first by
+// default). The order is in the URL (?sort=time for the oldest first).
+const TIME = ["time"] as const;
+const NEWEST: Sort<"time"> = { key: "time", dir: "desc" };
 
 type AuditEvent = {
   id: number;
@@ -27,7 +34,6 @@ type Filters = {
   action: string;
   from: string;
   to: string;
-  order: "desc" | "asc";
 };
 const NO_FILTERS: Filters = {
   workspace: "",
@@ -36,7 +42,6 @@ const NO_FILTERS: Filters = {
   action: "",
   from: "",
   to: "",
-  order: "desc",
 };
 
 /** The start of a day in the browser's calendar, as an instant for the API. */
@@ -46,8 +51,8 @@ function dayStart(day: string, plusDays = 0): string {
   return date.toISOString();
 }
 
-function queryString(filters: Filters, cursor: number | null): string {
-  const params = new URLSearchParams({ order: filters.order });
+function queryString(filters: Filters, order: SortDir, cursor: number | null): string {
+  const params = new URLSearchParams({ order });
   if (filters.workspace === "platform") params.set("platform", "true");
   else if (filters.workspace) params.set("tenant_id", filters.workspace);
   if (filters.actor) params.set("actor_id", filters.actor);
@@ -73,6 +78,8 @@ export function AuditPage({
   const path = admin ? "/admin/audit" : "/audit";
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const set = (changes: Partial<Filters>) => setFilters((f) => ({ ...f, ...changes }));
+  const { sort, set: setSort, toggle } = useSortParam("sort", TIME, NEWEST);
+  const order = sort?.dir ?? NEWEST.dir;
 
   const actions = useQuery({
     queryKey: ["audit", "actions"],
@@ -100,8 +107,9 @@ export function AuditPage({
   );
 
   const log = useInfiniteQuery({
-    queryKey: ["audit", scope, filters],
-    queryFn: ({ pageParam }) => apiGet<AuditPage>(`${path}?${queryString(filters, pageParam)}`),
+    queryKey: ["audit", scope, filters, order],
+    queryFn: ({ pageParam }) =>
+      apiGet<AuditPage>(`${path}?${queryString(filters, order, pageParam)}`),
     initialPageParam: null as number | null,
     getNextPageParam: (last) => last.next_cursor,
   });
@@ -191,15 +199,22 @@ export function AuditPage({
         <label className="field">
           <span>{t("audit.order")}</span>
           <select
-            value={filters.order}
-            onChange={(e) => set({ order: e.target.value as Filters["order"] })}
+            value={order}
+            onChange={(e) => setSort({ key: "time", dir: e.target.value as SortDir })}
           >
             <option value="desc">{t("audit.newestFirst")}</option>
             <option value="asc">{t("audit.oldestFirst")}</option>
           </select>
         </label>
-        {filtered && (
-          <button type="button" className="btn btn-sm" onClick={() => setFilters(NO_FILTERS)}>
+        {(filtered || order !== NEWEST.dir) && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              setFilters(NO_FILTERS);
+              setSort(null);
+            }}
+          >
             {t("index.reset")}
           </button>
         )}
@@ -216,7 +231,9 @@ export function AuditPage({
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>{t("audit.colTime")}</th>
+                  <SortHeader sortKey="time" sort={sort} onSort={() => toggle("time", "desc")}>
+                    {t("audit.colTime")}
+                  </SortHeader>
                   {admin && <th>{t("audit.workspace")}</th>}
                   <th>{t("audit.colActor")}</th>
                   <th>{t("audit.colAction")}</th>

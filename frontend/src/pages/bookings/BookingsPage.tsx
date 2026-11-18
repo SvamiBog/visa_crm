@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet } from "../../api";
 import { formatDate, type Booking, type CaseStage } from "../../contacts";
+import { SortHeader } from "../../components/SortHeader";
 import { byId, useCountries, useLocalName } from "../../reference";
+import { useSortedTable, type SortColumns } from "../../sorting";
 import { DeadlineChip, useBookingAccounts, useStay } from "../clients/Bookings";
 import { CaseChip } from "../clients/Cases";
 import { ErrorAlert } from "../clients/ui";
@@ -21,6 +23,13 @@ type DeadlineRow = Booking & {
   case_number: number;
   destination_id: string;
   stage: CaseStage;
+};
+
+type BookingSort = "deadline" | "client" | "dates";
+const COLUMNS: SortColumns<DeadlineRow, BookingSort> = {
+  deadline: { kind: "date", value: (r) => r.deadline },
+  client: { kind: "text", value: (r) => r.contact_name },
+  dates: { kind: "date", value: (r) => r.starts_on },
 };
 
 export function BookingsPage() {
@@ -46,7 +55,11 @@ export function BookingsPage() {
   // A booking without a date stays in view: nothing tells when it stops mattering.
   const soon = inCountry.filter((r) => r.days_left === null || r.days_left <= SOON_DAYS);
   const later = inCountry.length - soon.length;
-  const shown = all ? inCountry : soon;
+  // The server's order: the nearest deadline first.
+  const shown = useSortedTable("sort", all ? inCountry : soon, COLUMNS, {
+    key: "deadline",
+    dir: "asc",
+  });
 
   return (
     <div className="page">
@@ -79,23 +92,23 @@ export function BookingsPage() {
         {rows.isSuccess && inCountry.length === 0 && (
           <p className="muted">{t("bookings.noneLive")}</p>
         )}
-        {rows.isSuccess && inCountry.length > 0 && shown.length === 0 && (
+        {rows.isSuccess && inCountry.length > 0 && shown.rows.length === 0 && (
           <p className="muted">{t("bookings.noneSoon", { count: SOON_DAYS })}</p>
         )}
-        {shown.length > 0 && (
+        {shown.rows.length > 0 && (
           <div className="table-wrap">
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>{t("bookings.colDeadline")}</th>
-                  <th>{t("bookings.colClient")}</th>
+                  <SortHeader {...shown.header("deadline")}>{t("bookings.colDeadline")}</SortHeader>
+                  <SortHeader {...shown.header("client")}>{t("bookings.colClient")}</SortHeader>
                   <th>{t("bookings.colBooking")}</th>
-                  <th>{t("bookings.colDates")}</th>
+                  <SortHeader {...shown.header("dates")}>{t("bookings.colDates")}</SortHeader>
                   <th>{t("bookings.account")}</th>
                 </tr>
               </thead>
               <tbody>
-                {shown.map((r) => (
+                {shown.rows.map((r) => (
                   <tr key={r.id}>
                     <td className="nowrap">
                       {r.deadline ? (
