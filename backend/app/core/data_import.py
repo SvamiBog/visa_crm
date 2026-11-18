@@ -772,11 +772,11 @@ class WorkbookImport:
     def _match(self, v: dict[str, Any]) -> uuid.UUID | None:
         """The card of a person: by phone or by Telegram nick, unless that card has another
         given name (a family shares them); else by a unique name, unless that card has
-        another phone or nick than the row."""
+        another phone or nick than the row. Never a card born on another day."""
         phone, nick = v.get("phone"), (v.get("telegram") or "").casefold() or None
-        if phone and phone in self.by_phone and self._given(v, self.by_phone[phone]):
+        if phone and phone in self.by_phone and self._fits(v, self.by_phone[phone]):
             return self.by_phone[phone]
-        if nick and (same := [c for c in self.by_telegram.get(nick, []) if self._given(v, c)]):
+        if nick and (same := [c for c in self.by_telegram.get(nick, []) if self._fits(v, c)]):
             return same[0]
         name = joined(v.get("last_name"), v.get("first_name"), v.get("middle_name"))
         if name is None:
@@ -788,8 +788,12 @@ class WorkbookImport:
             and not (
                 nick and self.contacts[c].telegram and self.contacts[c].telegram.casefold() != nick  # type: ignore[union-attr]
             )
+            and self._born(v, c)
         ]
         return same[0] if len(same) == 1 else None
+
+    def _fits(self, v: dict[str, Any], contact_id: uuid.UUID) -> bool:
+        return self._given(v, contact_id) and self._born(v, contact_id)
 
     def _given(self, v: dict[str, Any], contact_id: uuid.UUID) -> bool:
         """A family shares a phone and a Telegram account: the row of a person with another
@@ -797,6 +801,19 @@ class WorkbookImport:
         surname changes, and a card or a row may be without a given name."""
         mine, theirs = v.get("first_name"), self.contacts[contact_id].first_name
         return not (mine and theirs) or normalize(mine) == normalize(theirs)
+
+    def _born(self, v: dict[str, Any], contact_id: uuid.UUID) -> bool:
+        """People born on different days are different people, whatever joins them:
+        namesakes, a father and a son with one phone (owner's decision 2026-11-18). A date
+        the import does not take (a year typed wrong) is not compared."""
+        mine, theirs = self._in_years(v.get("birth_date")), self.contacts[contact_id].birth_date
+        return mine is None or theirs is None or mine == theirs
+
+    def _in_years(self, born: date | None) -> date | None:
+        """The date of birth, if it is within the years the import takes."""
+        if born is None or not date(BIRTH_YEARS_FROM, 1, 1) <= born <= self.today:
+            return None
+        return born
 
     async def _clients(self, r: _Row) -> None:
         v = r.values
@@ -891,7 +908,7 @@ class WorkbookImport:
 
     def _birth_date(self, r: _Row) -> date | None:
         born = r.values.get("birth_date")
-        if born is not None and not (date(BIRTH_YEARS_FROM, 1, 1) <= born <= self.today):
+        if born is not None and self._in_years(born) is None:
             r.warn("birth_date", "out_of_range")
             return None
         return born
