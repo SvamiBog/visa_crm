@@ -307,6 +307,38 @@ async def test_a_phone_shared_by_a_family_does_not_merge_its_people(
     ]
 
 
+async def test_a_telegram_shared_by_a_family_does_not_merge_its_people(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Owner's decision 2026-11-18: a family shares the Telegram account as it shares the
+    phone, so the nick is checked the same way. A child with the parent's phone and nick
+    gets a card of their own instead of going into the parent's, and a repeated file
+    finds both."""
+    await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    book_ = {
+        "Клиенты": [
+            ["Код клиента", "Фамилия", "Имя", "Телефон", "Telegram", "Дата рождения"],
+            ["K-1", "Петрова", "Анна", "+375291112233", "@petrova_fam", date(1988, 3, 12)],
+            ["K-2", "Петров", "Миша", "+375291112233", "@petrova_fam", date(2015, 7, 5)],
+        ]
+    }
+
+    first = await run(client, book_)
+    again = await run(client, book_)
+
+    assert first["created"] == {"contacts": 2}
+    assert lines(first, "warnings") == [("phone_taken", "Клиенты", 3, "Телефон")]
+    assert again["created"] == {} and again["updated"] == {}
+    contacts = await rows(
+        owner_engine, "SELECT full_name, phone, telegram FROM contacts ORDER BY birth_date"
+    )
+    assert contacts == [
+        {"full_name": "Петрова Анна", "phone": "+375291112233", "telegram": "petrova_fam"},
+        {"full_name": "Петров Миша", "phone": None, "telegram": "petrova_fam"},
+    ]
+
+
 # --- The choices of the check -------------------------------------------------------------
 
 

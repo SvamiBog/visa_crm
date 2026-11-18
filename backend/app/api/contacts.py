@@ -24,7 +24,7 @@ from app.api.consultations import ConsultationOut, HintOut, consultations_of, hi
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
-from app.core.data_values import TELEGRAM_NICK
+from app.core.data_values import TELEGRAM_NICK, telegram_nick
 from app.core.days import Day
 from app.core.db import BIGINT_MAX
 from app.core.employee_limits import LimitKind, watch
@@ -99,10 +99,11 @@ class ContactFields(BaseModel):
     @field_validator("telegram", mode="before")
     @classmethod
     def telegram_without_at(cls, value: Any) -> Any:
-        # Before the length check: the «@» in front is not kept, so it does not count.
+        # Before the length check: the «@» or the link in front is not kept, so it does
+        # not count.
         if not isinstance(value, str):
             return value
-        return value.strip().removeprefix("@").strip() or None
+        return telegram_nick(value) or None
 
     @field_validator("messenger_contact", "email", "contract_number")
     @classmethod
@@ -423,7 +424,7 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
     latest = latest_consultation()
     tab = tab_of(latest)
     query = select(Contact, tab.label("tab")).outerjoin(latest, true())
-    term = body.query.strip().removeprefix("@").strip()
+    term = telegram_nick(body.query)
     if term:
         conditions = [
             _has(Contact.full_name, term),

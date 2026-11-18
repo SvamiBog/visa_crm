@@ -474,7 +474,7 @@
   "contacts.phone": "Phone",
   "contacts.phoneHint": "With the country code, for example +375 29 123-45-67. A Belarusian number can also be typed the local way: 8 029 123-45-67. You can't add a second file with the same phone.",
   "contacts.telegram": "Telegram",
-  "contacts.telegramHint": "Username without @ or the name in Telegram.",
+  "contacts.telegramHint": "Username, profile link or the name in Telegram.",
   "contacts.messenger": "Other messenger",
   "contacts.noMessenger": "none",
   "contacts.messengerContact": "Number or username in the messenger",

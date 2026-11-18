@@ -463,7 +463,8 @@ async def test_people_are_found_by_phone_nick_or_a_unique_name_and_their_card_ke
                 ["Код клиента", "Фамилия", "Имя", "Телефон", "Telegram", "Email"],
                 ["1", "Петрова-Смит", "Анна", "+375291112233", None, "anna@example.com"],
                 ["2", "Петров", "Игорь", None, None, "other@example.com"],
-                ["3", "Другая", "Фамилия", None, "@olga_s", None],
+                # The surname changed: the nick finds her card, since the given name fits.
+                ["3", "Другая", "Ольга", None, "@olga_s", None],
             ]
         },
     )

@@ -334,7 +334,8 @@ class WorkbookImport:
             self.locked = True
         self.contacts: dict[uuid.UUID, Contact] = {}
         self.by_phone: dict[str, uuid.UUID] = {}
-        self.by_telegram: dict[str, uuid.UUID] = {}
+        # A nick may be on several cards: a family shares one account.
+        self.by_telegram: defaultdict[str, list[uuid.UUID]] = defaultdict(list)
         self.by_name: defaultdict[str, list[uuid.UUID]] = defaultdict(list)
         for contact in await s.scalars(select(Contact), execution_options=FRESH):
             self._index_contact(contact)
@@ -452,9 +453,14 @@ class WorkbookImport:
         self.contacts[contact.id] = contact
         if contact.phone:
             self.by_phone.setdefault(contact.phone, contact.id)
-        if contact.telegram:
-            self.by_telegram.setdefault(contact.telegram.casefold(), contact.id)
+        self._index_telegram(contact)
         self.by_name[name_key(contact.full_name)].append(contact.id)
+
+    def _index_telegram(self, contact: Contact) -> None:
+        if contact.telegram and contact.id not in (
+            cards := self.by_telegram[contact.telegram.casefold()]
+        ):
+            cards.append(contact.id)
 
     def _index_account(self, entry: VaultEntry) -> None:
         self.vault[entry.id] = entry
@@ -559,8 +565,8 @@ class WorkbookImport:
             if inspect(obj).expired:
                 await self.session.refresh(obj)
         contacts = list(self.contacts.values())
-        self.contacts, self.by_phone, self.by_telegram = {}, {}, {}
-        self.by_name = defaultdict(list)
+        self.contacts, self.by_phone = {}, {}
+        self.by_telegram, self.by_name = defaultdict(list), defaultdict(list)
         for contact in contacts:
             self._index_contact(contact)
         entries = list(self.vault.values())
@@ -764,13 +770,14 @@ class WorkbookImport:
     # --- Clients ------------------------------------------------------------------------
 
     def _match(self, v: dict[str, Any]) -> uuid.UUID | None:
-        """The card of a person: by phone, by Telegram nick or by a unique name — unless
-        that card has another phone or nick than the row."""
+        """The card of a person: by phone or by Telegram nick, unless that card has another
+        given name (a family shares them); else by a unique name, unless that card has
+        another phone or nick than the row."""
         phone, nick = v.get("phone"), (v.get("telegram") or "").casefold() or None
         if phone and phone in self.by_phone and self._given(v, self.by_phone[phone]):
             return self.by_phone[phone]
-        if nick and nick in self.by_telegram:
-            return self.by_telegram[nick]
+        if nick and (same := [c for c in self.by_telegram.get(nick, []) if self._given(v, c)]):
+            return same[0]
         name = joined(v.get("last_name"), v.get("first_name"), v.get("middle_name"))
         if name is None:
             return None
@@ -785,8 +792,9 @@ class WorkbookImport:
         return same[0] if len(same) == 1 else None
 
     def _given(self, v: dict[str, Any], contact_id: uuid.UUID) -> bool:
-        """A family shares a phone: the row of a person with another given name is not the
-        phone's card. A surname changes, and a card or a row may be without a given name."""
+        """A family shares a phone and a Telegram account: the row of a person with another
+        given name is not their card (owner's decisions 2026-11-16 and 2026-11-18). A
+        surname changes, and a card or a row may be without a given name."""
         mine, theirs = v.get("first_name"), self.contacts[contact_id].first_name
         return not (mine and theirs) or normalize(mine) == normalize(theirs)
 
@@ -840,8 +848,7 @@ class WorkbookImport:
         changed |= self._assign(r, contact, fields)
         if contact.phone:
             self.by_phone[contact.phone] = contact.id
-        if contact.telegram:
-            self.by_telegram.setdefault(contact.telegram.casefold(), contact.id)
+        self._index_telegram(contact)
         changed |= self._latin(r, contact, made)
         changed |= self._passport(r, contact, made)
         if not made:

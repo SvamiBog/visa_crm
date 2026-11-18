@@ -3,7 +3,11 @@
 
 Belarusian numbers typed the local way («8 029 …», «029 …», «29 …») get +375: clients give
 their number as they are used to (specialist run before the pilot, 2026-11-04). The
-VisaCRM import format still wants the country code (app/core/data_values.py)."""
+VisaCRM import format still wants the country code (app/core/data_values.py).
+
+A number of Russia or Kazakhstan typed the local way («8 916 …») is refused, not guessed:
+its «8» is the trunk prefix, and taken for a country code it makes a wrong number
+(docs/decisions.md, 2026-11-18)."""
 
 import re
 
@@ -23,10 +27,18 @@ def _belarusian(digits: str) -> str | None:
     return None
 
 
+def _trunk_prefixed(digits: str) -> bool:
+    """«8 916 123-45-67»: a number of Russia or Kazakhstan after the trunk prefix 8. Kept
+    as +89… it is nobody's number, as +84… someone's in Vietnam, and the card saved as
+    +7… is not found. Belarusian «8 0…» is told apart before this."""
+    return len(digits) == 11 and digits.startswith("8")
+
+
 def normalize_phone(value: str) -> str:
     """Keep the digits, add "+". A number typed with "+" or "00" keeps its country code;
     a Belarusian one typed the local way gets 375.
-    Raises ValueError for anything that is not 8–15 digits."""
+    Raises ValueError for anything that is not 8–15 digits and for a number of another
+    country typed after the trunk prefix 8: its country code is not guessed."""
     raw = value.strip()
     international = raw.startswith(("+", "00"))
     if raw.startswith("00"):  # international prefix written as 00
@@ -34,6 +46,8 @@ def normalize_phone(value: str) -> str:
     digits = "".join(_DIGITS.findall(raw))
     if not international and (national := _belarusian(digits)) is not None:
         digits = "375" + national
+    elif not international and _trunk_prefixed(digits):
+        raise ValueError("a local number of another country needs its country code")
     if not 8 <= len(digits) <= 15:
         raise ValueError("phone must have 8 to 15 digits with the country code")
     return f"+{digits}"

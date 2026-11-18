@@ -159,7 +159,7 @@ async def test_duplicate_phone_points_to_existing_card(client: AsyncClient, make
     assert changed.status_code == 409
 
 
-@pytest.mark.parametrize("phone", ["123", "+1 234", "телефон"])
+@pytest.mark.parametrize("phone", ["123", "+1 234", "телефон", "8 916 123-45-67"])
 async def test_phone_needs_country_code_digits(
     client: AsyncClient, make_user: MakeUser, phone: str
 ):
@@ -434,6 +434,41 @@ async def test_a_shared_telegram_warns_and_can_be_confirmed(
     # Other changes to a card that already shares the nick are not stopped again.
     assert (await client.patch(url, json={"email": "s@example.com"})).status_code == 200
     assert (await client.patch(url, json={"telegram": "anna_k_visa"})).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("link", "nick"),
+    [
+        ("https://t.me/anna_k_visa", "anna_k_visa"),
+        ("t.me/Anna_K_Visa", "Anna_K_Visa"),
+        ("http://telegram.me/anna_k_visa/", "anna_k_visa"),
+    ],
+)
+async def test_a_telegram_link_is_kept_as_its_nick(
+    client: AsyncClient, make_user: MakeUser, link: str, nick: str
+):
+    """A profile link copied from Telegram is the nick: the card with that nick is found
+    and warned about, the chat button works, and the search takes the link too."""
+    await as_specialist(client, make_user)
+    anna = await create(client, telegram="anna_k_visa")
+
+    body = {"first_name": "Мария", "telegram": link}
+    response = await client.post(BASE, json=body)
+    assert response.status_code == 409
+    assert response.json() == {"detail": "telegram_taken", "contact_id": anna["id"]}
+    maria = await client.post(BASE, params={"allow_shared_telegram": True}, json=body)
+    assert maria.status_code == 201, maria.text
+    assert maria.json()["telegram"] == nick
+    found = {c["id"] for c in await search(client, link)}
+    assert found == {anna["id"], maria.json()["id"]}
+
+
+async def test_a_link_that_is_not_a_profile_stays_as_typed(
+    client: AsyncClient, make_user: MakeUser
+):
+    await as_specialist(client, make_user)
+    contact = await create(client, telegram="t.me/joinchat/AbCdEf")
+    assert contact["telegram"] == "t.me/joinchat/AbCdEf"
 
 
 async def test_a_telegram_that_is_not_a_nick_is_not_a_duplicate(
