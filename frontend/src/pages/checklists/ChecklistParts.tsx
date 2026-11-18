@@ -27,18 +27,23 @@ function useSortedCountries(admin: boolean): Country[] {
   );
 }
 
-/** The country shown: starts on the first one (by name) that has a list. */
-export function useChecklistCountry(admin: boolean): [string, (id: string) => void] {
+/** The country shown: starts on the first one (by name) that has a list. The third value
+ * is true while that first country is still being found, so a page can wait for it. */
+export function useChecklistCountry(admin: boolean): [string, (id: string) => void, boolean] {
   const [countryId, setCountryId] = useState("");
   const counts = useChecklistCounts(admin);
+  const countries = useCountries(admin);
   const sorted = useSortedCountries(admin);
-  useEffect(() => {
-    if (countryId || !counts.data || sorted.length === 0) return;
+  const first = useMemo(() => {
+    if (!counts.data) return undefined;
     const listed = new Set(counts.data.map((c) => c.country_id));
-    const first = sorted.find((c) => listed.has(c.id));
-    if (first) setCountryId(first.id);
-  }, [counts.data, sorted, countryId]);
-  return [countryId, setCountryId];
+    return sorted.find((c) => listed.has(c.id));
+  }, [counts.data, sorted]);
+  useEffect(() => {
+    if (!countryId && first) setCountryId(first.id);
+  }, [first, countryId]);
+  const choosing = !countryId && (counts.isPending || countries.isPending || first !== undefined);
+  return [countryId, setCountryId, choosing];
 }
 
 /** Countries that have a list come first, with the number of items in use. */

@@ -141,8 +141,8 @@ export function ClientsPage() {
     saveView(next);
   };
 
-  return (
-    <div className="page">
+  const top = (
+    <>
       <header className="page-header">
         <div>
           <h1>{t("contacts.title")}</h1>
@@ -161,6 +161,22 @@ export function ClientsPage() {
           onSaved={(contact) => navigate(`/app/clients/${contact.id}`)}
         />
       )}
+    </>
+  );
+  // The modules decide whether «Список / Доска» stands next to the search (on a phone, a row
+  // of its own) and which of them shows: the list waits for them, so it does not jump down.
+  if (workspace.isPending) {
+    return (
+      <div className="page">
+        {top}
+        <p className="muted">{t("common.loading")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page">
+      {top}
 
       <div className="toolbar">
         <div className="toolbar-start">

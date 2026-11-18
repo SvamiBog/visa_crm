@@ -267,30 +267,37 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
         )}
         {update.isError && <ErrorAlert error={update.error} />}
       </section>
-      <form className="card form-card" onSubmit={submit}>
-        <label className="field">
-          <span>{t(`dict.new.${name}`)}</span>
-          <input
-            required
-            maxLength={100}
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
-        </label>
-        {withKind && (
+      {/* Drawn once the list has come: the list arriving above pushed the form down. */}
+      {!list.isPending && (
+        <form className="card form-card" onSubmit={submit}>
           <label className="field">
-            <span>{t("dict.purposeKind")}</span>
-            <KindSelect value={newKind} onChange={setNewKind} />
-            <small className="muted">{t("dict.purposeKindHint")}</small>
+            <span>{t(`dict.new.${name}`)}</span>
+            <input
+              required
+              maxLength={100}
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
           </label>
-        )}
-        {add.isError && <ErrorAlert error={add.error} />}
-        <div className="form-actions">
-          <button type="submit" className="btn btn-p" disabled={add.isPending || !newName.trim()}>
-            {t("dict.add")}
-          </button>
-        </div>
-      </form>
+          {withKind && (
+            <label className="field">
+              <span>{t("dict.purposeKind")}</span>
+              <KindSelect value={newKind} onChange={setNewKind} />
+              <small className="muted">{t("dict.purposeKindHint")}</small>
+            </label>
+          )}
+          {add.isError && <ErrorAlert error={add.error} />}
+          <div className="form-actions">
+            <button
+              type="submit"
+              className="btn btn-p"
+              disabled={add.isPending || !newName.trim()}
+            >
+              {t("dict.add")}
+            </button>
+          </div>
+        </form>
+      )}
     </>
   );
 }
