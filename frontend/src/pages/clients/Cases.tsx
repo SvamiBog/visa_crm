@@ -126,7 +126,9 @@ export function Cases({
 
   useEffect(() => {
     if (creating !== null || repeating !== null) {
-      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      // With «reduce motion» set on the device the page jumps instead of gliding.
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      ref.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
     }
   }, [creating, repeating]);
 

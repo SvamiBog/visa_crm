@@ -6,12 +6,11 @@ import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../api";
 import { ME_KEY, useMe, type Me } from "../auth";
 import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
 import { formatDate } from "../contacts";
+import { changeLanguage, LANGUAGES } from "../i18n";
 import { useOwnSubscription } from "../subscriptions";
 import { useMoney } from "./clients/Finance";
 import { Row } from "./clients/ui";
 import { applyTheme, DEFAULT_THEME, THEMES, type UiTheme } from "../theme";
-
-const LANGUAGES = ["ru", "en"] as const;
 
 /** The user's own settings: login email, style and language. */
 export function SettingsPage() {
@@ -27,15 +26,32 @@ export function SettingsPage() {
     onSuccess: (updated) => queryClient.setQueryData(ME_KEY, updated),
     onError: () => applyTheme(current),
   });
+  // The subscription stands first: the page waits for it, so the cards below do not jump
+  // down when it arrives.
+  const specialist = me.data?.role === "specialist";
+  const own = useOwnSubscription(specialist);
+  const loading = me.isPending || (specialist && own.isPending);
+
+  const header = (
+    <header className="page-header">
+      <div>
+        <h1>{t("settings.title")}</h1>
+        <div className="muted">{t("settings.subtitle")}</div>
+      </div>
+    </header>
+  );
+  if (loading) {
+    return (
+      <div className="page">
+        {header}
+        <p className="muted">{t("common.loading")}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>{t("settings.title")}</h1>
-          <div className="muted">{t("settings.subtitle")}</div>
-        </div>
-      </header>
+      {header}
 
       <OwnSubscription />
       <EmailChange />
@@ -87,7 +103,7 @@ export function SettingsPage() {
                 name="language"
                 value={lng}
                 checked={i18n.language === lng}
-                onChange={() => void i18n.changeLanguage(lng)}
+                onChange={() => void changeLanguage(lng)}
               />
               {t(`lang.${lng}`)}
             </label>

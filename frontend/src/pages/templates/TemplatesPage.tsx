@@ -67,12 +67,17 @@ export function TemplatesPage() {
         )}
       </section>
 
-      {/* Open while there is no template yet; afterwards it is there on demand. */}
-      <Instruction
-        key={templates.data?.length === 0 ? "first" : "more"}
-        initiallyOpen={templates.data?.length === 0}
-      />
-      <CodeTable />
+      {/* Open while there is no template yet; afterwards it is there on demand. Drawn once
+          the list has come: the instruction opening late pushed the codes down. */}
+      {!templates.isPending && (
+        <>
+          <Instruction
+            key={templates.data?.length === 0 ? "first" : "more"}
+            initiallyOpen={templates.data?.length === 0}
+          />
+          <CodeTable />
+        </>
+      )}
     </div>
   );
 }
