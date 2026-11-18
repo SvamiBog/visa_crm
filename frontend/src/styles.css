@@ -678,6 +678,52 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   border-color: var(--c-primary);
 }
 
+/* A password field with the eye button inside it, at its right end
+   (components/PasswordField.tsx). The button is the field's full height and as wide,
+   44px or more for a finger; the text stops before it. */
+.password-input {
+  position: relative;
+  display: flex;
+}
+
+.password-input input {
+  flex: 1;
+  min-width: 0;
+  padding-right: 48px;
+}
+
+/* Edge draws an eye of its own in a password field: one is enough */
+.password-input input::-ms-reveal,
+.password-input input::-ms-clear {
+  display: none;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--c-muted);
+  cursor: pointer;
+}
+
+.password-toggle:hover,
+.password-toggle[aria-pressed="true"] {
+  color: var(--c-text);
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: -2px;
+}
+
 .alert {
   padding: 12px 16px;
   border-radius: var(--radius-sm);

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../api";
 import { ME_KEY, useMe, type Me } from "../auth";
+import { PasswordField } from "../components/PasswordField";
 import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
 import { formatDate } from "../contacts";
 import { changeLanguage, LANGUAGES } from "../i18n";
@@ -208,16 +209,12 @@ function TwoFactor() {
         >
           <p className="muted small">{t("settings.twoFactorTurnOffHint")}</p>
           <div className="form-grid">
-            <label className="field">
-              <span>{t("auth.currentPassword")}</span>
-              <input
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
+            <PasswordField
+              label={t("auth.currentPassword")}
+              autoComplete="current-password"
+              value={password}
+              onChange={setPassword}
+            />
             <label className="field">
               <span>{t("settings.twoFactorCode")}</span>
               <input
@@ -305,16 +302,12 @@ function EraseData() {
             {t("settings.eraseWarning")}
           </div>
           <div className="form-grid">
-            <label className="field">
-              <span>{t("auth.currentPassword")}</span>
-              <input
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
+            <PasswordField
+              label={t("auth.currentPassword")}
+              autoComplete="current-password"
+              value={password}
+              onChange={setPassword}
+            />
             <label className="field">
               <span>{t("settings.eraseCode")}</span>
               <input
@@ -458,16 +451,12 @@ function EmailChange() {
                 onChange={(e) => setNewEmail(e.target.value)}
               />
             </label>
-            <label className="field">
-              <span>{t("auth.currentPassword")}</span>
-              <input
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
+            <PasswordField
+              label={t("auth.currentPassword")}
+              autoComplete="current-password"
+              value={password}
+              onChange={setPassword}
+            />
           </div>
           {request.isError && <ErrorAlert error={request.error} />}
           <div className="form-actions">
