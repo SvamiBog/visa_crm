@@ -736,8 +736,18 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   gap: 4px;
 }
 
+/* A row of a list or a field renamed in place: its message takes a line of its own */
+.row-editor > .field-error,
+.inline-form > .field-error {
+  flex-basis: 100%;
+}
+
 .field [aria-invalid="true"],
-.field [aria-invalid="true"]:focus {
+.field [aria-invalid="true"]:focus,
+.row-editor [aria-invalid="true"],
+.row-editor [aria-invalid="true"]:focus,
+.inline-form [aria-invalid="true"],
+.inline-form [aria-invalid="true"]:focus {
   border-color: var(--c-red);
 }
 

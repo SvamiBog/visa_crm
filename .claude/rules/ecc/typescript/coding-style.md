@@ -11,7 +11,7 @@ paths:
 - Object shapes are `type X = { … }` (the code has no `interface`); `as const` arrays and string unions instead of `enum` (`MESSENGERS` in `frontend/src/contacts.ts`); no `any` — `unknown`, then narrow.
 - Explicit types on exported functions; props typed with a named type; function components without `React.FC`.
 - Server state through TanStack Query hooks in the area module (`useContactLists` in `frontend/src/contacts.ts`); requests only through `frontend/src/api.ts` (`apiGet`, `apiPost`, …, `apiDownload`), which throws `ApiError` carrying the API's code.
-- Errors shown as ``t(`errors.${errorCode(error)}`, { defaultValue: t("errors.unknown") })``. An error of one field goes under that field: `Field` and `useFieldErrors` from `frontend/src/components/Field.tsx` (the message, `aria-invalid`, `aria-describedby`, the focus after a failed submit); an error of no field stays in the alert above the form's buttons (`docs/decisions.md` → «Ошибки у полей»).
+- Errors shown as ``t(`errors.${errorCode(error)}`, { defaultValue: t("errors.unknown") })``. An error of one field goes under that field: `Field` and `useFieldErrors` from `frontend/src/components/Field.tsx` (the message, `aria-invalid`, `aria-describedby`, the focus after a failed submit; `invalidProps` and `RowError` for a cell of a row); an error of no field stays in the alert above the form's buttons (`docs/decisions.md` → «Ошибки у полей»).
 - No interface strings in code: `t("…")` keys added to `frontend/src/locales/ru.json` and `en.json` together.
 - No colours, fonts or radii in components: theme variables `--c-*`, `--font-*`, `--radius-*` from `frontend/src/styles.css`.
 - State updated immutably (spread, `map`, `filter`); query data is never mutated.

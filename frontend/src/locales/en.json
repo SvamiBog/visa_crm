@@ -93,6 +93,7 @@
   "errors.validation": "Please check the fields.",
   "errors.field_invalid": "Check this field.",
   "errors.phone_invalid": "The number needs 8 to 15 digits, country code included.",
+  "errors.invalid_period": "The period can be 10 years at most.",
   "errors.network": "No connection to the server. Check your internet.",
   "errors.unknown": "Something went wrong. Please try again.",
   "errors.request_too_large": "The request is too large. If you are uploading a file, make it smaller.",

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../api";
 import { useDisclosure } from "../../components/Disclosure";
+import { Field, useFieldErrors } from "../../components/Field";
 import { formatDateShort } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { tripsKey, type ContactTrips as ContactTripsData, type Trip, type TripResult } from "../../stay";
@@ -194,6 +195,17 @@ function TripForm({
       onDone();
     },
   });
+  // A date the rules of 90/180 turn down: the exit, or the entry of a trip with no exit.
+  const errors = useFieldErrors(save.error, {
+    codes: {
+      unknown_country: "country_id",
+      dates_order: "left_on",
+      trip_exit_required: "left_on",
+      trip_too_long: "left_on",
+      trip_too_far: leftOn ? "left_on" : "entered_on",
+    },
+    fields: ["country_id", "entered_on", "left_on", "note"],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -201,41 +213,51 @@ function TripForm({
   };
 
   return (
-    <form className="form-card booking-form" onSubmit={submit}>
+    <form ref={errors.form} className="form-card booking-form" onSubmit={submit}>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("stay.country")}</span>
-          <CountrySelect required value={country} onChange={setCountry} />
-        </label>
-        <label className="field">
-          <span>{t("stay.entry")}</span>
-          <input
-            type="date"
-            required
-            value={enteredOn}
-            onChange={(e) => setEnteredOn(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t("stay.exit")}</span>
-          <input
-            type="date"
-            min={enteredOn || undefined}
-            value={leftOn}
-            onChange={(e) => setLeftOn(e.target.value)}
-          />
-          <small className="muted">{t("stay.exitHint")}</small>
-        </label>
+        <Field label={t("stay.country")} error={errors.at("country_id")}>
+          {(control) => (
+            <CountrySelect control={control} required value={country} onChange={setCountry} />
+          )}
+        </Field>
+        <Field label={t("stay.entry")} error={errors.at("entered_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              required
+              value={enteredOn}
+              onChange={(e) => setEnteredOn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("stay.exit")} hint={t("stay.exitHint")} error={errors.at("left_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              min={enteredOn || undefined}
+              value={leftOn}
+              onChange={(e) => setLeftOn(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
       <label className="checkbox">
         <input type="checkbox" checked={longStay} onChange={(e) => setLongStay(e.target.checked)} />
         {t("stay.longStay")}
       </label>
-      <label className="field">
-        <span>{t("vault.note")}</span>
-        <input maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} />
-      </label>
-      {save.isError && <ErrorAlert error={save.error} />}
+      <Field label={t("vault.note")} error={errors.at("note")}>
+        {(control) => (
+          <input
+            {...control}
+            maxLength={200}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        )}
+      </Field>
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
           {t("common.save")}

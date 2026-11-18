@@ -62,6 +62,25 @@ export function Field({
   );
 }
 
+/** A control with no label of its own (a cell in a row of a list, a field renamed in
+ * place): it points to its message, which `RowError` shows under the row. */
+export function invalidProps(
+  messageId: string,
+  error: string | undefined,
+): { "aria-invalid"?: true; "aria-describedby"?: string } {
+  return error ? { "aria-invalid": true, "aria-describedby": messageId } : {};
+}
+
+/** The message of a control in a row (`invalidProps`), under that row. */
+export function RowError({ id, error }: { id: string; error: string | undefined }) {
+  if (!error) return null;
+  return (
+    <small id={id} className="field-error small">
+      {error}
+    </small>
+  );
+}
+
 /** A mistake the form finds before it asks the API. A new one on every submit, so the
  * focus goes back to its field each time. */
 export class FormError extends Error {

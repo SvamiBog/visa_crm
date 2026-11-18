@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { Field, useFieldErrors } from "../../components/Field";
 import { IssuedPasswordCard, type IssuedPassword } from "../../components/IssuedPasswordCard";
 import { ModulePicker } from "../../components/ModulePicker";
 import { RevealedPasswords } from "./RevealedPasswords";
@@ -246,6 +247,10 @@ function EmployeeForm({
     },
     onSuccess: onSaved,
   });
+  const errors = useFieldErrors(save.error, {
+    codes: { email_taken: "email" },
+    fields: ["full_name", "email", "daily_card_limit", "daily_password_limit"],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -253,26 +258,35 @@ function EmployeeForm({
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">
         {employee ? t("employees.settingsTitle", { email: employee.email }) : t("employees.new")}
       </h2>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("employees.colName")}</span>
-          <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        {!employee && (
-          <label className="field">
-            <span>{t("auth.email")}</span>
+        <Field label={t("employees.colName")} error={errors.at("full_name")}>
+          {(control) => (
             <input
-              type="email"
+              {...control}
               required
-              autoComplete="off"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
             />
-          </label>
+          )}
+        </Field>
+        {!employee && (
+          <Field label={t("auth.email")} error={errors.at("email")}>
+            {(control) => (
+              <input
+                {...control}
+                type="email"
+                required
+                autoComplete="off"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            )}
+          </Field>
         )}
       </div>
       <h3 className="h3">{t("employees.modulesTitle")}</h3>
@@ -283,37 +297,41 @@ function EmployeeForm({
           <h3 className="h3">{t("employees.limitsTitle")}</h3>
           <p className="muted small">{t("employees.limitsHint")}</p>
           <div className="form-grid">
-            <label className="field">
-              <span>{t("employees.cardLimit")}</span>
-              <input
-                type="number"
-                min={1}
-                max={1000}
-                required
-                value={cardLimit}
-                onChange={(e) => setCardLimit(e.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>{t("employees.passwordLimit")}</span>
-              <input
-                type="number"
-                min={1}
-                max={1000}
-                required
-                value={passwordLimit}
-                onChange={(e) => setPasswordLimit(e.target.value)}
-              />
-            </label>
+            <Field label={t("employees.cardLimit")} error={errors.at("daily_card_limit")}>
+              {(control) => (
+                <input
+                  {...control}
+                  type="number"
+                  min={1}
+                  max={1000}
+                  required
+                  value={cardLimit}
+                  onChange={(e) => setCardLimit(e.target.value)}
+                />
+              )}
+            </Field>
+            <Field label={t("employees.passwordLimit")} error={errors.at("daily_password_limit")}>
+              {(control) => (
+                <input
+                  {...control}
+                  type="number"
+                  min={1}
+                  max={1000}
+                  required
+                  value={passwordLimit}
+                  onChange={(e) => setPasswordLimit(e.target.value)}
+                />
+              )}
+            </Field>
           </div>
         </>
       )}
       {!employee && <p className="muted small">{t("employees.newHint")}</p>}
-      {save.isError && (
+      {errors.general ? (
         <div className="alert alert-error" role="alert">
-          {t(`errors.${errorCode(save.error)}`, { defaultValue: t("errors.unknown") })}
+          {t(`errors.${errorCode(errors.general)}`, { defaultValue: t("errors.unknown") })}
         </div>
-      )}
+      ) : null}
       <div className="form-actions">
         <button
           type="submit"

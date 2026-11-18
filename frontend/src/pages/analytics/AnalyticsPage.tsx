@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { apiGet, apiPut } from "../../api";
+import { ApiError, apiGet, apiPut } from "../../api";
 import { useCaseLists } from "../../contacts";
 import {
   byId,
@@ -12,6 +12,7 @@ import {
   type VisaCenter,
 } from "../../reference";
 import { useMoney } from "../clients/Finance";
+import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert } from "../clients/ui";
 
 // Аналитика (backlog 1.13): reports of a period computed from the cards (app/api/analytics.py).
@@ -274,8 +275,13 @@ export function AnalyticsPage() {
         `/analytics?start=${start}&end=${end}${country ? `&country_id=${country}` : ""}`,
       ),
     placeholderData: keepPreviousData,
+    // A period the API turns down (4xx) is not asked again: the reason shows at once.
+    retry: (count, error) => !(error instanceof ApiError && error.status < 500) && count < 3,
   });
   const data = report.data;
+  // A period too long is the period's mistake: said under its end. A filter, not a form,
+  // so the focus stays where it is.
+  const errors = useFieldErrors(report.error, { codes: { invalid_period: "end" } });
 
   const sortedCountries = useMemo(
     () =>
@@ -376,17 +382,19 @@ export function AnalyticsPage() {
             }}
           />
         </label>
-        <label className="field">
-          <span>{t("analytics.to")}</span>
-          <input
-            type="month"
-            value={to}
-            onChange={(e) => {
-              setPreset("custom");
-              if (e.target.value) setTo(e.target.value);
-            }}
-          />
-        </label>
+        <Field label={t("analytics.to")} error={errors.at("end")}>
+          {(control) => (
+            <input
+              {...control}
+              type="month"
+              value={to}
+              onChange={(e) => {
+                setPreset("custom");
+                if (e.target.value) setTo(e.target.value);
+              }}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("analytics.country")}</span>
           <select value={country} onChange={(e) => setCountry(e.target.value)}>
@@ -401,7 +409,7 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {report.isError && <ErrorAlert error={report.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       {report.isPending && <p className="muted">{t("common.loading")}</p>}
       {data && (
         <div

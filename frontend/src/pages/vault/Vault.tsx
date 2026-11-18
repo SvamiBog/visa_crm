@@ -11,6 +11,7 @@ import {
   vaultKey,
   type VaultEntry,
 } from "../../vault";
+import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert, Row } from "../clients/ui";
 
 // The vault's blocks (backlog 1.7): a client's accounts on their card and the
@@ -290,6 +291,11 @@ export function VaultEntryForm({
       onDone();
     },
   });
+  const errors = useFieldErrors(save.error, {
+    codes: { case_of_another_contact: "case_id" },
+    fields: ["case_id"],
+  });
+  const general = errors.general ?? generate.error;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -297,7 +303,7 @@ export function VaultEntryForm({
   };
 
   return (
-    <form className="form-card vault-form" onSubmit={submit}>
+    <form ref={errors.form} className="form-card vault-form" onSubmit={submit}>
       <div className="form-grid">
         <label className="field">
           <span>{t("vault.system")}</span>
@@ -310,17 +316,18 @@ export function VaultEntryForm({
           </select>
         </label>
         {contactId !== null && cases.length > 0 && (
-          <label className="field">
-            <span>{t("vault.case")}</span>
-            <select value={caseId} onChange={(e) => setCaseId(e.target.value)}>
-              <option value="">{t("vault.noCase")}</option>
-              {cases.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Field label={t("vault.case")} error={errors.at("case_id")}>
+            {(control) => (
+              <select {...control} value={caseId} onChange={(e) => setCaseId(e.target.value)}>
+                <option value="">{t("vault.noCase")}</option>
+                {cases.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
         )}
         <label className="field">
           <span>{t("queues.ownerLabel")}</span>
@@ -397,7 +404,7 @@ export function VaultEntryForm({
         <span>{t("vault.note")}</span>
         <textarea rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
-      {(save.isError || generate.isError) && <ErrorAlert error={save.error ?? generate.error} />}
+      {general ? <ErrorAlert error={general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending || !chosen}>
           {t("common.save")}

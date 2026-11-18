@@ -54,7 +54,8 @@ for (const lang of ["ru", "en"] as const) {
       // tests start the count again.
       await password.fill("not-the-password-1");
       await next.click();
-      await expect(page.getByRole("alert")).toHaveText(t("errors.invalid_current_password"));
+      // The password's own error, under it (field-errors.spec.ts).
+      await expect(password).toHaveAccessibleDescription(t("errors.invalid_current_password"));
       await expect(password).toHaveValue("");
       await expect(qrCode).toHaveCount(0);
 

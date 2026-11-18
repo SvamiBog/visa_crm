@@ -7,6 +7,7 @@ import { formatDate, type CaseStage } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { CaseChip } from "../clients/Cases";
 import { useMoney } from "../clients/Finance";
+import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert, todayIso } from "../clients/ui";
 
 // Settlements with registrars (backlog 1.10): each registrar's balance in their own
@@ -471,9 +472,13 @@ function PaymentForm({
       onDone();
     },
   });
+  const errors = useFieldErrors(save.error, {
+    fields: ["paid_on", "amount", "talons", "note"],
+  });
 
   return (
     <form
+      ref={errors.form}
       className="card form-card"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
@@ -482,20 +487,29 @@ function PaymentForm({
     >
       <h2 className="h2">{t(payment ? "registrars.editPayment" : "registrars.addPayment")}</h2>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("registrars.paidOn")}</span>
-          <input type="date" required value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("registrars.amount", { currency })}</span>
-          <input
-            inputMode="decimal"
-            required
-            pattern="[0-9 ]*([.,][0-9]{1,2})?"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-        </label>
+        <Field label={t("registrars.paidOn")} error={errors.at("paid_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              required
+              value={paidOn}
+              onChange={(e) => setPaidOn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("registrars.amount", { currency })} error={errors.at("amount")}>
+          {(control) => (
+            <input
+              {...control}
+              inputMode="decimal"
+              required
+              pattern="[0-9 ]*([.,][0-9]{1,2})?"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("registrars.methodLabel")}</span>
           <select value={method} onChange={(e) => setMethod(e.target.value as Method)}>
@@ -514,24 +528,32 @@ function PaymentForm({
           </select>
         </label>
         {forTalons && (
-          <label className="field">
-            <span>{t("registrars.talonsCount")}</span>
-            <input
-              type="number"
-              min={1}
-              max={1000}
-              required
-              value={talons}
-              onChange={(e) => setTalons(e.target.value)}
-            />
-          </label>
+          <Field label={t("registrars.talonsCount")} error={errors.at("talons")}>
+            {(control) => (
+              <input
+                {...control}
+                type="number"
+                min={1}
+                max={1000}
+                required
+                value={talons}
+                onChange={(e) => setTalons(e.target.value)}
+              />
+            )}
+          </Field>
         )}
-        <label className="field">
-          <span>{t("registrars.note")}</span>
-          <input maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} />
-        </label>
+        <Field label={t("registrars.note")} error={errors.at("note")}>
+          {(control) => (
+            <input
+              {...control}
+              maxLength={200}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
           {t("common.save")}

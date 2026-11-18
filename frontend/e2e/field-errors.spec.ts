@@ -49,10 +49,17 @@ async function cardWithCase(page: Page): Promise<string> {
   throw new Error("The demo has no card with a case");
 }
 
-/** The message is right under the control, tied to it, and the focus is on the control. */
-async function expectFieldError(form: Locator, control: Locator, text: string): Promise<void> {
+/** The message is right under the control, tied to it, and the focus is on the control.
+ * `focus: false` for a filter or a pick that is not a submit: the focus stays put.
+ * `row: true` for a cell of a row (a fee, a price): the message goes under the whole row. */
+async function expectFieldError(
+  form: Locator,
+  control: Locator,
+  text: string,
+  { focus = true, row = false } = {},
+): Promise<void> {
   await expect(control).toHaveAttribute("aria-invalid", "true");
-  await expect(control).toBeFocused();
+  if (focus) await expect(control).toBeFocused();
   const [first, ...rest] = ((await control.getAttribute("aria-describedby")) ?? "").split(" ");
   expect(first, "the control is described by its message first").toBeTruthy();
   const message = form.page().locator(`[id="${first}"]`);
@@ -62,7 +69,12 @@ async function expectFieldError(form: Locator, control: Locator, text: string): 
   const m = (await message.boundingBox())!;
   const gap = m.y - (c.y + c.height);
   expect(gap, "the message starts under the control").toBeGreaterThanOrEqual(-1);
-  expect(gap, "the message is right under the control").toBeLessThan(16);
+  if (row) {
+    const line = control.locator("xpath=ancestor::*[contains(@class, 'row-editor')][1]");
+    await expect(line.locator(`[id="${first}"]`), "the message is in the control's row").toHaveCount(1);
+  } else {
+    expect(gap, "the message is right under the control").toBeLessThan(16);
+  }
   expect(Math.abs(m.x - c.x), "the message lines up with the control").toBeLessThanOrEqual(2);
   // The field's hint follows the message instead of lying over it.
   for (const id of rest) {
@@ -191,6 +203,89 @@ for (const lang of ["ru", "en"] as const) {
         await save.click();
         await expectFieldError(form, repeat, t("errors.passwords_differ"));
         await expect(next).not.toHaveAttribute("aria-invalid", "true");
+      });
+
+      test("settings: the new email is the current one", async ({ page }) => {
+        await signIn(page);
+        await page.goto("/settings");
+        await page.getByRole("button", { name: t("settings.changeEmail"), exact: true }).click();
+        const form = page.locator("form").filter({
+          has: page.getByLabel(t("settings.newEmail"), { exact: true }),
+        });
+        const email = form.getByLabel(t("settings.newEmail"), { exact: true });
+        await email.fill(EMAIL);
+        await form.getByLabel(t("auth.currentPassword"), { exact: true }).fill(PASSWORD);
+        await form.getByRole("button", { name: t("settings.sendCode"), exact: true }).click();
+        await expectFieldError(form, email, t("errors.email_unchanged"));
+      });
+
+      test("employees: an email another account has", async ({ page }) => {
+        await signIn(page);
+        await page.goto("/app/employees");
+        await page.getByRole("button", { name: t("employees.add"), exact: true }).click();
+        const form = page.locator("form").filter({
+          has: page.getByRole("heading", { name: t("employees.new"), exact: true }),
+        });
+        await form.getByLabel(t("employees.colName"), { exact: true }).fill("Field Error Test");
+        const email = form.getByLabel(t("auth.email"), { exact: true });
+        await email.fill(EMAIL);
+        await form.getByRole("button", { name: t("employees.invite"), exact: true }).click();
+        await expectFieldError(form, email, t("errors.email_taken"));
+      });
+
+      test("lists: a purpose with a name that is taken", async ({ page }) => {
+        await signIn(page);
+        const purposes = (await (await page.request.get("/api/dictionaries/purposes")).json()) as {
+          name: string;
+        }[];
+        expect(purposes.length, "the demo has visa purposes").toBeGreaterThan(0);
+        await page.goto("/app/dictionaries");
+        const name = page.getByLabel(t("dict.new.purposes"), { exact: true });
+        const form = page.locator("form").filter({ has: name });
+        await name.fill(purposes[0].name);
+        await form.getByRole("button", { name: t("dict.add"), exact: true }).click();
+        await expectFieldError(form, name, t("errors.name_taken"));
+      });
+
+      test("trip: an entry more than two years ahead", async ({ page }) => {
+        await signIn(page);
+        const [first] = await demoCards(page);
+        await page.goto(`/app/clients/${first.id}`);
+        await page.getByRole("button", { name: t("stay.add"), exact: true }).click();
+        const form = page.locator("form.booking-form");
+        await form
+          .getByRole("combobox", { name: t("stay.country"), exact: true })
+          .selectOption({ index: 1 });
+        const entry = form.getByLabel(t("stay.entry"), { exact: true });
+        const far = new Date();
+        far.setFullYear(far.getFullYear() + 3);
+        await entry.fill(far.toISOString().slice(0, 10));
+        await form.getByRole("button", { name: t("common.save"), exact: true }).click();
+        await expectFieldError(form, entry, t("errors.trip_too_far"));
+      });
+
+      test("consultation: a fee that is not a number", async ({ page }) => {
+        await signIn(page);
+        const [first] = await demoCards(page);
+        await page.goto(`/app/clients/${first.id}`);
+        await page.getByRole("button", { name: t("contacts.addConsultation"), exact: true }).click();
+        const form = page.locator("form.consultation-form");
+        // A cell of the fee's row: the message goes under the row.
+        const fee = form.getByLabel(t("dict.amount"), { exact: true });
+        await fee.fill("abc");
+        await form.getByRole("button", { name: t("common.save"), exact: true }).click();
+        await expectFieldError(form, fee, t("errors.field_invalid"), { row: true });
+      });
+
+      test("analytics: a period longer than ten years", async ({ page }) => {
+        await signIn(page);
+        await page.goto("/app/analytics");
+        await page.getByLabel(t("analytics.from"), { exact: true }).fill("2010-01");
+        const to = page.getByLabel(t("analytics.to"), { exact: true });
+        // A filter, not a form: the message comes without moving the focus.
+        await expectFieldError(page.locator(".page"), to, t("errors.invalid_period"), {
+          focus: false,
+        });
       });
     });
   }

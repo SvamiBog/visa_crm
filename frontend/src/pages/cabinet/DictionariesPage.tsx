@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent } from "react";
+import { useId, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { PURPOSE_KINDS, type PurposeKind } from "../../checklists";
+import { Field, invalidProps, RowError, useFieldErrors } from "../../components/Field";
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
 import { rulesSummary, SYSTEM_KINDS, type SystemKind, type VaultSystem } from "../../vault";
 import { ReminderSettings } from "./Attention";
@@ -100,6 +101,14 @@ function toAmount(value: string): string {
   return value.trim().replace(",", ".");
 }
 
+// An entry's name repeats another one's.
+const NAME_CODES = { name_taken: "name" };
+
+/** The fields of the rows of a list sent as a whole: the API names a row by its index. */
+function rowFields(count: number, names: string[]): string[] {
+  return Array.from({ length: count }, (_, i) => names.map((n) => `${i}.${n}`)).flat();
+}
+
 function ErrorAlert({ error }: { error: unknown }) {
   const { t } = useTranslation();
   return (
@@ -187,6 +196,13 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
       void refresh();
     },
   });
+  const addErrors = useFieldErrors(add.error, { codes: NAME_CODES, fields: ["name"] });
+  // A rename shows its error under the row; switching off or a kind, in the alert.
+  const renameErrors = useFieldErrors(renaming ? update.error : null, {
+    codes: NAME_CODES,
+    fields: ["name"],
+  });
+  const renameMessage = useId();
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -205,6 +221,7 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
               <li key={entry.id} className={entry.is_active ? undefined : "row-off"}>
                 {renaming?.id === entry.id ? (
                   <form
+                    ref={renameErrors.form}
                     className="inline-form"
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -218,6 +235,7 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
                       maxLength={100}
                       value={renaming.name}
                       onChange={(e) => setRenaming({ id: entry.id, name: e.target.value })}
+                      {...invalidProps(renameMessage, renameErrors.at("name"))}
                     />
                     <button type="submit" className="btn btn-sm btn-p" disabled={update.isPending}>
                       {t("common.save")}
@@ -225,6 +243,7 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
                     <button type="button" className="btn btn-sm" onClick={() => setRenaming(null)}>
                       {t("common.cancel")}
                     </button>
+                    <RowError id={renameMessage} error={renameErrors.at("name")} />
                   </form>
                 ) : (
                   <>
@@ -265,18 +284,22 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
             ))}
           </ul>
         )}
-        {update.isError && <ErrorAlert error={update.error} />}
+        {update.isError && (renaming ? renameErrors.general : update.error) ? (
+          <ErrorAlert error={renaming ? renameErrors.general : update.error} />
+        ) : null}
       </section>
-      <form className="card form-card" onSubmit={submit}>
-        <label className="field">
-          <span>{t(`dict.new.${name}`)}</span>
-          <input
-            required
-            maxLength={100}
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
-        </label>
+      <form ref={addErrors.form} className="card form-card" onSubmit={submit}>
+        <Field label={t(`dict.new.${name}`)} error={addErrors.at("name")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              maxLength={100}
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+          )}
+        </Field>
         {withKind && (
           <label className="field">
             <span>{t("dict.purposeKind")}</span>
@@ -284,7 +307,7 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
             <small className="muted">{t("dict.purposeKindHint")}</small>
           </label>
         )}
-        {add.isError && <ErrorAlert error={add.error} />}
+        {addErrors.general ? <ErrorAlert error={addErrors.general} /> : null}
         <div className="form-actions">
           <button type="submit" className="btn btn-p" disabled={add.isPending || !newName.trim()}>
             {t("dict.add")}
@@ -440,6 +463,10 @@ function SystemForm({
       onClose();
     },
   });
+  const errors = useFieldErrors(save.error, {
+    codes: { ...NAME_CODES, password_rules_empty: "password_symbols" },
+    fields: ["name", "url", "password_length", "password_symbols"],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -447,13 +474,20 @@ function SystemForm({
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">{system ? system.name : t("dict.newSystem")}</h2>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("dict.name")}</span>
-          <input required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
+        <Field label={t("dict.name")} error={errors.at("name")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              maxLength={100}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("dict.kindLabel")}</span>
           <select value={kind} onChange={(e) => setKind(e.target.value as SystemKind)}>
@@ -464,42 +498,51 @@ function SystemForm({
             ))}
           </select>
         </label>
-        <label className="field">
-          <span>{t("dict.siteUrl")}</span>
-          <input
-            type="url"
-            maxLength={300}
-            placeholder="https://"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
-        </label>
+        <Field label={t("dict.siteUrl")} error={errors.at("url")}>
+          {(control) => (
+            <input
+              {...control}
+              type="url"
+              maxLength={300}
+              placeholder="https://"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
       <fieldset className="module-block">
         <legend>{t("dict.passwordRules")}</legend>
         <p className="muted small">{t("dict.passwordRulesHint")}</p>
         <div className="form-grid">
-          <label className="field">
-            <span>{t("dict.passwordLength")}</span>
-            <input
-              type="number"
-              required
-              min={6}
-              max={64}
-              value={length}
-              onChange={(e) => setLength(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span>{t("dict.passwordSymbols")}</span>
-            <input
-              className="mono"
-              maxLength={32}
-              value={symbols}
-              onChange={(e) => setSymbols(e.target.value)}
-            />
-            <small className="muted">{t("dict.passwordSymbolsHint")}</small>
-          </label>
+          <Field label={t("dict.passwordLength")} error={errors.at("password_length")}>
+            {(control) => (
+              <input
+                {...control}
+                type="number"
+                required
+                min={6}
+                max={64}
+                value={length}
+                onChange={(e) => setLength(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("dict.passwordSymbols")}
+            hint={t("dict.passwordSymbolsHint")}
+            error={errors.at("password_symbols")}
+          >
+            {(control) => (
+              <input
+                {...control}
+                className="mono"
+                maxLength={32}
+                value={symbols}
+                onChange={(e) => setSymbols(e.target.value)}
+              />
+            )}
+          </Field>
         </div>
         <label className="checkbox">
           <input type="checkbox" checked={lower} onChange={(e) => setLower(e.target.checked)} />
@@ -518,7 +561,7 @@ function SystemForm({
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
         <span>{t("reference.activeLabel")}</span>
       </label>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
           {t("common.save")}
@@ -812,6 +855,11 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
       onClose();
     },
   });
+  // The card first, then its terms as a list: a row's mistake is named by its index.
+  const errors = useFieldErrors(save.error, {
+    fields: ["name", "contact", "note", ...rowFields(terms.length, ["percent", "amount"])],
+  });
+  const rowMessage = useId();
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -819,22 +867,41 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">{partner ? partner.name : t("dict.newPartner")}</h2>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("dict.name")}</span>
-          <input required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("dict.contact")}</span>
-          <input maxLength={200} value={contact} onChange={(e) => setContact(e.target.value)} />
-        </label>
+        <Field label={t("dict.name")} error={errors.at("name")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              maxLength={200}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("dict.contact")} error={errors.at("contact")}>
+          {(control) => (
+            <input
+              {...control}
+              maxLength={200}
+              value={contact}
+              onChange={(e) => setContact(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
-      <label className="field">
-        <span>{t("reference.notes")}</span>
-        <input maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
-      </label>
+      <Field label={t("reference.notes")} error={errors.at("note")}>
+        {(control) => (
+          <input
+            {...control}
+            maxLength={1000}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        )}
+      </Field>
 
       <fieldset className="module-block">
         <legend>{t("dict.terms.title")}</legend>
@@ -868,6 +935,7 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
                   placeholder="%"
                   value={row.percent ?? ""}
                   onChange={(e) => setRow(index, { percent: e.target.value })}
+                  {...invalidProps(`${rowMessage}-${index}`, errors.at(`${index}.percent`))}
                 />
               )}
               {row.terms_type === "fixed" && (
@@ -878,6 +946,7 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
                     required
                     value={row.amount ?? ""}
                     onChange={(e) => setRow(index, { amount: e.target.value })}
+                    {...invalidProps(`${rowMessage}-${index}`, errors.at(`${index}.amount`))}
                   />
                   <select
                     className="select-narrow"
@@ -898,6 +967,10 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
               >
                 {t("dict.remove")}
               </button>
+              <RowError
+                id={`${rowMessage}-${index}`}
+                error={errors.at(`${index}.percent`) ?? errors.at(`${index}.amount`)}
+              />
             </div>
           ))}
         </div>
@@ -921,7 +994,7 @@ function PartnerForm({ partner, onClose }: { partner?: Partner; onClose: () => v
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
         {t("reference.activeLabel")}
       </label>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       {deletion.error && <ErrorAlert error={deletion.error} />}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
@@ -1158,6 +1231,10 @@ function RegistrarForm({
       onClose();
     },
   });
+  const errors = useFieldErrors(save.error, {
+    fields: ["name", "contact", "note", "low_balance", ...rowFields(prices.length, ["amount"])],
+  });
+  const rowMessage = useId();
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -1165,13 +1242,20 @@ function RegistrarForm({
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">{registrar ? registrar.name : t("dict.newRegistrar")}</h2>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("dict.name")}</span>
-          <input required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
+        <Field label={t("dict.name")} error={errors.at("name")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              maxLength={200}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("dict.kindLabel")}</span>
           <select value={kind} onChange={(e) => setKind(e.target.value as Registrar["kind"])}>
@@ -1182,15 +1266,27 @@ function RegistrarForm({
             ))}
           </select>
         </label>
-        <label className="field">
-          <span>{t("dict.contact")}</span>
-          <input maxLength={200} value={contact} onChange={(e) => setContact(e.target.value)} />
-        </label>
+        <Field label={t("dict.contact")} error={errors.at("contact")}>
+          {(control) => (
+            <input
+              {...control}
+              maxLength={200}
+              value={contact}
+              onChange={(e) => setContact(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
-      <label className="field">
-        <span>{t("reference.notes")}</span>
-        <input maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
-      </label>
+      <Field label={t("reference.notes")} error={errors.at("note")}>
+        {(control) => (
+          <input
+            {...control}
+            maxLength={1000}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        )}
+      </Field>
 
       <fieldset className="module-block">
         <legend>{t("dict.settlements")}</legend>
@@ -1204,15 +1300,17 @@ function RegistrarForm({
               ))}
             </select>
           </label>
-          <label className="field">
-            <span>{t("dict.lowBalance", { currency })}</span>
-            <input
-              inputMode="decimal"
-              pattern="[0-9 ]*([.,][0-9]{1,2})?"
-              value={lowBalance}
-              onChange={(e) => setLowBalance(e.target.value)}
-            />
-          </label>
+          <Field label={t("dict.lowBalance", { currency })} error={errors.at("low_balance")}>
+            {(control) => (
+              <input
+                {...control}
+                inputMode="decimal"
+                pattern="[0-9 ]*([.,][0-9]{1,2})?"
+                value={lowBalance}
+                onChange={(e) => setLowBalance(e.target.value)}
+              />
+            )}
+          </Field>
         </div>
       </fieldset>
 
@@ -1250,6 +1348,7 @@ function RegistrarForm({
                 required
                 value={row.amount}
                 onChange={(e) => setRow(index, { amount: e.target.value })}
+                {...invalidProps(`${rowMessage}-${index}`, errors.at(`${index}.amount`))}
               />
               <select
                 className="select-narrow"
@@ -1268,6 +1367,7 @@ function RegistrarForm({
               >
                 {t("dict.remove")}
               </button>
+              <RowError id={`${rowMessage}-${index}`} error={errors.at(`${index}.amount`)} />
             </div>
           ))}
         </div>
@@ -1291,7 +1391,7 @@ function RegistrarForm({
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
         {t("reference.activeLabel")}
       </label>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       {deletion.error && <ErrorAlert error={deletion.error} />}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
@@ -1357,6 +1457,8 @@ function PrepaymentsForm({
       ),
     onSuccess: () => void refresh(),
   });
+  const errors = useFieldErrors(save.error, { fields: rowFields(rows.length, ["amount"]) });
+  const rowMessage = useId();
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -1364,7 +1466,7 @@ function PrepaymentsForm({
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <p className="muted small">{t("dict.prepaymentsHint", { currency })}</p>
       {rows.length === 0 && <p className="muted">{t("dict.empty")}</p>}
       <div className="rows-editor">
@@ -1387,6 +1489,7 @@ function PrepaymentsForm({
               required
               value={row.amount}
               onChange={(e) => setRow(index, { amount: e.target.value })}
+              {...invalidProps(`${rowMessage}-${index}`, errors.at(`${index}.amount`))}
             />
             <span className="muted">{currency}</span>
             <button
@@ -1396,10 +1499,11 @@ function PrepaymentsForm({
             >
               {t("dict.remove")}
             </button>
+            <RowError id={`${rowMessage}-${index}`} error={errors.at(`${index}.amount`)} />
           </div>
         ))}
       </div>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       {save.isSuccess && (
         <div className="alert alert-ok" role="status">
           {t("dict.saved")}

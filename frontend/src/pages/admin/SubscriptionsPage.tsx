@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { apiDelete, apiPatch, apiPost, apiPut } from "../../api";
+import { Field, useFieldErrors } from "../../components/Field";
 import { PaymentsTable, SubscriptionChip } from "../../components/Subscription";
 import { formatDate } from "../../contacts";
 import {
@@ -193,30 +194,27 @@ function DateField({
   value,
   onChange,
   disabled,
+  error,
 }: {
   label: string;
   hint: string;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  error?: string;
 }) {
-  const id = useId();
-  // The hint stays outside the label so it is not read as part of the field's name.
   return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <input
-        id={id}
-        type="date"
-        value={value}
-        disabled={disabled}
-        aria-describedby={`${id}-hint`}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <small id={`${id}-hint`} className="muted small">
-        {hint}
-      </small>
-    </div>
+    <Field label={label} hint={hint} error={error}>
+      {(control) => (
+        <input
+          {...control}
+          type="date"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -247,6 +245,14 @@ function SubscriptionForm({
       }),
     onSuccess: () => refresh(queryClient),
   });
+  const errors = useFieldErrors(save.error, {
+    codes: {
+      unknown_tariff: "tariff_id",
+      tariff_inactive: "tariff_id",
+      trial_before_start: "trial_until",
+    },
+    fields: ["tariff_id", "starts_on", "trial_until"],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -254,25 +260,28 @@ function SubscriptionForm({
   };
 
   return (
-    <form onSubmit={submit}>
+    <form ref={errors.form} onSubmit={submit}>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("subscription.tariff")}</span>
-          <select value={tariffId} onChange={(e) => setTariffId(e.target.value)}>
-            <option value="">{t("subscription.noTariff")}</option>
-            {choices.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name} · {t("subscription.perMonth", { amount: `${money(x.price)} ${x.currency}` })}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Field label={t("subscription.tariff")} error={errors.at("tariff_id")}>
+          {(control) => (
+            <select {...control} value={tariffId} onChange={(e) => setTariffId(e.target.value)}>
+              <option value="">{t("subscription.noTariff")}</option>
+              {choices.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name} ·{" "}
+                  {t("subscription.perMonth", { amount: `${money(x.price)} ${x.currency}` })}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
         <DateField
           label={t("subscription.startsOn")}
           hint={t("subscription.startsOnHint")}
           value={startsOn}
           onChange={setStartsOn}
           disabled={!tariffId}
+          error={errors.at("starts_on")}
         />
         <DateField
           label={t("subscription.trialUntil")}
@@ -280,9 +289,10 @@ function SubscriptionForm({
           value={trialUntil}
           onChange={setTrialUntil}
           disabled={!tariffId}
+          error={errors.at("trial_until")}
         />
       </div>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
           {t("common.save")}
@@ -296,7 +306,6 @@ function PaymentForm({ tenantId, tariff }: { tenantId: string; tariff: TariffBri
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const money = useMoney();
-  const amountHintId = useId();
   const [paidOn, setPaidOn] = useState(todayIso);
   const [months, setMonths] = useState("1");
   const [amount, setAmount] = useState("");
@@ -320,6 +329,7 @@ function PaymentForm({ tenantId, tariff }: { tenantId: string; tariff: TariffBri
       refresh(queryClient);
     },
   });
+  const errors = useFieldErrors(add.error, { fields: ["paid_on", "months", "amount", "note"] });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -327,41 +337,53 @@ function PaymentForm({ tenantId, tariff }: { tenantId: string; tariff: TariffBri
   };
 
   return (
-    <form onSubmit={submit}>
+    <form ref={errors.form} onSubmit={submit}>
       <h3 className="h3">{t("subscription.markPayment")}</h3>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("subscription.paidOn")}</span>
-          <input type="date" required value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("subscription.months")}</span>
-          <input
-            type="number"
-            required
-            min={1}
-            max={24}
-            step={1}
-            value={months}
-            onChange={(e) => setMonths(e.target.value)}
-          />
-        </label>
-        <div className="field">
-          <label htmlFor={`${amountHintId}-amount`}>{t("subscription.amount")}</label>
-          <input
-            id={`${amountHintId}-amount`}
-            type="number"
-            inputMode="decimal"
-            min="0.01"
-            step="0.01"
-            value={amount}
-            aria-describedby={amountHintId}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          <small id={amountHintId} className="muted small">
-            {t("subscription.amountHint", { amount: `${money(tariff.price)} ${tariff.currency}` })}
-          </small>
-        </div>
+        <Field label={t("subscription.paidOn")} error={errors.at("paid_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              required
+              value={paidOn}
+              onChange={(e) => setPaidOn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("subscription.months")} error={errors.at("months")}>
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              required
+              min={1}
+              max={24}
+              step={1}
+              value={months}
+              onChange={(e) => setMonths(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field
+          label={t("subscription.amount")}
+          hint={t("subscription.amountHint", {
+            amount: `${money(tariff.price)} ${tariff.currency}`,
+          })}
+          error={errors.at("amount")}
+        >
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("subscription.currency")}</span>
           <select
@@ -376,12 +398,18 @@ function PaymentForm({ tenantId, tariff }: { tenantId: string; tariff: TariffBri
             ))}
           </select>
         </label>
-        <label className="field">
-          <span>{t("subscription.note")}</span>
-          <input maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} />
-        </label>
+        <Field label={t("subscription.note")} error={errors.at("note")}>
+          {(control) => (
+            <input
+              {...control}
+              maxLength={200}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
-      {add.isError && <ErrorAlert error={add.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={add.isPending || !paidOn}>
           {t("subscription.markPayment")}
@@ -491,6 +519,10 @@ function TariffForm({ tariff, onDone }: { tariff: Tariff | null; onDone: () => v
       onDone();
     },
   });
+  const errors = useFieldErrors(save.error, {
+    codes: { tariff_name_taken: "name" },
+    fields: ["name", "price"],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -498,33 +530,37 @@ function TariffForm({ tariff, onDone }: { tariff: Tariff | null; onDone: () => v
   };
 
   return (
-    <form className="form-card" onSubmit={submit}>
+    <form ref={errors.form} className="form-card" onSubmit={submit}>
       <h3 className="h3">
         {tariff ? t("subscription.editTariff", { name: tariff.name }) : t("subscription.newTariff")}
       </h3>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("subscription.tariffName")}</span>
-          <input
-            required
-            autoFocus
-            maxLength={100}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t("subscription.price")}</span>
-          <input
-            type="number"
-            required
-            inputMode="decimal"
-            min="0.01"
-            step="0.01"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-          />
-        </label>
+        <Field label={t("subscription.tariffName")} error={errors.at("name")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              autoFocus
+              maxLength={100}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("subscription.price")} error={errors.at("price")}>
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              required
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("subscription.currency")}</span>
           <select value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
@@ -549,7 +585,7 @@ function TariffForm({ tariff, onDone }: { tariff: Tariff | null; onDone: () => v
           <p className="muted small">{t("subscription.tariffActiveHint")}</p>
         </>
       )}
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending || !name || !price}>
           {t("common.save")}

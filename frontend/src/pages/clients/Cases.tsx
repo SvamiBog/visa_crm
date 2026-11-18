@@ -371,6 +371,9 @@ function Group({ visaCase: c }: { visaCase: VisaCase }) {
     mutationFn: () => apiDelete<void>(`/cases/${c.id}/group`),
     onSuccess: () => void refresh(),
   });
+  const joinErrors = useFieldErrors(join.error, {
+    codes: { in_another_group: "case_id", self_link: "case_id" },
+  });
 
   return (
     <div className="case-group">
@@ -386,6 +389,7 @@ function Group({ visaCase: c }: { visaCase: VisaCase }) {
       </Row>
       {adding ? (
         <form
+          ref={joinErrors.form}
           className="form-card"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
@@ -395,20 +399,26 @@ function Group({ visaCase: c }: { visaCase: VisaCase }) {
           {candidates.data && candidates.data.length === 0 ? (
             <p className="muted small">{t("cases.noCandidates")}</p>
           ) : (
-            <label className="field">
-              <span>{t("cases.joinWith")}</span>
-              <select required value={picked} onChange={(e) => setPicked(e.target.value)}>
-                <option value="" />
-                {(candidates.data ?? []).map((m) => (
-                  <option key={m.case_id} value={m.case_id}>
-                    {m.full_name} · {t("cases.number", { number: m.number })} ·{" "}
-                    {t(`cases.stage.${m.stage}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Field label={t("cases.joinWith")} error={joinErrors.at("case_id")}>
+              {(control) => (
+                <select
+                  {...control}
+                  required
+                  value={picked}
+                  onChange={(e) => setPicked(e.target.value)}
+                >
+                  <option value="" />
+                  {(candidates.data ?? []).map((m) => (
+                    <option key={m.case_id} value={m.case_id}>
+                      {m.full_name} · {t("cases.number", { number: m.number })} ·{" "}
+                      {t(`cases.stage.${m.stage}`)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
           )}
-          {join.isError && <ErrorAlert error={join.error} />}
+          {joinErrors.general ? <ErrorAlert error={joinErrors.general} /> : null}
           <div className="form-actions">
             <button type="submit" className="btn btn-sm btn-p" disabled={!picked || join.isPending}>
               {t("cases.join")}
