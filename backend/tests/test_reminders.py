@@ -190,6 +190,7 @@ async def test_the_windows_are_the_specialists(
         "contract_days": 3,
         "questionnaire_days": 1,
         "package_days": 7,
+        "result_days": 15,
     }
     saved = await client.put(
         "/api/reminders/settings",
@@ -381,6 +382,63 @@ async def test_what_the_specialist_reminded_clients_of_by_hand(
         e["action"] == "cases.updated" and "questionnaire_received_on" in str(e["details"])
         for e in events
     )
+
+
+async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_user: MakeUser):
+    """CRM audit 2026-11-18 (owner's decisions): 15 days after the submission with no
+    result entered, «внесите результат» until it is; a consultation held without a
+    decision asks for one for a month, unless a day to hear it was agreed."""
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+
+    petr = await contact(client, "Пётр")
+    poland = await open_case(client, codes, petr, "PL")
+    await patch_case(client, poland, submission_on=day(-15))
+    # Two weeks after the submission the consulate may still be deciding.
+    roma = await contact(client, "Рома")
+    latvia = await open_case(client, codes, roma, "LV")
+    await patch_case(client, latvia, submission_on=day(-14))
+
+    # Held three days ago, no decision entered.
+    sveta = await contact(client, "Света")
+    held = await client.post(
+        f"/api/contacts/{sveta['id']}/consultations", json={"held_on": day(-3)}
+    )
+    assert held.status_code == 201, held.text
+    # Held as well, but a day to hear the decision was agreed: that reminder covers it.
+    taras = await contact(client, "Тарас")
+    agreed = await client.post(
+        f"/api/contacts/{taras['id']}/consultations",
+        json={"held_on": day(-3), "follow_up_on": day(4)},
+    )
+    assert agreed.status_code == 201, agreed.text
+    # An older consultation without a decision, then a newer one with it.
+    ulyana = await contact(client, "Ульяна")
+    for body in ({"held_on": day(-20)}, {"held_on": day(-2), "decision": "no"}):
+        made = await client.post(f"/api/contacts/{ulyana['id']}/consultations", json=body)
+        assert made.status_code == 201, made.text
+
+    found = by_kind((await client.get("/api/reminders")).json())
+    assert set(found) == {"result", "consultation"}
+    result = found["result"]
+    assert (result["contact_name"], result["since"], result["due_on"]) == (
+        "Пётр",
+        day(-15),
+        day(0),
+    )
+    assert result["key"] == f"result:{poland['id']}:{day(0)}"
+    consultation = found["consultation"]
+    assert (consultation["contact_name"], consultation["due_on"]) == ("Света", day(-3))
+    assert consultation["key"] == f"consultation:{held.json()['id']}:{day(-2)}"
+
+    # Each goes when its matter is settled.
+    await patch_case(client, poland, outcome="visa", decided_on=day(-1))
+    decided = await client.patch(
+        f"/api/consultations/{held.json()['id']}", json={"decision": "thinking"}
+    )
+    assert decided.status_code == 200, decided.text
+    assert (await client.get("/api/reminders")).json() == []
 
 
 async def test_a_familys_reminders_name_their_group(client: AsyncClient, make_user: MakeUser):

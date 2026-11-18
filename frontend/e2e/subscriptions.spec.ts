@@ -73,8 +73,10 @@ for (const lang of ["ru", "en"] as const) {
       await expect(row.getByRole("cell", { name: t("subscription.monthsShort", { count: 1 }) }))
         .toBeVisible();
 
-      page.once("dialog", (dialog) => void dialog.accept());
       await row.getByRole("button", { name: t("subscription.deletePayment") }).click();
+      const ask = page.getByRole("dialog");
+      await ask.getByRole("button", { name: t("confirm.delete"), exact: true }).click();
+      await expect(ask).toBeHidden();
       await expect(row, "a deleted payment leaves the history").toHaveCount(0);
     });
 

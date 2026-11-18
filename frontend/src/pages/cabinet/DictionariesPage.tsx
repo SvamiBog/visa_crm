@@ -3,6 +3,7 @@ import { useId, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { PURPOSE_KINDS, type PurposeKind } from "../../checklists";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { Field, invalidProps, RowError, useFieldErrors } from "../../components/Field";
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
 import { rulesSummary, SYSTEM_KINDS, type SystemKind, type VaultSystem } from "../../vault";
@@ -768,6 +769,7 @@ function Partners() {
  * offered to switch it off instead. Shared by the row of the list and the form of a partner. */
 function useDeletePartner(onDone: (partner: Partner) => void) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const refresh = useRefresh("partners");
   const done = (partner: Partner) => {
     void refresh();
@@ -783,17 +785,17 @@ function useDeletePartner(onDone: (partner: Partner) => void) {
     onSuccess: (_, partner) => done(partner),
   });
 
-  const run = (partner: Partner) => {
-    if (!window.confirm(t("dict.confirmDeletePartner", { name: partner.name }))) return;
+  const run = async (partner: Partner) => {
+    const message = t("dict.confirmDeletePartner", { name: partner.name });
+    if (!(await confirm({ message, action: t("confirm.delete") }))) return;
     remove.mutate(partner, {
-      onError: (error) => {
-        if (
-          errorCode(error) === "partner_in_use" &&
-          partner.is_active &&
-          window.confirm(t("dict.partnerInUseSwitchOff"))
-        ) {
-          switchOff.mutate(partner);
-        }
+      onError: async (error) => {
+        if (errorCode(error) !== "partner_in_use" || !partner.is_active) return;
+        const yes = await confirm({
+          message: t("dict.partnerInUseSwitchOff"),
+          action: t("confirm.switchOff"),
+        });
+        if (yes) switchOff.mutate(partner);
       },
     });
   };
@@ -1135,6 +1137,7 @@ function Registrars() {
  * the form of a registrar. */
 function useDeleteRegistrar(onDone: (registrar: Registrar) => void) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const done = (registrar: Registrar) => {
     void queryClient.invalidateQueries({ queryKey: key("registrars") });
@@ -1152,17 +1155,17 @@ function useDeleteRegistrar(onDone: (registrar: Registrar) => void) {
     onSuccess: (_, registrar) => done(registrar),
   });
 
-  const run = (registrar: Registrar) => {
-    if (!window.confirm(t("dict.confirmDeleteRegistrar", { name: registrar.name }))) return;
+  const run = async (registrar: Registrar) => {
+    const message = t("dict.confirmDeleteRegistrar", { name: registrar.name });
+    if (!(await confirm({ message, action: t("confirm.delete") }))) return;
     remove.mutate(registrar, {
-      onError: (error) => {
-        if (
-          errorCode(error) === "registrar_in_use" &&
-          registrar.is_active &&
-          window.confirm(t("dict.registrarInUseSwitchOff"))
-        ) {
-          switchOff.mutate(registrar);
-        }
+      onError: async (error) => {
+        if (errorCode(error) !== "registrar_in_use" || !registrar.is_active) return;
+        const yes = await confirm({
+          message: t("dict.registrarInUseSwitchOff"),
+          action: t("confirm.switchOff"),
+        });
+        if (yes) switchOff.mutate(registrar);
       },
     });
   };

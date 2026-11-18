@@ -11,6 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { Field, useFieldErrors, type FieldErrors } from "../../components/Field";
 import {
   CASE_STAGES,
@@ -131,15 +132,18 @@ export function CaseChip({ stage, outcome }: { stage: CaseStage; outcome?: Outco
 // --- The cases block -----------------------------------------------------------------
 
 /** `creating`: a consultation to open cases from («Создать кейс»), "blank" for a case
- * without one, null when no form is open. */
+ * without one, null when no form is open. `resultCaseId`: a case whose form opens at its
+ * result (dropped on «Результат» of the board without one). */
 export function Cases({
   card,
   creating,
   onCreating,
+  resultCaseId = null,
 }: {
   card: ContactCard;
   creating: Consultation | "blank" | null;
   onCreating: (value: Consultation | "blank" | null) => void;
+  resultCaseId?: string | null;
 }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLElement>(null);
@@ -190,6 +194,7 @@ export function Cases({
           <CasePanel
             key={c.id}
             visaCase={c}
+            askResult={c.id === resultCaseId}
             previousNumber={c.previous_case_id ? numbers.get(c.previous_case_id) : undefined}
             onFileAgain={() => {
               onCreating(null);
@@ -204,10 +209,13 @@ export function Cases({
 
 function CasePanel({
   visaCase: c,
+  askResult,
   previousNumber,
   onFileAgain,
 }: {
   visaCase: VisaCase;
+  // Open the form at the result: the case was dropped on «Результат» of the board.
+  askResult: boolean;
   // The number of the case this one was filed again after.
   previousNumber?: number;
   onFileAgain: () => void;
@@ -222,6 +230,16 @@ function CasePanel({
   const finances = useHasModule("finances");
   const packageCheck = useHasModule("package_check");
   const [editing, setEditing] = useState(false);
+  // «Результат» needs the result (CRM audit 2026-11-18): asking for that stage opens
+  // the form at the result instead; each ask brings the form to it again.
+  const [resultAsked, setResultAsked] = useState(0);
+  const askForResult = () => {
+    setEditing(true);
+    setResultAsked((n) => n + 1);
+  };
+  useEffect(() => {
+    if (askResult) askForResult();
+  }, [askResult]);
   // As on the board, the family standing at this stage moves with the case.
   const moveTo = useMutation({
     mutationFn: (stage: CaseStage) =>
@@ -270,7 +288,9 @@ function CasePanel({
               type="button"
               aria-current={i === current ? "step" : undefined}
               disabled={i === current || moveTo.isPending}
-              onClick={() => moveTo.mutate(stage)}
+              onClick={() =>
+                stage === "result" && c.outcome === null ? askForResult() : moveTo.mutate(stage)
+              }
             >
               {t(`cases.stage.${stage}`)}
             </button>
@@ -280,7 +300,14 @@ function CasePanel({
       {moveTo.isError && <ErrorAlert error={moveTo.error} />}
 
       {editing ? (
-        <CaseEditForm visaCase={c} onDone={() => setEditing(false)} />
+        <CaseEditForm
+          visaCase={c}
+          resultAsked={resultAsked}
+          onDone={() => {
+            setEditing(false);
+            setResultAsked(0);
+          }}
+        />
       ) : (
         <>
           <Row label={t("cases.purpose")}>{purpose?.name}</Row>
@@ -351,6 +378,7 @@ function Result({ visaCase: c }: { visaCase: VisaCase }) {
 
 function Group({ visaCase: c }: { visaCase: VisaCase }) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const refresh = useRefreshCards();
   const [adding, setAdding] = useState(false);
   const [picked, setPicked] = useState("");
@@ -438,8 +466,10 @@ function Group({ visaCase: c }: { visaCase: VisaCase }) {
               type="button"
               className="link-button"
               disabled={leave.isPending}
-              onClick={() => {
-                if (window.confirm(t("cases.confirmLeave"))) leave.mutate();
+              onClick={async () => {
+                if (await confirm({ message: t("cases.confirmLeave"), action: t("confirm.remove") })) {
+                  leave.mutate();
+                }
               }}
             >
               {t("cases.leaveGroup")}
@@ -827,9 +857,26 @@ function CaseCreateForm({
   );
 }
 
-function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () => void }) {
+function CaseEditForm({
+  visaCase: c,
+  resultAsked,
+  onDone,
+}: {
+  visaCase: VisaCase;
+  // Above zero: the specialist asked for «Результат», which needs the result first.
+  resultAsked: number;
+  onDone: () => void;
+}) {
   const { t } = useTranslation();
   const refresh = useRefreshCards();
+  const resultRef = useRef<HTMLFieldSetElement>(null);
+  const outcomeRef = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    if (resultAsked === 0) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    resultRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+    outcomeRef.current?.focus({ preventScroll: true });
+  }, [resultAsked]);
   const [place, setPlace] = useState<Place>({
     destination: c.destination_id,
     submission: c.submission_country_id,
@@ -970,12 +1017,21 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
           </Field>
         </div>
       </fieldset>
-      <fieldset className="module-block">
+      <fieldset className="module-block" ref={resultRef}>
         <legend>{t("cases.result")}</legend>
+        {resultAsked > 0 && !outcome && (
+          <p className="alert alert-warn" role="status">
+            {t("cases.resultNeedsOutcome")}
+          </p>
+        )}
         <div className="form-grid">
           <label className="field">
             <span>{t("cases.outcomeLabel")}</span>
-            <select value={outcome} onChange={(e) => setOutcome(e.target.value as Outcome | "")}>
+            <select
+              ref={outcomeRef}
+              value={outcome}
+              onChange={(e) => setOutcome(e.target.value as Outcome | "")}
+            >
               <option value="">{t("cases.noOutcome")}</option>
               {OUTCOMES.map((o) => (
                 <option key={o} value={o}>

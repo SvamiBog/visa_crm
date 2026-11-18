@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../../api";
 import { useDisclosure } from "../../components/Disclosure";
+import { SortHeader } from "../../components/SortHeader";
 import {
   CASE_STAGES,
   FROM_INDEX,
@@ -18,6 +19,7 @@ import {
   type Tab,
 } from "../../contacts";
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
+import { formatSort, parseSort, useSortParam } from "../../sorting";
 import { BoardView } from "./Board";
 import { CaseChip } from "./Cases";
 import { ContactForm } from "./ContactForm";
@@ -32,6 +34,17 @@ type View = "list" | "board";
 export type Filters = { country: string; stage: CaseStage | ""; channel: string; registrar: string };
 const NO_FILTERS: Filters = { country: "", stage: "", channel: "", registrar: "" };
 const FILTER_KEYS = ["country", "stage", "channel", "registrar"] as const;
+// Columns the server sorts the list by (SearchIn.sort); without one, the newest first.
+const SORTS = ["name", "next"] as const;
+type SortKey = (typeof SORTS)[number];
+// The same orders on a phone, where the cards have no headings: a list to choose from.
+const SORT_CHOICES = {
+  "": "index.sort.newest",
+  name: "index.sort.nameAsc",
+  "-name": "index.sort.nameDesc",
+  next: "index.sort.nextAsc",
+  "-next": "index.sort.nextDesc",
+} as const;
 
 /** Tab, view and filters live in the URL (ids only), so going back to the list keeps them. */
 function readFilters(params: URLSearchParams): Filters {
@@ -320,6 +333,8 @@ function ListView({
   const caseLists = useCaseLists();
   const channelById = useMemo(() => byId(contactLists.channels), [contactLists.channels]);
   const purposeById = useMemo(() => byId(caseLists.purposes), [caseLists.purposes]);
+  const { sort, set: setSort, toggle } = useSortParam<SortKey>("sort", SORTS);
+  const header = (key: SortKey) => ({ sortKey: key, sort, onSort: () => toggle(key) });
 
   // POST: the search text is personal data and must not end up in a URL.
   const body = {
@@ -329,6 +344,7 @@ function ListView({
     stage: filters.stage || null,
     channel_id: filters.channel || null,
     registrar_id: filters.registrar || null,
+    sort: formatSort(sort) || "newest",
   };
   const contacts = useInfiniteQuery({
     queryKey: ["contacts", "search", body],
@@ -381,6 +397,16 @@ function ListView({
           </button>
         ))}
       </div>
+      <label className="field index-sort">
+        <span>{t("index.sort.label")}</span>
+        <select value={formatSort(sort)} onChange={(e) => setSort(parseSort(e.target.value, SORTS))}>
+          {Object.entries(SORT_CHOICES).map(([value, label]) => (
+            <option key={value} value={value}>
+              {t(label)}
+            </option>
+          ))}
+        </select>
+      </label>
       <section className="card">
         {contacts.isPending && <p className="muted">{t("common.loading")}</p>}
         {contacts.isError && <p className="alert alert-error">{t("errors.unknown")}</p>}
@@ -392,10 +418,10 @@ function ListView({
             <table className="tbl clients-table">
               <thead>
                 <tr>
-                  <th>{t("index.colClient")}</th>
+                  <SortHeader {...header("name")}>{t("index.colClient")}</SortHeader>
                   <th>{t("index.colWhere")}</th>
                   <th>{t("index.colStage")}</th>
-                  <th>{t("index.colNext")}</th>
+                  <SortHeader {...header("next")}>{t("index.colNext")}</SortHeader>
                   <th>{t("contacts.channel")}</th>
                 </tr>
               </thead>

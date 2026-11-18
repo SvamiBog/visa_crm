@@ -8,6 +8,7 @@ import { Field, useFieldErrors } from "../../components/Field";
 import { formatDateShort } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { tripsKey, type ContactTrips as ContactTripsData, type Trip, type TripResult } from "../../stay";
+import { deferDelete, useDeleting } from "../../undo";
 import { CountrySelect, StaySummaryView, TripCheck, TripChips, TripUsage } from "../stay/StayParts";
 import { ErrorAlert } from "./ui";
 
@@ -97,16 +98,20 @@ function TripItem({
   onEdit: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const deleting = useDeleting();
   const queryClient = useQueryClient();
   const countries = useCountries();
   const countryById = useMemo(() => byId(countries.data), [countries.data]);
   const name = useLocalName();
+  const url = `/trips/${trip.id}`;
+  const waiting = deleting.has(url);
   const remove = useMutation({
-    mutationFn: () => apiDelete<void>(`/trips/${trip.id}`),
+    mutationFn: () => apiDelete<void>(url),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: tripsKey(contactId) }),
   });
+  const off = result?.counts === false ? " row-off" : "";
   return (
-    <li className={result?.counts === false ? "stay-item row-off" : "stay-item"}>
+    <li className={`stay-item${off}${waiting ? " deleting" : ""}`}>
       <div className="stay-head">
         <div className="stay-country">
           <strong>{name.country(countryById.get(trip.country_id)) || "—"}</strong>
@@ -114,22 +119,25 @@ function TripItem({
           {trip.note && <span className="muted small stay-note">{trip.note}</span>}
         </div>
         <div className="stay-actions">
-          <button type="button" className="link-button" onClick={onEdit}>
+          <button type="button" className="link-button" onClick={onEdit} disabled={waiting}>
             {t("reference.edit")}
           </button>
           <button
             type="button"
             className="link-button"
-            disabled={remove.isPending}
-            onClick={() => {
-              if (window.confirm(t("stay.confirmDelete"))) remove.mutate();
-            }}
+            disabled={remove.isPending || waiting}
+            onClick={() =>
+              deferDelete({
+                key: url,
+                message: t("undo.tripDeleted"),
+                commit: () => remove.mutateAsync(),
+              })
+            }
           >
             {t("vault.delete")}
           </button>
         </div>
       </div>
-      {remove.isError && <ErrorAlert error={remove.error} />}
       <dl className="stay-dates">
         <div>
           <dt>{t("stay.entry")}</dt>

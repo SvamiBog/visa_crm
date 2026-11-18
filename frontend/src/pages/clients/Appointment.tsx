@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiPatch, apiPost } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import {
   formatDate,
   type Attempt,
@@ -300,6 +301,7 @@ type AttemptAction = "send" | "came" | "fix" | null;
 
 function Attempts({ visaCase: c }: { visaCase: VisaCase }) {
   const { t, i18n } = useTranslation();
+  const confirm = useConfirm();
   const refresh = useRefreshCards();
   const date = (value: string | null) => formatDate(value, i18n.language);
   const open = c.attempts.find((a) => a.status === "open");
@@ -419,8 +421,13 @@ function Attempts({ visaCase: c }: { visaCase: VisaCase }) {
               type="button"
               className="link-button"
               disabled={update.isPending}
-              onClick={() => {
-                if (window.confirm(t("queues.confirmCancel"))) update.mutate({ outcome: "cancelled" });
+              onClick={async () => {
+                const yes = await confirm({
+                  message: t("queues.confirmCancel"),
+                  action: t("queues.cancelAttempt"),
+                  cancel: t("confirm.keepAttempt"),
+                });
+                if (yes) update.mutate({ outcome: "cancelled" });
               }}
             >
               {t("queues.cancelAttempt")}

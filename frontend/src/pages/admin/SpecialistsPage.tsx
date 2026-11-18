@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { Field, useFieldErrors } from "../../components/Field";
 import { IssuedPasswordCard, type IssuedPassword } from "../../components/IssuedPasswordCard";
 import { ModulePicker, useModules } from "../../components/ModulePicker";
@@ -31,6 +32,7 @@ const KEY = ["admin", "specialists"] as const;
 
 export function SpecialistsPage() {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const specialists = useQuery({
     queryKey: KEY,
@@ -56,13 +58,19 @@ export function SpecialistsPage() {
     },
   });
 
-  const run = (s: Specialist, kind: "block" | "unblock" | "reset-password") => {
+  const run = async (s: Specialist, kind: "block" | "unblock" | "reset-password") => {
     const question = {
-      block: "admin.confirmBlock",
+      block: { message: "admin.confirmBlock", action: "confirm.block" },
       unblock: null,
-      "reset-password": "admin.confirmReset",
+      "reset-password": { message: "admin.confirmReset", action: "confirm.issuePassword" },
     }[kind];
-    if (question && !window.confirm(t(question, { email: s.email }))) return;
+    if (question) {
+      const yes = await confirm({
+        message: t(question.message, { email: s.email }),
+        action: t(question.action),
+      });
+      if (!yes) return;
+    }
     action.mutate({ s, kind });
   };
 

@@ -22,6 +22,8 @@
   --c-btn: #edf0f5;
   --c-btn-border: #d3d8e1;
   --c-nav: #121a2b;
+  /* Behind a modal window: the page dims */
+  --c-backdrop: rgb(18 26 43 / 0.55);
   --c-nav-text: #c9d1e2;
   --c-nav-strong: #ffffff;
   --c-nav-hover: #1e2940;
@@ -75,6 +77,7 @@
   --c-btn: #252b36;
   --c-btn-border: #3a4252;
   --c-nav: #090b0f;
+  --c-backdrop: rgb(0 0 0 / 0.6);
   --c-nav-text: #b5bcc9;
   --c-nav-strong: #f4f6fa;
   --c-nav-hover: #161a21;
@@ -119,6 +122,7 @@
   --c-btn: #f1e9de;
   --c-btn-border: #dccfbf;
   --c-nav: #ede4d8;
+  --c-backdrop: rgb(43 36 32 / 0.45);
   --c-nav-text: #4a3f37;
   --c-nav-strong: #2b2420;
   --c-nav-hover: #e3d8c9;
@@ -169,6 +173,7 @@
   --c-btn: #f3f3f3;
   --c-btn-border: #d4d4d4;
   --c-nav: #fafafa;
+  --c-backdrop: rgb(17 17 17 / 0.4);
   --c-nav-text: #333333;
   --c-nav-strong: #111111;
   --c-nav-hover: #f0f0f0;
@@ -406,6 +411,65 @@ h1 {
   padding: 12px 8px;
   border-bottom: 1px solid var(--c-row);
   vertical-align: middle;
+}
+
+/* A sortable column heading: the heading's full height is the button, the arrow shows the
+   order (faint until the column is sorted). The button keeps to the cell's side padding,
+   so its text starts and ends where the column's values do. */
+.tbl th.sortable {
+  padding: 0 8px;
+}
+
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 32px;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* A column of figures: the arrow goes before the heading, so the heading ends on the
+   figures' edge. */
+.tbl th.money-cell .sort-btn {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
+.tbl th[aria-sort] {
+  color: var(--c-text);
+}
+
+.sort-arrow {
+  opacity: 0.45;
+}
+
+.sort-arrow.on {
+  opacity: 1;
+}
+
+.sort-btn:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .sort-btn:hover {
+    color: var(--c-text);
+  }
+}
+
+@media (pointer: coarse) {
+  .sort-btn {
+    min-height: 44px;
+  }
 }
 
 .tbl .actions {
@@ -1508,6 +1572,97 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
 
 .plain-list li.row-off {
   color: var(--c-muted);
+}
+
+/* The question before a heavy action (components/ConfirmDialog.tsx): the site's own
+   window instead of the browser's. Its body fills it, so a press that lands on the
+   dialog itself is a press on the backdrop. */
+.confirm {
+  width: min(440px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font: inherit;
+  box-shadow: 0 16px 48px var(--c-backdrop);
+}
+
+.confirm::backdrop {
+  background: var(--c-backdrop);
+}
+
+.confirm-body {
+  padding: 20px;
+}
+
+.confirm-text {
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* «Удалено · Отменить» (components/UndoToast.tsx): at the bottom, above the phone's bar,
+   in the theme's colours turned over, so it stands out on a light page and a dark one. */
+.undo-region {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--tabbar-h, 0px) + 16px);
+  z-index: 45;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  transform: translateX(-50%);
+}
+
+.undo-toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 4px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--c-text);
+  color: var(--c-surface);
+  box-shadow: 0 8px 24px var(--c-backdrop);
+}
+
+.undo-failed {
+  border-left: 4px solid var(--c-red);
+}
+
+.undo-button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--c-surface);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.undo-button:focus-visible {
+  outline: 2px solid var(--c-surface);
+  outline-offset: -4px;
+}
+
+/* A record waiting for its deletion: in place, struck through, its buttons asleep. */
+.deleting {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+@media (max-width: 520px) {
+  .confirm-actions .btn {
+    flex: 1 1 auto;
+  }
 }
 
 .mono {
@@ -2910,6 +3065,13 @@ a.kpi:focus-visible {
   }
 }
 
+/* The order of the client index on a phone, where the cards have no column headings to
+   press. A wider screen sorts by the headings. */
+.index-sort {
+  display: none;
+  margin-bottom: 12px;
+}
+
 /* Phone: a client of the index is two lines — name and stage, then country and date —
    instead of a table scrolled sideways; the channel is in the filters. */
 @media (max-width: 720px) {
@@ -2965,6 +3127,10 @@ a.kpi:focus-visible {
 
   .clients-table .cell-channel {
     display: none;
+  }
+
+  .index-sort {
+    display: flex;
   }
 }
 

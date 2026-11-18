@@ -39,7 +39,7 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cases import cleared_by_outcome
+from app.core.cases import by_dates, cleared_by_outcome
 from app.core.data_format import CREATABLE, ValueType
 from app.core.data_values import normalize
 from app.core.finance import to_base
@@ -1235,18 +1235,17 @@ class WorkbookImport:
     def _stage(self, r: _Row, case: VisaCase) -> bool:
         """The stage from the file, else from the data: a result ends the case, a
         submission in the past puts it under review, one ahead — documents are collected.
-        Worked out, the stage only moves on."""
-        if "stage" in r.values:
-            stage = CaseStage(r.values["stage"])
-        else:
+        Worked out, the stage only moves on. «Результат» needs a result (CRM audit
+        2026-11-18): asked for without one, the stage is worked out."""
+        stage = CaseStage(r.values["stage"]) if "stage" in r.values else None
+        if stage == CaseStage.RESULT and case.outcome is None:
+            r.warn("stage", "needs_outcome")
+            stage = None
+        if stage is None:
             if case.outcome is not None:
                 stage = CaseStage.RESULT
-            elif case.submission_on is not None:
-                stage = (
-                    CaseStage.REVIEW if case.submission_on <= self.today else CaseStage.DOCUMENTS
-                )
             else:
-                stage = CaseStage.WAITING
+                stage = by_dates(case.submission_on, self.today)
             if STAGE_ORDER.index(stage) <= STAGE_ORDER.index(case.stage):
                 return False
         if case.stage == stage:

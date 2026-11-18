@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiPatch, apiPost, errorCode } from "../../api";
 import { useMe } from "../../auth";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { useDisclosure } from "../../components/Disclosure";
 import { AppealsLabel, BookingLabel, OperatorLabel } from "../../components/RuleLabels";
 import {
@@ -236,6 +237,7 @@ function useRefreshRules() {
  * off instead (backlog 1.20). Shared by the row of the list and the form of a direction. */
 function useDeleteDirection(onDone: (rule: Rule) => void) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const name = useLocalName();
   const countries = useCountries();
   const refresh = useRefreshRules();
@@ -252,14 +254,18 @@ function useDeleteDirection(onDone: (rule: Rule) => void) {
     onSuccess: (_, rule) => done(rule),
   });
 
-  const run = (rule: Rule) => {
+  const run = async (rule: Rule) => {
     const country = name.country(countries.data?.find((c) => c.id === rule.destination_id));
-    if (!window.confirm(t("directions.confirmDelete", { country }))) return;
+    const message = t("directions.confirmDelete", { country });
+    if (!(await confirm({ message, action: t("confirm.delete") }))) return;
     remove.mutate(rule, {
-      onError: (error) => {
-        if (errorCode(error) === "rule_in_use" && window.confirm(t("directions.inUseSwitchOff"))) {
-          switchOff.mutate(rule);
-        }
+      onError: async (error) => {
+        if (errorCode(error) !== "rule_in_use") return;
+        const yes = await confirm({
+          message: t("directions.inUseSwitchOff"),
+          action: t("confirm.switchOff"),
+        });
+        if (yes) switchOff.mutate(rule);
       },
     });
   };
@@ -750,6 +756,7 @@ function CitiesField({
  * switched off instead of deleted. */
 function RuleCities({ rule, suggestions }: { rule: Rule; suggestions: CitySuggestions }) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const refresh = useRefreshRules();
   const [centers, setCenters] = useState<VisaCenter[]>(rule.visa_centers);
 
@@ -775,10 +782,13 @@ function RuleCities({ rule, suggestions }: { rule: Rule; suggestions: CitySugges
       setCenters((list) => list.filter((c) => c.id !== center.id));
       void refresh();
     },
-    onError: (error, center) => {
-      if (errorCode(error) === "visa_center_in_use" && window.confirm(t("directions.cityInUse"))) {
-        setActive.mutate({ center, on: false });
-      }
+    onError: async (error, center) => {
+      if (errorCode(error) !== "visa_center_in_use") return;
+      const yes = await confirm({
+        message: t("directions.cityInUse"),
+        action: t("confirm.switchOff"),
+      });
+      if (yes) setActive.mutate({ center, on: false });
     },
   });
   const busy = add.isPending || setActive.isPending || remove.isPending;
