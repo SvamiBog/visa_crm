@@ -41,6 +41,12 @@ declare global {
 
 test.beforeEach(async ({ context, page }) => {
   await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
+  // CI runs the stand as staging, whose strip (EnvBanner in src/App.tsx) comes with
+  // /api/health and moves every page down once. The real system has no strip, so the test
+  // answers as the real system.
+  await context.route(/\/api\/health$/, (route) =>
+    route.fulfill({ json: { status: "ok", env: "production" } }),
+  );
   // In the context, not the page: one observer per document, counted from its first paint.
   await context.addInitScript(() => {
     window.__layoutShift = 0;
