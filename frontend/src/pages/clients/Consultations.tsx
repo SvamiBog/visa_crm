@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { PURPOSE_KINDS } from "../../checklists";
+import { Field, invalidProps, RowError, useFieldErrors } from "../../components/Field";
 import {
   DECISIONS,
   VISA_KINDS,
@@ -25,6 +26,18 @@ import { useMoney } from "./Finance";
 import { useSortedCountries } from "./ui";
 
 // Consultations, the questionnaire and its checks on the client's card (backlog 1.3).
+
+// The consultation's fields that show the API's validation under them.
+const CONSULTATION_FIELDS = [
+  "held_on",
+  "applicants",
+  "follow_up_on",
+  "trip_planned_on",
+  "fee_amount",
+  "fee_currency",
+  "fee_paid_on",
+  "notes",
+] as const;
 
 function ErrorAlert({ error }: { error: unknown }) {
   const { t } = useTranslation();
@@ -284,6 +297,12 @@ function ConsultationForm({
       onDone();
     },
   });
+  const errors = useFieldErrors(save.error, {
+    codes: { currency_not_accepted: "fee_currency" },
+    fields: CONSULTATION_FIELDS,
+  });
+  const feeMessage = useId();
+  const feeError = errors.at("fee_amount") ?? errors.at("fee_currency") ?? errors.at("fee_paid_on");
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -291,23 +310,32 @@ function ConsultationForm({
   };
 
   return (
-    <form className="form-card consultation-form" onSubmit={submit}>
+    <form ref={errors.form} className="form-card consultation-form" onSubmit={submit}>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("contacts.heldOn")}</span>
-          <input type="date" required value={heldOn} onChange={(e) => setHeldOn(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("contacts.applicants")}</span>
-          <input
-            type="number"
-            min={1}
-            max={30}
-            required
-            value={applicants}
-            onChange={(e) => setApplicants(e.target.value)}
-          />
-        </label>
+        <Field label={t("contacts.heldOn")} error={errors.at("held_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              required
+              value={heldOn}
+              onChange={(e) => setHeldOn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("contacts.applicants")} error={errors.at("applicants")}>
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              min={1}
+              max={30}
+              required
+              value={applicants}
+              onChange={(e) => setApplicants(e.target.value)}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("contacts.decisionLabel")}</span>
           <select value={decision} onChange={(e) => setDecision(e.target.value as Decision | "")}>
@@ -319,10 +347,16 @@ function ConsultationForm({
             ))}
           </select>
         </label>
-        <label className="field">
-          <span>{t("contacts.followUpOn")}</span>
-          <input type="date" value={followUpOn} onChange={(e) => setFollowUpOn(e.target.value)} />
-        </label>
+        <Field label={t("contacts.followUpOn")} error={errors.at("follow_up_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              value={followUpOn}
+              onChange={(e) => setFollowUpOn(e.target.value)}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("contacts.channel")}</span>
           <select value={channel} onChange={(e) => setChannel(e.target.value)}>
@@ -336,10 +370,16 @@ function ConsultationForm({
               ))}
           </select>
         </label>
-        <label className="field">
-          <span>{t("contacts.tripPlannedOn")}</span>
-          <input type="date" value={tripOn} onChange={(e) => setTripOn(e.target.value)} />
-        </label>
+        <Field label={t("contacts.tripPlannedOn")} error={errors.at("trip_planned_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              value={tripOn}
+              onChange={(e) => setTripOn(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
       <CountryPicker
         label={t("contacts.destinations")}
@@ -356,11 +396,13 @@ function ConsultationForm({
             placeholder={t("dict.amount")}
             value={feeAmount}
             onChange={(e) => setFeeAmount(e.target.value)}
+            {...invalidProps(feeMessage, errors.at("fee_amount"))}
           />
           <select
             aria-label={t("dict.currency")}
             value={feeCurrency || money.data?.base_currency || ""}
             onChange={(e) => setFeeCurrency(e.target.value)}
+            {...invalidProps(feeMessage, errors.at("fee_currency"))}
           >
             {currencies.map((c) => (
               <option key={c}>{c}</option>
@@ -381,16 +423,25 @@ function ConsultationForm({
               aria-label={t("contacts.feePaidOn")}
               value={feePaidOn}
               onChange={(e) => setFeePaidOn(e.target.value)}
+              {...invalidProps(feeMessage, errors.at("fee_paid_on"))}
             />
           )}
+          <RowError id={feeMessage} error={feeError} />
         </div>
         <p className="muted small">{t("contacts.feeHint")}</p>
       </fieldset>
-      <label className="field">
-        <span>{t("contacts.consultationNotes")}</span>
-        <textarea rows={3} maxLength={5000} value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </label>
-      {save.isError && <ErrorAlert error={save.error} />}
+      <Field label={t("contacts.consultationNotes")} error={errors.at("notes")}>
+        {(control) => (
+          <textarea
+            {...control}
+            rows={3}
+            maxLength={5000}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        )}
+      </Field>
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
           {t("common.save")}
@@ -580,6 +631,15 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
       onDone();
     },
   });
+  // Visas and refusals are lists: the API names a row's field by its index.
+  const errors = useFieldErrors(save.error, {
+    fields: [
+      ...q.visas.flatMap((_, i) => [`visas.${i}.valid_from`, `visas.${i}.valid_to`]),
+      ...q.refusals.flatMap((_, i) => [`refusals.${i}.year`, `refusals.${i}.reason`]),
+      "deportation_note",
+      "note",
+    ],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -602,7 +662,7 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
     set("refusals", q.refusals.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
   return (
-    <form className="form-card" onSubmit={submit}>
+    <form ref={errors.form} className="form-card" onSubmit={submit}>
       <fieldset className="module-block">
         <legend>{t("contacts.visas")}</legend>
         <div className="rows-editor">
@@ -647,23 +707,27 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
                     ))}
                   </select>
                 </label>
-                <label className="field">
-                  <span>{t("contacts.validFrom")}</span>
-                  <input
-                    type="date"
-                    value={v.valid_from ?? ""}
-                    onChange={(e) => setVisa(i, { valid_from: e.target.value || null })}
-                  />
-                </label>
-                <label className="field">
-                  <span>{t("contacts.validTo")}</span>
-                  <input
-                    type="date"
-                    min={v.valid_from ?? undefined}
-                    value={v.valid_to ?? ""}
-                    onChange={(e) => setVisa(i, { valid_to: e.target.value || null })}
-                  />
-                </label>
+                <Field label={t("contacts.validFrom")} error={errors.at(`visas.${i}.valid_from`)}>
+                  {(control) => (
+                    <input
+                      {...control}
+                      type="date"
+                      value={v.valid_from ?? ""}
+                      onChange={(e) => setVisa(i, { valid_from: e.target.value || null })}
+                    />
+                  )}
+                </Field>
+                <Field label={t("contacts.validTo")} error={errors.at(`visas.${i}.valid_to`)}>
+                  {(control) => (
+                    <input
+                      {...control}
+                      type="date"
+                      min={v.valid_from ?? undefined}
+                      value={v.valid_to ?? ""}
+                      onChange={(e) => setVisa(i, { valid_to: e.target.value || null })}
+                    />
+                  )}
+                </Field>
               </div>
               <button
                 type="button"
@@ -712,26 +776,34 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
                     {countryOptions}
                   </select>
                 </label>
-                <label className="field">
-                  <span>{t("contacts.year")}</span>
-                  <input
-                    type="number"
-                    min={1990}
-                    max={2100}
-                    value={r.year ?? ""}
-                    onChange={(e) =>
-                      setRefusal(i, { year: e.target.value ? Number(e.target.value) : null })
-                    }
-                  />
-                </label>
-                <label className="field q-wide">
-                  <span>{t("contacts.reason")}</span>
-                  <input
-                    maxLength={500}
-                    value={r.reason ?? ""}
-                    onChange={(e) => setRefusal(i, { reason: e.target.value || null })}
-                  />
-                </label>
+                <Field label={t("contacts.year")} error={errors.at(`refusals.${i}.year`)}>
+                  {(control) => (
+                    <input
+                      {...control}
+                      type="number"
+                      min={1990}
+                      max={2100}
+                      value={r.year ?? ""}
+                      onChange={(e) =>
+                        setRefusal(i, { year: e.target.value ? Number(e.target.value) : null })
+                      }
+                    />
+                  )}
+                </Field>
+                <Field
+                  className="field q-wide"
+                  label={t("contacts.reason")}
+                  error={errors.at(`refusals.${i}.reason`)}
+                >
+                  {(control) => (
+                    <input
+                      {...control}
+                      maxLength={500}
+                      value={r.reason ?? ""}
+                      onChange={(e) => setRefusal(i, { reason: e.target.value || null })}
+                    />
+                  )}
+                </Field>
               </div>
               <button
                 type="button"
@@ -773,20 +845,29 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
         {t("contacts.deportation")}
       </label>
       {q.deportation && (
-        <label className="field">
-          <span>{t("contacts.deportationNote")}</span>
-          <input
-            maxLength={500}
-            value={q.deportation_note ?? ""}
-            onChange={(e) => set("deportation_note", e.target.value)}
-          />
-        </label>
+        <Field label={t("contacts.deportationNote")} error={errors.at("deportation_note")}>
+          {(control) => (
+            <input
+              {...control}
+              maxLength={500}
+              value={q.deportation_note ?? ""}
+              onChange={(e) => set("deportation_note", e.target.value)}
+            />
+          )}
+        </Field>
       )}
-      <label className="field">
-        <span>{t("contacts.questionnaireNote")}</span>
-        <textarea rows={2} maxLength={2000} value={q.note ?? ""} onChange={(e) => set("note", e.target.value)} />
-      </label>
-      {save.isError && <ErrorAlert error={save.error} />}
+      <Field label={t("contacts.questionnaireNote")} error={errors.at("note")}>
+        {(control) => (
+          <textarea
+            {...control}
+            rows={2}
+            maxLength={2000}
+            value={q.note ?? ""}
+            onChange={(e) => set("note", e.target.value)}
+          />
+        )}
+      </Field>
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
           {t("common.save")}

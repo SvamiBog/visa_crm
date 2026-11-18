@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { apiGet, apiPost, errorCode } from "../api";
 import { homePath, ME_KEY, useMe, type Me } from "../auth";
 import { Logo } from "../components/Logo";
+import { Field, useFieldErrors } from "../components/Field";
 import { PasswordField } from "../components/PasswordField";
 
 type Setup = { secret: string; otpauth_uri: string; qr_code: string };
@@ -54,6 +55,11 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
     onSuccess: (result) => onEnabled(result.recovery_codes),
     onError: () => setCode(""),
   });
+  const setupErrors = useFieldErrors(setup.error, {
+    codes: { invalid_current_password: "password" },
+    fields: ["password"],
+  });
+  const enableErrors = useFieldErrors(enable.error, { codes: { invalid_code: "code" } });
 
   // Optional: the user may leave and turn it on later in Settings.
   const notNow = me.data && (
@@ -68,7 +74,12 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
       setup.mutate();
     };
     return (
-      <form className="card auth-card setup-card" onSubmit={start} noValidate>
+      <form
+        ref={setupErrors.form}
+        className="card auth-card setup-card"
+        onSubmit={start}
+        noValidate
+      >
         <Logo />
         <h1 className="auth-title">{t("twoFactor.setupTitle")}</h1>
         <p className="muted">{t("twoFactor.setupIntro")}</p>
@@ -78,12 +89,13 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
           autoComplete="current-password"
           value={password}
           onChange={setPassword}
+          error={setupErrors.at("password")}
         />
-        {setup.isError && (
+        {setupErrors.general ? (
           <div className="alert alert-error" role="alert">
-            {t(`errors.${errorCode(setup.error)}`, { defaultValue: t("errors.unknown") })}
+            {t(`errors.${errorCode(setupErrors.general)}`, { defaultValue: t("errors.unknown") })}
           </div>
-        )}
+        ) : null}
         <button
           type="submit"
           className="btn btn-p btn-block"
@@ -102,7 +114,12 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
   };
 
   return (
-    <form className="card auth-card setup-card" onSubmit={submit} noValidate>
+    <form
+      ref={enableErrors.form}
+      className="card auth-card setup-card"
+      onSubmit={submit}
+      noValidate
+    >
       <Logo />
       <h1 className="auth-title">{t("twoFactor.setupTitle")}</h1>
 
@@ -117,25 +134,27 @@ function ConnectApp({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
         <code className="secret">{setup.data.secret.match(/.{1,4}/g)?.join(" ")}</code>
       </div>
 
-      <label className="field">
-        <span>{t("twoFactor.stepCode")}</span>
-        <input
-          className="code-input"
-          type="text"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
-          required
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-        />
-      </label>
+      <Field label={t("twoFactor.stepCode")} error={enableErrors.at("code")}>
+        {(control) => (
+          <input
+            {...control}
+            className="code-input"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            required
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+          />
+        )}
+      </Field>
 
-      {enable.isError && (
+      {enableErrors.general ? (
         <div className="alert alert-error" role="alert">
-          {t(`errors.${errorCode(enable.error)}`, { defaultValue: t("errors.unknown") })}
+          {t(`errors.${errorCode(enableErrors.general)}`, { defaultValue: t("errors.unknown") })}
         </div>
-      )}
+      ) : null}
 
       <button
         type="submit"

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
 import { useConfirm } from "../../components/ConfirmDialog";
+import { Field, useFieldErrors } from "../../components/Field";
 import { IssuedPasswordCard, type IssuedPassword } from "../../components/IssuedPasswordCard";
 import { ModulePicker, useModules } from "../../components/ModulePicker";
 import { SubscriptionChip } from "../../components/Subscription";
@@ -286,6 +287,10 @@ function NewSpecialistForm({
       }),
     onSuccess: (result) => onCreated(result.specialist.email, result.temporary_password),
   });
+  const errors = useFieldErrors(create.error, {
+    codes: { email_taken: "email" },
+    fields: ["name", "email", "tax_rate"],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -293,35 +298,44 @@ function NewSpecialistForm({
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">{t("admin.newSpecialist")}</h2>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("admin.colName")}</span>
-          <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("auth.email")}</span>
-          <input
-            type="email"
-            required
-            autoComplete="off"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
+        <Field label={t("admin.colName")} error={errors.at("name")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("auth.email")} error={errors.at("email")}>
+          {(control) => (
+            <input
+              {...control}
+              type="email"
+              required
+              autoComplete="off"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          )}
+        </Field>
         <label className="field">
           <span>{t("admin.colCurrency")}</span>
           <CurrencySelect value={currency} onChange={setCurrency} />
         </label>
-        <TaxField value={taxRate} onChange={setTaxRate} />
+        <TaxField value={taxRate} onChange={setTaxRate} error={errors.at("tax_rate")} />
       </div>
       <p className="muted small">{t("admin.newSpecialistHint")}</p>
-      {create.isError && (
+      {errors.general ? (
         <div className="alert alert-error" role="alert">
-          {t(`errors.${errorCode(create.error)}`, { defaultValue: t("errors.unknown") })}
+          {t(`errors.${errorCode(errors.general)}`, { defaultValue: t("errors.unknown") })}
         </div>
-      )}
+      ) : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={create.isPending || !name || !email}>
           {t("admin.create")}
@@ -346,21 +360,31 @@ function CurrencySelect({ value, onChange }: { value: Currency; onChange: (c: Cu
   );
 }
 
-function TaxField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function TaxField({
+  value,
+  onChange,
+  error,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+}) {
   const { t } = useTranslation();
   return (
-    <label className="field">
-      <span>{t("admin.taxRate")}</span>
-      <input
-        type="number"
-        inputMode="decimal"
-        min={0}
-        max={100}
-        step="0.01"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </label>
+    <Field label={t("admin.taxRate")} error={error}>
+      {(control) => (
+        <input
+          {...control}
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={100}
+          step="0.01"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -390,6 +414,7 @@ function SpecialistSettings({
       }),
     onSuccess: onSaved,
   });
+  const errors = useFieldErrors(save.error, { fields: ["name", "tax_rate"] });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -397,27 +422,28 @@ function SpecialistSettings({
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">{t("admin.settingsTitle", { email: specialist.email })}</h2>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("admin.colName")}</span>
-          <input required value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
+        <Field label={t("admin.colName")} error={errors.at("name")}>
+          {(control) => (
+            <input {...control} required value={name} onChange={(e) => setName(e.target.value)} />
+          )}
+        </Field>
         <label className="field">
           <span>{t("admin.colCurrency")}</span>
           <CurrencySelect value={currency} onChange={setCurrency} />
         </label>
-        <TaxField value={taxRate} onChange={setTaxRate} />
+        <TaxField value={taxRate} onChange={setTaxRate} error={errors.at("tax_rate")} />
       </div>
       <h3 className="h3">{t("admin.modulesTitle")}</h3>
       <p className="muted small">{t("admin.modulesHint")}</p>
       <ModulePicker value={modules} onChange={setModules} />
-      {save.isError && (
+      {errors.general ? (
         <div className="alert alert-error" role="alert">
-          {t(`errors.${errorCode(save.error)}`, { defaultValue: t("errors.unknown") })}
+          {t(`errors.${errorCode(errors.general)}`, { defaultValue: t("errors.unknown") })}
         </div>
-      )}
+      ) : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending || !name}>
           {t("common.save")}

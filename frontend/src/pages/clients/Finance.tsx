@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { Field, useFieldErrors, type FieldErrors } from "../../components/Field";
 import { formatDate, type VisaCase } from "../../contacts";
 import { deferDelete, useDeleting } from "../../undo";
 import { ErrorAlert, todayIso } from "./ui";
@@ -12,6 +13,21 @@ import { ErrorAlert, todayIso } from "./ui";
 
 const TERMS = ["percent", "fixed", "none", "unspecified"] as const;
 type Terms = (typeof TERMS)[number];
+
+// The fields of each form that show the API's validation under them.
+const FINANCE_FIELDS = [
+  "price",
+  "prepayment",
+  "consultation_credit",
+  "registrar_fee_amount",
+  "registrar_fee_on",
+  "registrar_fee_rate",
+  "partner_percent",
+  "partner_fixed",
+  "partner_paid_on",
+] as const;
+const PAYMENT_FIELDS = ["paid_on", "amount", "rate", "note"] as const;
+const EXPENSE_FIELDS = ["spent_on", "description", "amount", "rate"] as const;
 
 type Payment = {
   id: string;
@@ -499,9 +515,18 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
       partner_paid_on: (terms === "percent" || terms === "fixed") && paidOn ? paidOn : null,
     }),
   );
+  const errors = useFieldErrors(save.error, {
+    codes: {
+      registrar_fee_incomplete: "registrar_fee_amount",
+      partner_terms_incomplete: terms === "fixed" ? "partner_fixed" : "partner_percent",
+      ...(feeCurrency !== base ? { rate_unavailable: "registrar_fee_rate" } : {}),
+    },
+    fields: FINANCE_FIELDS,
+  });
 
   return (
     <form
+      ref={errors.form}
       className="form-card finance-form"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
@@ -513,22 +538,30 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
           label={t("finance.priceField", { currency: base })}
           value={price}
           onChange={setPrice}
+          error={errors.at("price")}
         />
         <MoneyField
           label={t("finance.prepaymentField", { currency: base })}
           value={prepayment}
           onChange={setPrepayment}
+          error={errors.at("prepayment")}
         />
         <MoneyField
           label={t("finance.consultationField", { currency: base })}
           value={credit}
           onChange={setCredit}
+          error={errors.at("consultation_credit")}
         />
       </div>
       <fieldset className="module-block">
         <legend>{t("finance.talonField")}</legend>
         <div className="form-grid">
-          <MoneyField label={t("finance.amount")} value={feeAmount} onChange={setFeeAmount} />
+          <MoneyField
+            label={t("finance.amount")}
+            value={feeAmount}
+            onChange={setFeeAmount}
+            error={errors.at("registrar_fee_amount")}
+          />
           <label className="field">
             <span>{t("finance.currency")}</span>
             <select value={feeCurrency} onChange={(e) => setFeeCurrency(e.target.value)}>
@@ -539,17 +572,25 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
               ))}
             </select>
           </label>
-          <label className="field">
-            <span>{t("finance.talonOn")}</span>
-            <input
-              type="date"
-              required={Boolean(feeAmount)}
-              value={feeOn}
-              onChange={(e) => setFeeOn(e.target.value)}
-            />
-          </label>
+          <Field label={t("finance.talonOn")} error={errors.at("registrar_fee_on")}>
+            {(control) => (
+              <input
+                {...control}
+                type="date"
+                required={Boolean(feeAmount)}
+                value={feeOn}
+                onChange={(e) => setFeeOn(e.target.value)}
+              />
+            )}
+          </Field>
           {feeCurrency !== base && (
-            <RateField value={feeRate} onChange={setFeeRate} missing={rate.isError} base={base} />
+            <RateField
+              value={feeRate}
+              onChange={setFeeRate}
+              missing={rate.isError}
+              base={base}
+              error={errors.at("registrar_fee_rate")}
+            />
           )}
         </div>
         {feeAmount && (
@@ -578,24 +619,36 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
             </select>
           </label>
           {terms === "percent" && (
-            <MoneyField label={t("finance.percent")} value={percent} onChange={setPercent} />
+            <MoneyField
+              label={t("finance.percent")}
+              value={percent}
+              onChange={setPercent}
+              error={errors.at("partner_percent")}
+            />
           )}
           {terms === "fixed" && (
             <MoneyField
               label={t("finance.fixedField", { currency: base })}
               value={fixed}
               onChange={setFixed}
+              error={errors.at("partner_fixed")}
             />
           )}
           {(terms === "percent" || terms === "fixed") && (
-            <label className="field">
-              <span>{t("finance.partnerPaidOn")}</span>
-              <input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
-            </label>
+            <Field label={t("finance.partnerPaidOn")} error={errors.at("partner_paid_on")}>
+              {(control) => (
+                <input
+                  {...control}
+                  type="date"
+                  value={paidOn}
+                  onChange={(e) => setPaidOn(e.target.value)}
+                />
+              )}
+            </Field>
           )}
         </div>
       </fieldset>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <FormButtons pending={save.isPending} onCancel={onDone} />
     </form>
   );
@@ -606,23 +659,27 @@ function MoneyField({
   value,
   onChange,
   required = false,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  error?: ReactNode;
 }) {
   return (
-    <label className="field">
-      <span>{label}</span>
-      <input
-        inputMode="decimal"
-        required={required}
-        pattern="[0-9 ]*([.,][0-9]{1,2})?"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </label>
+    <Field label={label} error={error}>
+      {(control) => (
+        <input
+          {...control}
+          inputMode="decimal"
+          required={required}
+          pattern="[0-9 ]*([.,][0-9]{1,2})?"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -631,25 +688,32 @@ function RateField({
   onChange,
   missing,
   base,
+  error,
 }: {
   value: string;
   onChange: (value: string) => void;
   missing: boolean;
   base: string;
+  error?: ReactNode;
 }) {
   const { t } = useTranslation();
   return (
-    <label className="field">
-      <span>{t("finance.rate", { base })}</span>
-      <input
-        inputMode="decimal"
-        required
-        pattern="[0-9]*([.,][0-9]{1,6})?"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <small className="muted">{t(missing ? "finance.rateMissing" : "finance.rateHint")}</small>
-    </label>
+    <Field
+      label={t("finance.rate", { base })}
+      hint={t(missing ? "finance.rateMissing" : "finance.rateHint")}
+      error={error}
+    >
+      {(control) => (
+        <input
+          {...control}
+          inputMode="decimal"
+          required
+          pattern="[0-9]*([.,][0-9]{1,6})?"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -663,6 +727,7 @@ function MoneyFields({
   rate,
   setRate,
   saved,
+  errors,
 }: {
   base: string;
   amount: string;
@@ -672,6 +737,7 @@ function MoneyFields({
   rate: string;
   setRate: (value: string) => void;
   saved: Saved;
+  errors: FieldErrors;
 }) {
   const { t } = useTranslation();
   const money = useMoney();
@@ -680,7 +746,13 @@ function MoneyFields({
   const total = Number(toDecimal(amount)) * (currency === base ? 1 : Number(toDecimal(rate)));
   return (
     <>
-      <MoneyField label={t("finance.amount")} value={amount} onChange={setAmount} required />
+      <MoneyField
+        label={t("finance.amount")}
+        value={amount}
+        onChange={setAmount}
+        required
+        error={errors.at("amount")}
+      />
       <label className="field">
         <span>{t("finance.currency")}</span>
         <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
@@ -700,7 +772,13 @@ function MoneyFields({
         )}
       </label>
       {currency !== base && (
-        <RateField value={rate} onChange={setRate} missing={bank.isError} base={base} />
+        <RateField
+          value={rate}
+          onChange={setRate}
+          missing={bank.isError}
+          base={base}
+          error={errors.at("rate")}
+        />
       )}
     </>
   );
@@ -736,8 +814,13 @@ function PaymentForm({
       ? apiPatch<Finance>(`/payments/${payment.id}`, body)
       : apiPost<Finance>(`/cases/${f.case_id}/payments`, body);
   });
+  const errors = useFieldErrors(save.error, {
+    codes: currency !== base ? { rate_unavailable: "rate" } : {},
+    fields: PAYMENT_FIELDS,
+  });
   return (
     <form
+      ref={errors.form}
       className="form-card finance-form"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
@@ -745,10 +828,17 @@ function PaymentForm({
       }}
     >
       <div className="form-grid">
-        <label className="field">
-          <span>{t("finance.paidOnField")}</span>
-          <input type="date" required value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
-        </label>
+        <Field label={t("finance.paidOnField")} error={errors.at("paid_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              required
+              value={paidOn}
+              onChange={(e) => setPaidOn(e.target.value)}
+            />
+          )}
+        </Field>
         <MoneyFields
           base={base}
           amount={amount}
@@ -763,17 +853,24 @@ function PaymentForm({
               rate: payment.rate,
             }
           }
+          errors={errors}
         />
-        <label className="field">
-          <span>{t("finance.note")}</span>
-          <input maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} />
-        </label>
+        <Field label={t("finance.note")} error={errors.at("note")}>
+          {(control) => (
+            <input
+              {...control}
+              maxLength={200}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
       <label className="checkbox">
         <input type="checkbox" checked={official} onChange={(e) => setOfficial(e.target.checked)} />
         <span>{t("finance.officialLabel")}</span>
       </label>
-      {save.isError && <SaveError error={save.error} />}
+      {errors.general ? <SaveError error={errors.general} /> : null}
       <FormButtons pending={save.isPending} onCancel={onDone} />
     </form>
   );
@@ -807,8 +904,13 @@ function ExpenseForm({
       ? apiPatch<Finance>(`/expenses/${expense.id}`, body)
       : apiPost<Finance>(`/cases/${f.case_id}/expenses`, body);
   });
+  const errors = useFieldErrors(save.error, {
+    codes: currency !== base ? { rate_unavailable: "rate" } : {},
+    fields: EXPENSE_FIELDS,
+  });
   return (
     <form
+      ref={errors.form}
       className="form-card finance-form"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
@@ -817,24 +919,28 @@ function ExpenseForm({
     >
       <p className="muted small">{t("finance.expenseHint")}</p>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("finance.spentOn")}</span>
-          <input
-            type="date"
-            required
-            value={spentOn}
-            onChange={(e) => setSpentOn(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t("finance.description")}</span>
-          <input
-            required
-            maxLength={200}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </label>
+        <Field label={t("finance.spentOn")} error={errors.at("spent_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              required
+              value={spentOn}
+              onChange={(e) => setSpentOn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("finance.description")} error={errors.at("description")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              maxLength={200}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          )}
+        </Field>
         <MoneyFields
           base={base}
           amount={amount}
@@ -849,9 +955,10 @@ function ExpenseForm({
               rate: expense.rate,
             }
           }
+          errors={errors}
         />
       </div>
-      {save.isError && <SaveError error={save.error} />}
+      {errors.general ? <SaveError error={errors.general} /> : null}
       <FormButtons pending={save.isPending} onCancel={onDone} />
     </form>
   );

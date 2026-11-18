@@ -24,6 +24,7 @@ import {
   type VisaCenter,
 } from "../../reference";
 import { ErrorAlert } from "../clients/ui";
+import { Field, useFieldErrors } from "../../components/Field";
 
 type Editing = { mode: "new" } | { mode: "edit"; rule: Rule } | { mode: "copy"; rule: Rule };
 
@@ -357,6 +358,14 @@ function DirectionForm({
   });
 
   const deletion = useDeleteDirection(() => onClose());
+  const errors = useFieldErrors(save.error, {
+    codes: {
+      rule_exists: "destination_ids",
+      same_country: "destination_ids",
+      window_days_required: "window_days",
+    },
+    fields: ["destination_ids", "submission_id", "window_days", "appeal_deadline_days", "notes"],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -365,7 +374,7 @@ function DirectionForm({
   const countryName = (id: string) => name.country(countries.find((c) => c.id === id));
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">
         {existing
           ? t("directions.editTitle", {
@@ -379,39 +388,43 @@ function DirectionForm({
 
       {!existing && (
         <div className="form-grid">
-          <label className="field">
-            <span>{t("directions.destination")}</span>
-            <select
-              required
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-            >
-              <option value="" />
-              {destinationChoices.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {name.country(c)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>{t("reference.submissionCountry")}</span>
-            <select
-              required
-              value={submission}
-              onChange={(e) => {
-                setSubmission(e.target.value);
-                setDestination("");
-              }}
-            >
-              <option value="" />
-              {countries.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {name.country(c)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Field label={t("directions.destination")} error={errors.at("destination_ids")}>
+            {(control) => (
+              <select
+                {...control}
+                required
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
+              >
+                <option value="" />
+                {destinationChoices.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {name.country(c)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Field label={t("reference.submissionCountry")} error={errors.at("submission_id")}>
+            {(control) => (
+              <select
+                {...control}
+                required
+                value={submission}
+                onChange={(e) => {
+                  setSubmission(e.target.value);
+                  setDestination("");
+                }}
+              >
+                <option value="" />
+                {countries.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {name.country(c)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
         </div>
       )}
 
@@ -436,17 +449,19 @@ function DirectionForm({
 
       <div className="form-grid">
         {booking === "windowed_application" && (
-          <label className="field">
-            <span>{t("reference.windowLabel")}</span>
-            <input
-              type="number"
-              min={1}
-              max={365}
-              required
-              value={windowDays}
-              onChange={(e) => setWindowDays(e.target.value)}
-            />
-          </label>
+          <Field label={t("reference.windowLabel")} error={errors.at("window_days")}>
+            {(control) => (
+              <input
+                {...control}
+                type="number"
+                min={1}
+                max={365}
+                required
+                value={windowDays}
+                onChange={(e) => setWindowDays(e.target.value)}
+              />
+            )}
+          </Field>
         )}
         <label className="field">
           <span>{t("reference.colOperator")}</span>
@@ -513,21 +528,29 @@ function DirectionForm({
             </select>
           </label>
           {appeals === "yes" && (
-            <label className="field">
-              <span>{t("reference.appealDaysLabel")}</span>
-              <input
-                type="number"
-                min={1}
-                max={365}
-                value={appealDays}
-                onChange={(e) => setAppealDays(e.target.value)}
-              />
-            </label>
+            <Field label={t("reference.appealDaysLabel")} error={errors.at("appeal_deadline_days")}>
+              {(control) => (
+                <input
+                  {...control}
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={appealDays}
+                  onChange={(e) => setAppealDays(e.target.value)}
+                />
+              )}
+            </Field>
           )}
-          <label className="field">
-            <span>{t("reference.notes")}</span>
-            <input maxLength={1000} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </label>
+          <Field label={t("reference.notes")} error={errors.at("notes")}>
+            {(control) => (
+              <input
+                {...control}
+                maxLength={1000}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            )}
+          </Field>
         </div>
       </div>
 
@@ -538,7 +561,7 @@ function DirectionForm({
         </label>
       )}
 
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       {deletion.error && <ErrorAlert error={deletion.error} />}
       <div className="form-actions">
         <button

@@ -15,6 +15,7 @@ import {
 import { byId } from "../../reference";
 import { useOwnVault, useVaultSystems, vaultKey, type VaultEntry } from "../../vault";
 import { useHasModule } from "../../workspace";
+import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert } from "./ui";
 
 // Bookings for the document package (backlog 1.8): hotels with their free cancellation
@@ -279,6 +280,16 @@ function BookingForm({
       onDone();
     },
   });
+  // The deadline is one field on the form: the hotel's free cancellation or the flight's.
+  const deadlineField = hotel ? "free_cancel_until" : "valid_until";
+  const errors = useFieldErrors(save.error, {
+    codes: {
+      dates_order: "ends_on",
+      booking_dates_kind: deadlineField,
+      account_of_another_contact: "vault_entry_id",
+    },
+    fields: ["place", "starts_on", "ends_on", deadlineField, "reference", "note"],
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -286,7 +297,7 @@ function BookingForm({
   };
 
   return (
-    <form className="form-card booking-form" onSubmit={submit}>
+    <form ref={errors.form} className="form-card booking-form" onSubmit={submit}>
       <div className="form-grid">
         <label className="field">
           <span>{t("bookings.kindLabel")}</span>
@@ -298,49 +309,72 @@ function BookingForm({
             ))}
           </select>
         </label>
-        <label className="field">
-          <span>{t(hotel ? "bookings.hotel" : "bookings.flight")}</span>
-          <input
-            required
-            maxLength={200}
-            placeholder={t(hotel ? "bookings.hotelPlaceholder" : "bookings.flightPlaceholder")}
-            value={place}
-            onChange={(e) => setPlace(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t(hotel ? "bookings.checkIn" : "bookings.departure")}</span>
-          <input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t(hotel ? "bookings.checkOut" : "bookings.return")}</span>
-          <input
-            type="date"
-            min={startsOn || undefined}
-            value={endsOn}
-            onChange={(e) => setEndsOn(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t(hotel ? "bookings.freeCancelUntil" : "bookings.validUntil")}</span>
-          <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("bookings.reference")}</span>
-          <input maxLength={64} value={reference} onChange={(e) => setReference(e.target.value)} />
-        </label>
+        <Field label={t(hotel ? "bookings.hotel" : "bookings.flight")} error={errors.at("place")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              maxLength={200}
+              placeholder={t(hotel ? "bookings.hotelPlaceholder" : "bookings.flightPlaceholder")}
+              value={place}
+              onChange={(e) => setPlace(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t(hotel ? "bookings.checkIn" : "bookings.departure")} error={errors.at("starts_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              value={startsOn}
+              onChange={(e) => setStartsOn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t(hotel ? "bookings.checkOut" : "bookings.return")} error={errors.at("ends_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              min={startsOn || undefined}
+              value={endsOn}
+              onChange={(e) => setEndsOn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t(hotel ? "bookings.freeCancelUntil" : "bookings.validUntil")} error={errors.at(deadlineField)}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("bookings.reference")} error={errors.at("reference")}>
+          {(control) => (
+            <input
+              {...control}
+              maxLength={64}
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+            />
+          )}
+        </Field>
         {accounts.enabled && (
-          <label className="field">
-            <span>{t("bookings.account")}</span>
-            <select value={account} onChange={(e) => setAccount(e.target.value)}>
-              <option value="">—</option>
-              {accounts.options.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Field label={t("bookings.account")} error={errors.at("vault_entry_id")}>
+            {(control) => (
+              <select {...control} value={account} onChange={(e) => setAccount(e.target.value)}>
+                <option value="">—</option>
+                {accounts.options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
         )}
         {booking && (
           <label className="field">
@@ -355,11 +389,17 @@ function BookingForm({
           </label>
         )}
       </div>
-      <label className="field">
-        <span>{t("vault.note")}</span>
-        <input maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
-      </label>
-      {save.isError && <ErrorAlert error={save.error} />}
+      <Field label={t("vault.note")} error={errors.at("note")}>
+        {(control) => (
+          <input
+            {...control}
+            maxLength={500}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        )}
+      </Field>
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
           {t("common.save")}

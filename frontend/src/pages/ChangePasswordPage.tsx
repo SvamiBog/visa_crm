@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { apiPost, errorCode } from "../api";
 import { homePath, ME_KEY, useMe, type Me } from "../auth";
+import { FormError, useFieldErrors } from "../components/Field";
 import { Logo } from "../components/Logo";
 import { PasswordField } from "../components/PasswordField";
 
@@ -18,7 +19,7 @@ export function ChangePasswordPage() {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [repeat, setRepeat] = useState("");
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<FormError | null>(null);
 
   const change = useMutation({
     mutationFn: () =>
@@ -33,17 +34,26 @@ export function ChangePasswordPage() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (next.length < MIN_LENGTH) return setLocalError("password_too_short");
-    if (next !== repeat) return setLocalError("passwords_differ");
+    if (next.length < MIN_LENGTH) return setLocalError(new FormError("password_too_short"));
+    if (next !== repeat) return setLocalError(new FormError("passwords_differ"));
     setLocalError(null);
     change.mutate();
   };
 
-  const error = localError ?? (change.isError ? errorCode(change.error) : null);
+  const errors = useFieldErrors(localError ?? change.error, {
+    codes: {
+      invalid_current_password: "current_password",
+      password_too_short: "new_password",
+      password_unchanged: "new_password",
+      passwords_differ: "repeat",
+    },
+    fields: ["current_password", "new_password"],
+    values: { count: MIN_LENGTH },
+  });
 
   return (
     <div className="auth-screen">
-      <form className="card auth-card" onSubmit={submit} noValidate>
+      <form ref={errors.form} className="card auth-card" onSubmit={submit} noValidate>
         <Logo />
         <h1 className="auth-title">{t("auth.changePasswordTitle")}</h1>
         <p className="muted">
@@ -56,6 +66,7 @@ export function ChangePasswordPage() {
           autoFocus
           value={current}
           onChange={setCurrent}
+          error={errors.at("current_password")}
         />
         <PasswordField
           label={t("auth.newPassword")}
@@ -64,19 +75,24 @@ export function ChangePasswordPage() {
           hint={t("auth.passwordRule", { count: MIN_LENGTH })}
           value={next}
           onChange={setNext}
+          error={errors.at("new_password")}
         />
         <PasswordField
           label={t("auth.repeatPassword")}
           autoComplete="new-password"
           value={repeat}
           onChange={setRepeat}
+          error={errors.at("repeat")}
         />
 
-        {error && (
+        {errors.general ? (
           <div className="alert alert-error" role="alert">
-            {t(`errors.${error}`, { count: MIN_LENGTH, defaultValue: t("errors.unknown") })}
+            {t(`errors.${errorCode(errors.general)}`, {
+              count: MIN_LENGTH,
+              defaultValue: t("errors.unknown"),
+            })}
           </div>
-        )}
+        ) : null}
 
         <button
           type="submit"
