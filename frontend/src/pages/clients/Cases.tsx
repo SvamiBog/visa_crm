@@ -11,6 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import {
   CASE_STAGES,
   EMAIL_OWNERS,
@@ -327,6 +328,7 @@ function Result({ visaCase: c }: { visaCase: VisaCase }) {
 
 function Group({ visaCase: c }: { visaCase: VisaCase }) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const refresh = useRefreshCards();
   const [adding, setAdding] = useState(false);
   const [picked, setPicked] = useState("");
@@ -404,8 +406,10 @@ function Group({ visaCase: c }: { visaCase: VisaCase }) {
               type="button"
               className="link-button"
               disabled={leave.isPending}
-              onClick={() => {
-                if (window.confirm(t("cases.confirmLeave"))) leave.mutate();
+              onClick={async () => {
+                if (await confirm({ message: t("cases.confirmLeave"), action: t("confirm.remove") })) {
+                  leave.mutate();
+                }
               }}
             >
               {t("cases.leaveGroup")}

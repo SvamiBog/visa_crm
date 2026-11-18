@@ -96,7 +96,8 @@ for (const lang of ["ru", "en"] as const) {
       await page.setViewportSize(COMPUTER);
       const found = await page.request.post("/api/contacts/search", { data: {} });
       expect(found.ok()).toBe(true);
-      const [first] = (await found.json()).items as { id: string }[];
+      // Oldest first: a demo card, not one other tests make and delete meanwhile.
+      const [first] = ((await found.json()).items as { id: string }[]).reverse();
       await page.goto(`/app/clients/${first.id}`);
       await expect(
         mainMenu(page).getByRole("link", { name: t("nav.clients"), exact: true }),

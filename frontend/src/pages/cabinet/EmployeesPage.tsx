@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { IssuedPasswordCard, type IssuedPassword } from "../../components/IssuedPasswordCard";
 import { ModulePicker } from "../../components/ModulePicker";
 import { RevealedPasswords } from "./RevealedPasswords";
@@ -28,6 +29,7 @@ const KEY = ["employees"] as const;
 /** The specialist's employees: invite, choose modules, block, issue a new password. */
 export function EmployeesPage() {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const employees = useQuery({ queryKey: KEY, queryFn: () => apiGet<Employee[]>("/employees") });
   // Employees can get only the modules the specialist has.
@@ -54,13 +56,19 @@ export function EmployeesPage() {
     },
   });
 
-  const run = (e: Employee, kind: Action) => {
+  const run = async (e: Employee, kind: Action) => {
     const question = {
-      block: "employees.confirmBlock",
+      block: { message: "employees.confirmBlock", action: "confirm.block" },
       unblock: null,
-      "reset-password": "employees.confirmReset",
+      "reset-password": { message: "employees.confirmReset", action: "confirm.issuePassword" },
     }[kind];
-    if (question && !window.confirm(t(question, { email: e.email }))) return;
+    if (question) {
+      const yes = await confirm({
+        message: t(question.message, { email: e.email }),
+        action: t(question.action),
+      });
+      if (!yes) return;
+    }
     action.mutate({ e, kind });
   };
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import {
   BOOKING_KINDS,
   BOOKING_STATUSES,
@@ -152,6 +153,7 @@ function BookingItem({
   onEdit: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const confirm = useConfirm();
   const refresh = useRefreshCards();
   const stay = useStay();
   const update = useMutation({
@@ -216,8 +218,10 @@ function BookingItem({
           type="button"
           className="link-button"
           disabled={remove.isPending}
-          onClick={() => {
-            if (window.confirm(t("bookings.confirmDelete"))) remove.mutate();
+          onClick={async () => {
+            if (await confirm({ message: t("bookings.confirmDelete"), action: t("confirm.delete") })) {
+              remove.mutate();
+            }
           }}
         >
           {t("vault.delete")}

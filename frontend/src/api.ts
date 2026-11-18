@@ -28,6 +28,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const response = await fetch(`/api${path}`, {
     method,
     credentials: "include",
+    // A deletion sent as the page closes (undo.ts) must outlive it; a DELETE has no body,
+    // so it stays within keepalive's 64 KB limit.
+    keepalive: method === "DELETE",
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

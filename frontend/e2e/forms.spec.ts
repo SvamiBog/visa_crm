@@ -28,7 +28,8 @@ type Form = {
 async function openCard(page: Page): Promise<void> {
   const found = await page.request.post("/api/contacts/search", { data: {} });
   expect(found.ok()).toBe(true);
-  const [first] = (await found.json()).items as { id: string }[];
+  // Oldest first: a demo card, not one other tests make and delete meanwhile.
+  const [first] = ((await found.json()).items as { id: string }[]).reverse();
   await page.goto(`/app/clients/${first.id}`);
   await page.locator("h1").waitFor();
 }
@@ -95,9 +96,10 @@ const FORMS: Form[] = [
         relations: { related_id: string }[];
       };
       const found = await page.request.post("/api/contacts/search", { data: {} });
-      const other = ((await found.json()).items as { id: string; full_name: string }[]).find(
-        (c) => c.id !== self && !linked.relations.some((r) => r.related_id === c.id),
-      );
+      // Oldest first: a demo card, not one other tests make and delete meanwhile.
+      const other = ((await found.json()).items as { id: string; full_name: string }[])
+        .reverse()
+        .find((c) => c.id !== self && !linked.relations.some((r) => r.related_id === c.id));
       if (!other) throw new Error("The demo has no client to link");
       await relations.getByRole("button", { name: t("contacts.addRelation"), exact: true }).click();
       await relations.getByLabel(t("contacts.findContact"), { exact: true }).fill(other.full_name);
