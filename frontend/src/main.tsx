@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { ConfirmProvider } from "./components/ConfirmDialog";
 import { i18nReady } from "./i18n";
+import "./fonts.css";
 import "./styles.css";
 import { applySavedTheme } from "./theme";
 
