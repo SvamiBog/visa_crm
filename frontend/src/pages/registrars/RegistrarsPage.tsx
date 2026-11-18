@@ -124,8 +124,8 @@ function RegistrarList() {
                 <tr>
                   <th>{t("registrars.colRegistrar")}</th>
                   <th>{t("registrars.colBalance")}</th>
-                  <th>{t("registrars.colTalons")}</th>
-                  <th>{t("registrars.colMissing")}</th>
+                  <th className="money-cell">{t("registrars.colTalons")}</th>
+                  <th className="money-cell">{t("registrars.colMissing")}</th>
                   <th>{t("registrars.colLastPayment")}</th>
                 </tr>
               </thead>
@@ -139,8 +139,8 @@ function RegistrarList() {
                     <td>
                       <BalanceChips summary={r} />
                     </td>
-                    <td className="mono">{r.talons}</td>
-                    <td className={r.missing > 0 ? "warn-text" : "muted"}>{r.missing || "—"}</td>
+                    <td className="mono money-cell">{r.talons}</td>
+                    <td className={`money-cell ${r.missing > 0 ? "warn-text" : "muted"}`}>{r.missing || "—"}</td>
                     <td className="nowrap muted">
                       {r.last_payment_on ? formatDate(r.last_payment_on, i18n.language) : "—"}
                     </td>

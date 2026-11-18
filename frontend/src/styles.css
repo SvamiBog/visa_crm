@@ -270,6 +270,8 @@ body {
   background: var(--c-bg);
   font-size: 14px;
   line-height: 1.45;
+  /* No lone «г.» or «дн.» on a line of its own */
+  text-wrap: pretty;
 }
 
 a {
@@ -283,6 +285,19 @@ a {
   }
 }
 
+/* Keyboard focus: one ring in the theme's accent, not the browser's black frame */
+:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}
+
+/* A field shows its focus on its own edge: the border and a line around it in the accent */
+:is(input:not([type="checkbox"], [type="radio"]), select, textarea):focus-visible {
+  outline: 1px solid var(--c-primary);
+  outline-offset: 0;
+  border-color: var(--c-primary);
+}
+
 h1,
 .auth-title,
 .h3 {
@@ -293,6 +308,7 @@ h1 {
   margin: 0;
   font-size: 26px;
   font-weight: 600;
+  text-wrap: balance;
 }
 
 .muted {
@@ -643,7 +659,8 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
 .field input:focus,
 .field select:focus,
 .input-action input:focus {
-  outline: 2px solid var(--c-primary-soft);
+  outline: 1px solid var(--c-primary);
+  outline-offset: 0;
   border-color: var(--c-primary);
 }
 
@@ -2631,8 +2648,10 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   padding-right: 0;
 }
 
-/* Sums one under another: digits of one width, so the column lines up */
-.money-cell {
+/* A column of figures: right-aligned with its heading, digits of equal width so the
+   places line up (only here: in Onest a tabular «1» looks like «1 9» in running text) */
+.money-cell,
+.tbl th.money-cell {
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -2723,11 +2742,17 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   gap: 8px;
 }
 
-/* Главный экран: показатели, воронка, очереди */
+/* Главный экран: показатели, воронка, очереди.
+   The figures are one panel divided by thin lines, not a row of separate tiles: each
+   figure draws a line on its left and top, and the ones on the panel's edge fall
+   under its border (overflow: hidden), so the lines stay right however the row wraps. */
 .kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
-  gap: 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
 .kpi {
@@ -2735,30 +2760,30 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  margin: -1px 0 0 -1px;
   padding: 16px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius);
+  border-top: 1px solid var(--c-border);
+  border-left: 1px solid var(--c-border);
   color: var(--c-text);
   text-decoration: none;
-  transition: transform 160ms var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
   a.kpi:hover {
-    border-color: var(--c-border-strong);
+    background: var(--c-row);
     text-decoration: none;
   }
 }
 
+/* A finger gets the same fill at once. The figure does not shrink when pressed, as a
+   button does: inside the panel that would break the lines around it. */
 a.kpi:active {
-  border-color: var(--c-border-strong);
+  background: var(--c-row);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a.kpi:active {
-    transform: scale(0.98);
-  }
+/* The panel clips what is outside it, so the focus ring goes inside the figure */
+a.kpi:focus-visible {
+  outline-offset: -3px;
 }
 
 .kpi-label,
@@ -2771,8 +2796,8 @@ a.kpi:active {
   font-family: var(--font-num);
   font-size: 24px;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .kpi-value small {
