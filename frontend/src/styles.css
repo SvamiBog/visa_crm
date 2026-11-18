@@ -326,6 +326,20 @@ h1 {
   place-items: center;
 }
 
+/* A page whose code is still loading (PageArea in components/LazyPage.tsx): the line takes
+   its place at once but shows only if loading takes a moment, so a quick switch does not
+   flash it. */
+.page-loading {
+  animation: page-loading-wait 0s linear 300ms backwards;
+}
+
+@keyframes page-loading-wait {
+  from,
+  to {
+    visibility: hidden;
+  }
+}
+
 /* Cards, headings, chips, tables — as in the prototype */
 .card {
   background: var(--c-surface);

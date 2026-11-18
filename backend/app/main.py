@@ -1,10 +1,13 @@
 import asyncio
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from pathlib import PurePath
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from app.api.admin import router as admin_router
 from app.api.analytics import router as analytics_router
@@ -47,6 +50,22 @@ from app.core.http_headers import add_security_headers
 from app.core.rates import keep_fresh
 from app.core.request_limit import RequestLimit
 from app.core.server_errors import UnexpectedErrors
+
+# Vite names what it builds `<name>-<8-character hash>.<ext>`, right in assets/. The page
+# names the current files, so it is checked on every visit, and the files themselves are
+# never asked for again. Files copied as they are (the passport reader's model in a
+# folder of assets/) keep the default caching.
+HASHED_ASSET = re.compile(r"-[A-Za-z0-9_-]{8}\.[a-z0-9]+$")
+IMMUTABLE = "public, max-age=31536000, immutable"
+
+
+class BuiltAssets(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        flat = PurePath(path).name == path
+        if response.status_code in (200, 304) and flat and HASHED_ASSET.search(path):
+            response.headers["Cache-Control"] = IMMUTABLE
+        return response
 
 
 @asynccontextmanager
@@ -127,7 +146,9 @@ def create_app() -> FastAPI:
     # so session cookies work without CORS. In local dev Vite serves it and proxies /api.
     dist = get_settings().frontend_dist.resolve()
     if dist.is_dir():
-        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+        # An old build's file is gone after a deploy: 404, which the app answers by
+        # reloading (frontend/src/components/LazyPage.tsx).
+        app.mount("/assets", BuiltAssets(directory=dist / "assets"), name="assets")
 
         @app.get("/{path:path}", include_in_schema=False)
         async def spa(path: str) -> FileResponse:
@@ -137,7 +158,7 @@ def create_app() -> FastAPI:
             file = (dist / path).resolve()
             if path and file.is_relative_to(dist) and file.is_file():
                 return FileResponse(file)
-            return FileResponse(dist / "index.html")
+            return FileResponse(dist / "index.html", headers={"Cache-Control": "no-cache"})
 
     return app
 
