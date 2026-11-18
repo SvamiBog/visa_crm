@@ -80,8 +80,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
+    # The schema maps every endpoint and error code: developers and the stands have it,
+    # the real site does not. ReDoc is off everywhere: the site's CSP blocks its scripts.
+    docs = settings.api_docs
     app = FastAPI(
-        title="VisaCRM", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan
+        title="VisaCRM",
+        docs_url="/api/docs" if docs else None,
+        openapi_url="/api/openapi.json" if docs else None,
+        redoc_url=None,
+        lifespan=lifespan,
     )
     # An unexpected error is logged without its text (it may quote clients' data).
     app.add_middleware(UnexpectedErrors)
@@ -145,7 +153,7 @@ def create_app() -> FastAPI:
 
     # In production the built React app is served from the same origin as the API,
     # so session cookies work without CORS. In local dev Vite serves it and proxies /api.
-    dist = get_settings().frontend_dist.resolve()
+    dist = settings.frontend_dist.resolve()
     if dist.is_dir():
         # The interface fonts (frontend/src/fonts.css): Python 3.12 does not know the type
         # and would send them as an unnamed binary file.

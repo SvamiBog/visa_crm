@@ -47,6 +47,11 @@ class Settings(BaseSettings):
         return self.env not in ("local", "test")
 
     @property
+    def api_docs(self) -> bool:
+        """Swagger UI and the OpenAPI schema everywhere except production (docs/decisions.md)."""
+        return self.env != "production"
+
+    @property
     def async_database_url(self) -> str:
         url = self.database_url
         if url.startswith("postgres://"):
