@@ -51,6 +51,22 @@ def test_numbers_with_a_country_code_are_kept(typed, stored):
     assert normalize_phone(typed) == stored
 
 
+@pytest.mark.parametrize(
+    "typed",
+    ["8 916 123-45-67", "8 (495) 123-45-67", "8 701 123 45 67", "89161234567"],
+)
+def test_a_local_number_of_russia_or_kazakhstan_is_not_taken_for_a_country_code(typed):
+    """«8» there is the trunk prefix: kept as +89… the number is nobody's, as +84… it is
+    someone's in Vietnam, and either way the card saved with +7 is not found."""
+    with pytest.raises(ValueError):
+        normalize_phone(typed)
+
+
+@pytest.mark.parametrize("typed", ["+7 916 123-45-67", "007 916 123 45 67", "79161234567"])
+def test_the_same_number_with_its_country_code_is_kept(typed):
+    assert normalize_phone(typed) == "+79161234567"
+
+
 @pytest.mark.parametrize("typed", ["123", "+1 234", "телефон"])
 def test_too_short_numbers_are_refused(typed):
     with pytest.raises(ValueError):

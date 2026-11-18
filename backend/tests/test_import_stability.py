@@ -307,6 +307,79 @@ async def test_a_phone_shared_by_a_family_does_not_merge_its_people(
     ]
 
 
+async def test_a_telegram_shared_by_a_family_does_not_merge_its_people(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Owner's decision 2026-11-18: a family shares the Telegram account as it shares the
+    phone, so the nick is checked the same way. A child with the parent's phone and nick
+    gets a card of their own instead of going into the parent's, and a repeated file
+    finds both."""
+    await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    book_ = {
+        "Клиенты": [
+            ["Код клиента", "Фамилия", "Имя", "Телефон", "Telegram", "Дата рождения"],
+            ["K-1", "Петрова", "Анна", "+375291112233", "@petrova_fam", date(1988, 3, 12)],
+            ["K-2", "Петров", "Миша", "+375291112233", "@petrova_fam", date(2015, 7, 5)],
+        ]
+    }
+
+    first = await run(client, book_)
+    again = await run(client, book_)
+
+    assert first["created"] == {"contacts": 2}
+    assert lines(first, "warnings") == [("phone_taken", "Клиенты", 3, "Телефон")]
+    assert again["created"] == {} and again["updated"] == {}
+    contacts = await rows(
+        owner_engine, "SELECT full_name, phone, telegram FROM contacts ORDER BY birth_date"
+    )
+    assert contacts == [
+        {"full_name": "Петрова Анна", "phone": "+375291112233", "telegram": "petrova_fam"},
+        {"full_name": "Петров Миша", "phone": None, "telegram": "petrova_fam"},
+    ]
+
+
+async def test_people_born_on_different_days_are_not_merged(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Owner's decision 2026-11-18: a card whose date of birth is not the row's is another
+    person, whatever joins them — namesakes with one full name, a father and a son with
+    one given name and one phone, two people on one account. A repeated file finds each."""
+    await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    book_ = {
+        "Клиенты": [
+            ["Код клиента", "Фамилия", "Имя", "Отчество", "Телефон", "Telegram", "Дата рождения"],
+            ["K-1", "Иванов", "Иван", "Петрович", None, None, date(1980, 1, 1)],
+            ["K-2", "Иванов", "Иван", "Петрович", None, None, date(1995, 2, 2)],
+            ["K-3", "Петров", "Игорь", None, "+375291112233", None, date(1965, 3, 3)],
+            ["K-4", "Петров", "Игорь", None, "+375291112233", None, date(1992, 4, 4)],
+            ["K-5", "Сидоренко", "Ольга", None, None, "@olga_s", date(1970, 5, 5)],
+            ["K-6", "Сидоренко", "Ольга", None, None, "@olga_s", date(1999, 6, 6)],
+            # A row without a date of birth is still found by the phone: the father's card.
+            ["K-7", "Петров", "Игорь", None, "+375291112233", None, None],
+        ]
+    }
+
+    first = await run(client, book_)
+    again = await run(client, book_)
+
+    assert first["created"] == {"contacts": 6}, first
+    assert lines(first, "warnings") == [("phone_taken", "Клиенты", 5, "Телефон")]
+    assert again["created"] == {} and again["updated"] == {}
+    contacts = await rows(
+        owner_engine, "SELECT full_name, phone, telegram FROM contacts ORDER BY birth_date"
+    )
+    assert contacts == [
+        {"full_name": "Петров Игорь", "phone": "+375291112233", "telegram": None},
+        {"full_name": "Сидоренко Ольга", "phone": None, "telegram": "olga_s"},
+        {"full_name": "Иванов Иван Петрович", "phone": None, "telegram": None},
+        {"full_name": "Петров Игорь", "phone": None, "telegram": None},
+        {"full_name": "Иванов Иван Петрович", "phone": None, "telegram": None},
+        {"full_name": "Сидоренко Ольга", "phone": None, "telegram": "olga_s"},
+    ]
+
+
 # --- The choices of the check -------------------------------------------------------------
 
 

@@ -497,7 +497,7 @@
   "contacts.phone": "Телефон",
   "contacts.phoneHint": "С кодом страны, например +375 29 123-45-67. Белорусский номер можно писать и так, как привыкли: 8 029 123-45-67. Вторую карточку с тем же телефоном завести не получится.",
   "contacts.telegram": "Telegram",
-  "contacts.telegramHint": "Ник без @ или имя в Telegram.",
+  "contacts.telegramHint": "Ник, ссылка на профиль или имя в Telegram.",
   "contacts.messenger": "Другой мессенджер",
   "contacts.noMessenger": "нет",
   "contacts.messengerContact": "Номер или ник в мессенджере",
