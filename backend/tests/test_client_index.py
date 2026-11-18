@@ -154,6 +154,8 @@ async def test_rows_without_the_cases_module(
     await login(client, "olga@example.com")
     [row] = (await search(client))["items"]
     assert row["case"] is None
+    # Without cases the date to sort by is the consultation's: none here.
+    assert [r["id"] for r in (await search(client, sort="next"))["items"]] == [row["id"]]
     assert (await client.get("/api/cases/board")).status_code == 403
 
 
@@ -228,3 +230,92 @@ async def test_moving_a_group_on_the_board(client: AsyncClient, make_user: MakeU
     foreign = await client.post("/api/cases/stage", json={"case_ids": ids, "stage": "review"})
     assert foreign.status_code == 404
     assert (await client.get("/api/cases/board")).json() == {"cases": [], "leads": []}
+
+
+def order(result: dict) -> list[str]:
+    return [row["full_name"] for row in result["items"]]
+
+
+async def test_sorted_by_name_in_the_russian_alphabet(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    for name in ("Жуков", "Ёлкина", "Абрамов", "Яковлев", "Ежова"):
+        await contact(client, name)
+
+    # «Ё» goes with «Е», not before «А» as its code would put it.
+    assert order(await search(client, sort="name")) == [
+        "Абрамов",
+        "Ежова",
+        "Ёлкина",
+        "Жуков",
+        "Яковлев",
+    ]
+    assert order(await search(client, sort="-name"))[0] == "Яковлев"
+    # By default the newest first, as before.
+    assert order(await search(client))[0] == "Ежова"
+
+
+async def test_sorted_by_the_next_date_with_blanks_last(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    today = workspace_today()
+    soon, later = today + timedelta(days=10), today + timedelta(days=20)
+    await consult(
+        client,
+        await contact(client, "Консультация"),
+        held_on=(today - timedelta(days=30)).isoformat(),
+    )
+    late = await open_case(client, await contact(client, "Подача позже"))
+    await client.patch(f"/api/cases/{late['id']}", json={"submission_on": later.isoformat()})
+    early = await open_case(client, await contact(client, "Подача скоро"))
+    await client.patch(f"/api/cases/{early['id']}", json={"submission_on": soon.isoformat()})
+    # A returning client: the case in work counts, not the finished one.
+    returning = await contact(client, "Вернулся")
+    old = await open_case(client, returning, destination="IT")
+    await client.patch(
+        f"/api/cases/{old['id']}",
+        json={"submission_on": (today - timedelta(days=90)).isoformat(), "outcome": "visa"},
+    )
+    again = await open_case(client, returning)
+    await client.patch(
+        f"/api/cases/{again['id']}", json={"submission_on": (soon + timedelta(days=5)).isoformat()}
+    )
+    # No next date: a result, a case without a submission date, a new contact.
+    done = await open_case(client, await contact(client, "Результат"))
+    await client.patch(
+        f"/api/cases/{done['id']}",
+        json={"submission_on": (today - timedelta(days=5)).isoformat(), "outcome": "visa"},
+    )
+    await open_case(client, await contact(client, "Без даты"))
+    await contact(client, "Новый")
+
+    blanks = {"Результат", "Без даты", "Новый"}
+    ascending = order(await search(client, sort="next"))
+    assert ascending[:4] == ["Консультация", "Подача скоро", "Вернулся", "Подача позже"]
+    assert set(ascending[4:]) == blanks
+    descending = order(await search(client, sort="-next"))
+    assert descending[:4] == ["Подача позже", "Вернулся", "Подача скоро", "Консультация"]
+    assert set(descending[4:]) == blanks
+
+
+async def test_sorted_pages_neither_skip_nor_repeat(
+    client: AsyncClient, make_user: MakeUser, monkeypatch
+):
+    from app.api import contacts as contacts_api
+
+    monkeypatch.setattr(contacts_api, "SEARCH_LIMIT", 2)
+    await as_specialist(client, make_user)
+    for name in ("Иван", "Иван", "Иван", "Анна", "Борис"):
+        await contact(client, name)
+
+    seen: list[str] = []
+    offset, more = 0, True
+    while more:
+        page = await search(client, sort="name", offset=offset)
+        seen += [row["id"] for row in page["items"]]
+        offset, more = offset + 2, page["has_more"]
+    assert len(seen) == len(set(seen)) == 5
+
+
+async def test_unknown_sort_is_rejected(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    response = await client.post(f"{CONTACTS}/search", json={"sort": "phone"})
+    assert response.status_code == 422

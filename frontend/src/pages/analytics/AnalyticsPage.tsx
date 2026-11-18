@@ -11,6 +11,8 @@ import {
   useRules,
   type VisaCenter,
 } from "../../reference";
+import { SortHeader } from "../../components/SortHeader";
+import { useSortedTable, type Sort, type SortColumns, type SortedTable } from "../../sorting";
 import { useMoney } from "../clients/Finance";
 import { ErrorAlert } from "../clients/ui";
 
@@ -125,6 +127,66 @@ function bounds(from: string, to: string): [string, string] {
 }
 
 const share = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
+
+// Sortable reports: each table's column is in the URL (?sort_channels=-profit). Counts,
+// percentages and money start from the largest, days from the shortest; the server's own
+// order is marked where it is one of the columns. The months stay a timeline.
+type SourceRow = Source & { label: string };
+type SourceSort = "consultations" | "conversion" | "visas" | "profit";
+const SOURCE_COLUMNS: SortColumns<SourceRow, SourceSort> = {
+  consultations: { kind: "number", value: (r) => r.consultations, first: "desc" },
+  conversion: {
+    kind: "number",
+    value: (r) => (r.consultations ? r.to_work / r.consultations : null),
+    first: "desc",
+  },
+  visas: { kind: "number", value: (r) => r.visas, first: "desc" },
+  profit: { kind: "money", value: (r) => r.profit, first: "desc" },
+};
+const BY_CONSULTATIONS: Sort<SourceSort> = { key: "consultations", dir: "desc" };
+
+type CountryRow = Report["countries"][number] & { label: string };
+type CountrySort =
+  | "country"
+  | "submissions"
+  | "decisions"
+  | "approval"
+  | "multiple"
+  | "notSubmitted"
+  | "review";
+const COUNTRY_COLUMNS: SortColumns<CountryRow, CountrySort> = {
+  country: { kind: "text", value: (c) => c.label },
+  submissions: { kind: "number", value: (c) => c.submissions, first: "desc" },
+  decisions: { kind: "number", value: (c) => c.visas + c.refusals, first: "desc" },
+  approval: { kind: "number", value: (c) => c.approval, first: "desc" },
+  multiple: { kind: "number", value: (c) => c.multiple, first: "desc" },
+  notSubmitted: { kind: "number", value: (c) => c.not_submitted, first: "desc" },
+  review: { kind: "number", value: (c) => c.review_days },
+};
+
+type CenterRow = Report["centers"][number] & { label: string; country: string };
+type CenterSort = "center" | "country" | "submissions" | "approval" | "wait" | "review";
+const CENTER_COLUMNS: SortColumns<CenterRow, CenterSort> = {
+  center: { kind: "text", value: (c) => c.label },
+  country: { kind: "text", value: (c) => c.country },
+  submissions: { kind: "number", value: (c) => c.submissions, first: "desc" },
+  approval: { kind: "number", value: (c) => c.approval, first: "desc" },
+  // Days of a waiting list; a center with application attempts (France) has none and
+  // goes after the others.
+  wait: { kind: "number", value: (c) => c.wait_days },
+  review: { kind: "number", value: (c) => c.review_days },
+};
+const BY_SUBMISSIONS: Sort<CenterSort> = { key: "submissions", dir: "desc" };
+
+type QueueRow = Report["queues"][number] & { label: string };
+type QueueSort = "queue" | "waiting" | "average" | "removed";
+const QUEUE_COLUMNS: SortColumns<QueueRow, QueueSort> = {
+  queue: { kind: "text", value: (q) => q.label },
+  waiting: { kind: "number", value: (q) => q.waiting, first: "desc" },
+  average: { kind: "number", value: (q) => q.average_days, first: "desc" },
+  removed: { kind: "number", value: (q) => q.removed, first: "desc" },
+};
+const BY_AVERAGE: Sort<QueueSort> = { key: "average", dir: "desc" };
 
 /** A thin bar in a table cell: its length shows the size, the number stays in the cell. */
 function Bar({ value, max, tone = "a", label }: { value: number; max: number; tone?: string; label: string }) {
@@ -300,22 +362,78 @@ export function AnalyticsPage() {
     new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }).format(value);
   const withMoney = data?.money !== null && data?.money !== undefined;
 
-  const sources = (rows: (Source & { label: string })[]) => {
-    const top = Math.max(...rows.map((r) => r.consultations), 0);
+  const channelTable = useSortedTable(
+    "sort_channels",
+    (data?.channels ?? []).map((r) => ({
+      ...r,
+      label: r.channel_id ? (channelById.get(r.channel_id)?.name ?? "—") : t("analytics.noChannel"),
+    })),
+    SOURCE_COLUMNS,
+    BY_CONSULTATIONS,
+  );
+  const partnerTable = useSortedTable(
+    "sort_partners",
+    (data?.partners ?? []).map((r) => ({ ...r, label: partnerById.get(r.partner_id)?.name ?? "—" })),
+    SOURCE_COLUMNS,
+    BY_CONSULTATIONS,
+  );
+  const countryTable = useSortedTable(
+    "sort_countries",
+    (data?.countries ?? []).map((c) => ({ ...c, label: name.country(countryById.get(c.country_id)) })),
+    COUNTRY_COLUMNS,
+  );
+  const centerTable = useSortedTable(
+    "sort_centers",
+    (data?.centers ?? []).map((c) => ({
+      ...c,
+      label: place(c.visa_center_id),
+      country: name.country(countryById.get(c.country_id)),
+    })),
+    CENTER_COLUMNS,
+    BY_SUBMISSIONS,
+  );
+  const queueTable = useSortedTable(
+    "sort_queues",
+    (data?.queues ?? []).map((q) => ({
+      ...q,
+      label: [
+        name.country(countryById.get(q.country_id)),
+        place(q.visa_center_id),
+        q.purpose_id && purposeById.get(q.purpose_id)?.name,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    })),
+    QUEUE_COLUMNS,
+    BY_AVERAGE,
+  );
+
+  const sources = (table: SortedTable<SourceRow, SourceSort>) => {
+    const top = Math.max(...table.rows.map((r) => r.consultations), 0);
     return (
       <div className="table-wrap">
         <table className="tbl analytics-table">
           <thead>
             <tr>
               <th />
-              <th className="money-cell">{t("analytics.col.consultations")}</th>
-              <th className="bar-col">{t("analytics.col.conversion")}</th>
-              <th className="money-cell">{t("analytics.col.visas")}</th>
-              {withMoney && <th className="money-cell">{t("analytics.col.profit")}</th>}
+              <SortHeader className="money-cell" {...table.header("consultations")}>
+                {t("analytics.col.consultations")}
+              </SortHeader>
+              <SortHeader className="bar-col" {...table.header("conversion")}>
+                {t("analytics.col.conversion")}
+              </SortHeader>
+              <SortHeader className="money-cell" {...table.header("visas")}>
+                {t("analytics.col.visas")}
+              </SortHeader>
+              {withMoney && (
+                <SortHeader className="money-cell" {...table.header("profit")}>
+                  {t("analytics.col.profit")}
+                </SortHeader>
+              )}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {table.rows.map((r) => (
               <tr key={r.label}>
                 <td>{r.label}</td>
                 <td className="money-cell">
@@ -458,27 +576,11 @@ export function AnalyticsPage() {
           </div>
 
           <Section title={t("analytics.channels")} hint={t("analytics.channelsHint")}>
-            {data.channels.length === 0 ? (
-              <Empty />
-            ) : (
-              sources(
-                data.channels.map((r) => ({
-                  ...r,
-                  label: r.channel_id
-                    ? (channelById.get(r.channel_id)?.name ?? "—")
-                    : t("analytics.noChannel"),
-                })),
-              )
-            )}
+            {data.channels.length === 0 ? <Empty /> : sources(channelTable)}
             {data.partners.length > 0 && (
               <>
                 <h3 className="h3 analytics-sub">{t("analytics.partners")}</h3>
-                {sources(
-                  data.partners.map((r) => ({
-                    ...r,
-                    label: partnerById.get(r.partner_id)?.name ?? "—",
-                  })),
-                )}
+                {sources(partnerTable)}
               </>
             )}
           </Section>
@@ -536,23 +638,36 @@ export function AnalyticsPage() {
                   <table className="tbl analytics-table">
                     <thead>
                       <tr>
-                        <th>{t("analytics.col.country")}</th>
-                        <th className="money-cell">{t("analytics.col.submissions")}</th>
-                        <th className="bar-col">{t("analytics.col.decisions")}</th>
-                        <th className="money-cell">{t("analytics.col.approval")}</th>
-                        <th className="money-cell">{t("analytics.col.multiple")}</th>
-                        <th className="money-cell">{t("analytics.col.notSubmitted")}</th>
-                        <th className="money-cell">{t("analytics.col.review")}</th>
+                        <SortHeader {...countryTable.header("country")}>
+                          {t("analytics.col.country")}
+                        </SortHeader>
+                        <SortHeader className="money-cell" {...countryTable.header("submissions")}>
+                          {t("analytics.col.submissions")}
+                        </SortHeader>
+                        <SortHeader className="bar-col" {...countryTable.header("decisions")}>
+                          {t("analytics.col.decisions")}
+                        </SortHeader>
+                        <SortHeader className="money-cell" {...countryTable.header("approval")}>
+                          {t("analytics.col.approval")}
+                        </SortHeader>
+                        <SortHeader className="money-cell" {...countryTable.header("multiple")}>
+                          {t("analytics.col.multiple")}
+                        </SortHeader>
+                        <SortHeader className="money-cell" {...countryTable.header("notSubmitted")}>
+                          {t("analytics.col.notSubmitted")}
+                        </SortHeader>
+                        <SortHeader className="money-cell" {...countryTable.header("review")}>
+                          {t("analytics.col.review")}
+                        </SortHeader>
                       </tr>
                     </thead>
                     <tbody>
                       {(() => {
                         const top = Math.max(...data.countries.map((c) => c.visas + c.refusals), 0);
-                        return data.countries.map((c) => {
-                          const label = name.country(countryById.get(c.country_id));
+                        return countryTable.rows.map((c) => {
                           return (
                             <tr key={c.country_id}>
-                              <td>{label}</td>
+                              <td>{c.label}</td>
                               <td className="money-cell">{c.submissions}</td>
                               <td className="bar-col">
                                 <span
@@ -624,20 +739,32 @@ export function AnalyticsPage() {
                 <table className="tbl analytics-table">
                   <thead>
                     <tr>
-                      <th>{t("analytics.col.center")}</th>
-                      <th>{t("analytics.col.country")}</th>
-                      <th className="money-cell">{t("analytics.col.submissions")}</th>
-                      <th className="money-cell">{t("analytics.col.approval")}</th>
-                      <th className="money-cell">{t("analytics.col.wait")}</th>
-                      <th className="money-cell">{t("analytics.col.review")}</th>
+                      <SortHeader {...centerTable.header("center")}>
+                        {t("analytics.col.center")}
+                      </SortHeader>
+                      <SortHeader {...centerTable.header("country")}>
+                        {t("analytics.col.country")}
+                      </SortHeader>
+                      <SortHeader className="money-cell" {...centerTable.header("submissions")}>
+                        {t("analytics.col.submissions")}
+                      </SortHeader>
+                      <SortHeader className="money-cell" {...centerTable.header("approval")}>
+                        {t("analytics.col.approval")}
+                      </SortHeader>
+                      <SortHeader className="money-cell" {...centerTable.header("wait")}>
+                        {t("analytics.col.wait")}
+                      </SortHeader>
+                      <SortHeader className="money-cell" {...centerTable.header("review")}>
+                        {t("analytics.col.review")}
+                      </SortHeader>
                       <th>{t("analytics.col.note")}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.centers.map((c) => (
+                    {centerTable.rows.map((c) => (
                       <tr key={c.visa_center_id}>
-                        <td>{place(c.visa_center_id) || "—"}</td>
-                        <td>{name.country(countryById.get(c.country_id))}</td>
+                        <td>{c.label || "—"}</td>
+                        <td>{c.country}</td>
                         <td className="money-cell">{c.submissions}</td>
                         <td className="money-cell">{percent(c.approval)}</td>
                         <td className="money-cell">
@@ -673,24 +800,26 @@ export function AnalyticsPage() {
                     <table className="tbl analytics-table">
                       <thead>
                         <tr>
-                          <th>{t("analytics.col.queue")}</th>
-                          <th className="money-cell">{t("analytics.col.waitingNow")}</th>
-                          <th className="bar-col">{t("analytics.col.averageWait")}</th>
+                          <SortHeader {...queueTable.header("queue")}>
+                            {t("analytics.col.queue")}
+                          </SortHeader>
+                          <SortHeader className="money-cell" {...queueTable.header("waiting")}>
+                            {t("analytics.col.waitingNow")}
+                          </SortHeader>
+                          <SortHeader className="bar-col" {...queueTable.header("average")}>
+                            {t("analytics.col.averageWait")}
+                          </SortHeader>
                           <th className="money-cell">{t("analytics.col.spread")}</th>
-                          <th className="money-cell">{t("analytics.col.removed")}</th>
+                          <SortHeader className="money-cell" {...queueTable.header("removed")}>
+                            {t("analytics.col.removed")}
+                          </SortHeader>
                         </tr>
                       </thead>
                       <tbody>
                         {(() => {
                           const top = Math.max(...data.queues.map((q) => q.average_days ?? 0), 0);
-                          return data.queues.map((q) => {
-                            const label = [
-                              name.country(countryById.get(q.country_id)),
-                              place(q.visa_center_id),
-                              q.purpose_id && purposeById.get(q.purpose_id)?.name,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ");
+                          return queueTable.rows.map((q) => {
+                            const label = q.label;
                             return (
                               <tr key={`${q.country_id}-${q.visa_center_id}-${q.purpose_id}`}>
                                 <td>{label}</td>
