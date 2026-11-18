@@ -13,6 +13,7 @@ import {
 } from "../../api";
 import { useMe } from "../../auth";
 import {
+  caseToEnterResult,
   contactKey,
   FROM_INDEX,
   formatDate,
@@ -104,6 +105,16 @@ export function ContactPage() {
       const [latest] = card.data.consultations;
       setCreatingCase(latest && latest.decision !== "no" ? latest : "blank");
     }
+    const state = openedFromIndex(location.state) ? FROM_INDEX : null;
+    navigate(location.pathname, { replace: true, state });
+  }, [card.data, location.state, location.pathname, navigate]);
+  // A case without a result dropped on «Результат» of the board: its form opens at the
+  // result, once, the same way.
+  const [resultCaseId, setResultCaseId] = useState<string | null>(null);
+  useEffect(() => {
+    const caseId = caseToEnterResult(location.state);
+    if (!card.data || caseId === null) return;
+    setResultCaseId(caseId);
     const state = openedFromIndex(location.state) ? FROM_INDEX : null;
     navigate(location.pathname, { replace: true, state });
   }, [card.data, location.state, location.pathname, navigate]);
@@ -226,7 +237,12 @@ export function ContactPage() {
           <div className="column">
             {card.data.cases !== null && (
               <Slot name="cases">
-                <Cases card={card.data} creating={creatingCase} onCreating={setCreatingCase} />
+                <Cases
+                  card={card.data}
+                  creating={creatingCase}
+                  onCreating={setCreatingCase}
+                  resultCaseId={resultCaseId}
+                />
               </Slot>
             )}
             {workspace.data?.modules.includes("vault") && (

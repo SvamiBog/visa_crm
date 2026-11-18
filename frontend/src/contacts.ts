@@ -294,6 +294,17 @@ export function openedToCreateCase(state: unknown): boolean {
   return typeof state === "object" && state !== null && "createCase" in state;
 }
 
+/** History state of a card opened by dropping a case without a result on «Результат»:
+ * the card opens with that case's form at its result, which the stage needs. */
+export function enterResult(caseId: string): { enterResult: string } {
+  return { enterResult: caseId };
+}
+
+export function caseToEnterResult(state: unknown): string | null {
+  if (typeof state !== "object" || state === null || !("enterResult" in state)) return null;
+  return typeof state.enterResult === "string" ? state.enterResult : null;
+}
+
 export type CaseBrief = {
   id: string;
   number: number;

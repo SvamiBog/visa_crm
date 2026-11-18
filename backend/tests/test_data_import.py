@@ -640,6 +640,35 @@ async def test_codes_of_another_workspace_find_nothing(
     assert case["vac_number"] == "PL123"
 
 
+async def test_the_result_stage_without_a_result_is_left_to_the_dates(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """CRM audit 2026-11-18: «Результат» takes a case only with its result. A row that
+    asks for it without one is warned of, and the case stands where its dates put it."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    cases = [
+        ["Код кейса", "Код клиента", "Страна визы", "Дата подачи", "Результат", "Этап"],
+        ["К-1", "Подача25-2", "Польша", date(2025, 5, 20), None, "результат"],
+        ["К-2", "Подача25-3", "Польша", None, "отказ", "результат"],
+    ]
+
+    report = await run(client, {"Клиенты": CLIENTS, "Кейсы": cases})
+
+    assert report["warnings"] == [
+        {"sheet": "Кейсы", "row": 2, "column": "Этап", "reason": "needs_outcome"}
+    ]
+    stages = await rows(
+        owner_engine,
+        "SELECT stage, outcome FROM visa_cases WHERE tenant_id = :t ORDER BY number",
+        t=tenant,
+    )
+    assert stages == [
+        {"stage": "review", "outcome": None},
+        {"stage": "result", "outcome": "refusal"},
+    ]
+
+
 async def test_a_row_whose_client_does_not_match_its_code_is_skipped(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):

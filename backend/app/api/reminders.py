@@ -83,7 +83,8 @@ class ReminderOut(BaseModel):
     due_on: date | None
     days_left: int | None
     # Thinking clients and a follow-up: the day of the consultation; an unsigned contract:
-    # the day the case was opened; a balance once in the queue: the day queued.
+    # the day the case was opened; a balance once in the queue: the day queued; a result
+    # not entered: the day of the submission.
     since: date | None = None
     contact_id: uuid.UUID | None = None
     contact_name: str | None = None
@@ -126,6 +127,7 @@ class SettingsIO(BaseModel):
     contract_days: Days
     questionnaire_days: Days
     package_days: Days
+    result_days: Days
 
     @field_validator("thinking_months")
     @classmethod
@@ -228,15 +230,29 @@ async def _thinking(
 async def _consultations(
     session: AsyncSession, out: _Collector, s: rules.Settings, contact_id: uuid.UUID | None
 ) -> None:
-    """A consultation ahead, not held yet (no decision), and the day agreed at the latest
-    consultation to hear the decision, while there is none or the client still thinks."""
+    """A consultation ahead, not held yet (no decision); held, the client's latest and
+    still without a decision, for a month after it — unless a day to hear the decision
+    was agreed, which has its own reminder (CRM audit 2026-11-18); and the day agreed at
+    the latest consultation to hear the decision, while there is none or the client
+    still thinks."""
+    later = aliased(Consultation)
     query = (
         select(Consultation, Contact.full_name)
         .join(Contact, Contact.id == Consultation.contact_id)
         .where(
             Consultation.decision.is_(None),
             Consultation.held_on.between(
-                out.today, out.today + timedelta(days=s.consultation_days)
+                add_months(out.today, -1), out.today + timedelta(days=s.consultation_days)
+            ),
+            or_(
+                Consultation.held_on >= out.today,
+                and_(
+                    Consultation.follow_up_on.is_(None),
+                    ~exists().where(
+                        later.contact_id == Consultation.contact_id,
+                        later.held_on > Consultation.held_on,
+                    ),
+                ),
             ),
         )
     )
@@ -252,7 +268,6 @@ async def _consultations(
                 contact_name=name,
             )
 
-    later = aliased(Consultation)
     query = (
         select(Consultation, Contact.full_name)
         .join(Contact, Contact.id == Consultation.contact_id)
@@ -591,6 +606,34 @@ async def _packages(
             )
 
 
+async def _results(
+    session: AsyncSession, out: _Collector, s: rules.Settings, contact_id: uuid.UUID | None
+) -> None:
+    """The submission long past and no result entered (CRM audit 2026-11-18): until the
+    result is in. The stage does not matter: a case closed without a result before the
+    rule is caught too."""
+    query = (
+        select(VisaCase, Contact.full_name)
+        .join(Contact, Contact.id == VisaCase.contact_id)
+        .where(
+            VisaCase.outcome.is_(None),
+            VisaCase.submission_on <= out.today - timedelta(days=s.result_days),
+        )
+    )
+    for case, name in await session.execute(_for_contact(query, VisaCase.contact_id, contact_id)):
+        assert case.submission_on is not None
+        day = rules.result(case.submission_on, out.today, s)
+        if day is not None:
+            out.add(
+                ReminderKind.RESULT,
+                case.id,
+                day,
+                day,
+                since=case.submission_on,
+                **_case_fields(case, name),
+            )
+
+
 async def _registrars(session: AsyncSession, out: _Collector) -> None:
     for r in await ledger_summaries(session):
         if r.low and r.is_active:
@@ -659,6 +702,7 @@ async def collect(
         await _appeals(session, out, s, contact_id)
         await _contracts(session, out, s, contact_id, tenant.timezone)
         await _questionnaires(session, out, s, contact_id)
+        await _results(session, out, s, contact_id)
         if "package_check" in modules:
             await _packages(session, out, s, contact_id)
         if money:
