@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Field } from "./Field";
 import { Icon } from "./Icon";
 
 // The password of the account (sign-in, password change, confirmations in «Настройки»)
@@ -20,6 +21,8 @@ type Props = {
   minLength?: number;
   /** A rule under the field («Не короче 10 символов»), read out with the field. */
   hint?: string;
+  /** The field's own error, under it (components/Field.tsx). */
+  error?: ReactNode;
 };
 
 export function PasswordField({
@@ -30,10 +33,9 @@ export function PasswordField({
   autoFocus,
   minLength,
   hint,
+  error,
 }: Props) {
   const { t } = useTranslation();
-  const id = useId();
-  const hintId = `${id}-hint`;
   const input = useRef<HTMLInputElement>(null);
   const [shown, setShown] = useState(false);
 
@@ -46,46 +48,41 @@ export function PasswordField({
   }, []);
 
   return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <div className="password-input">
-        <input
-          ref={input}
-          id={id}
-          type={shown ? "text" : "password"}
-          autoComplete={autoComplete}
-          // Shown as text, a password is still not a word: a phone must not capitalise
-          // or correct it, and the spell checker must not send it anywhere.
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          required
-          autoFocus={autoFocus}
-          minLength={minLength}
-          aria-describedby={hint ? hintId : undefined}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        <button
-          type="button"
-          className="password-toggle"
-          aria-label={t("auth.showPassword")}
-          aria-pressed={shown}
-          aria-controls={id}
-          title={t(shown ? "auth.hidePassword" : "auth.showPassword")}
-          // A tap leaves the focus (and a phone's keyboard) in the field; the keyboard
-          // still reaches the button with Tab.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setShown((on) => !on)}
-        >
-          <Icon name={shown ? "eyeOff" : "eye"} />
-        </button>
-      </div>
-      {hint && (
-        <small id={hintId} className="muted">
-          {hint}
-        </small>
+    <Field label={label} hint={hint} error={error}>
+      {(control) => (
+        <div className="password-input">
+          <input
+            {...control}
+            ref={input}
+            type={shown ? "text" : "password"}
+            autoComplete={autoComplete}
+            // Shown as text, a password is still not a word: a phone must not capitalise
+            // or correct it, and the spell checker must not send it anywhere.
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+            autoFocus={autoFocus}
+            minLength={minLength}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          <button
+            type="button"
+            className="password-toggle"
+            aria-label={t("auth.showPassword")}
+            aria-pressed={shown}
+            aria-controls={control.id}
+            title={t(shown ? "auth.hidePassword" : "auth.showPassword")}
+            // A tap leaves the focus (and a phone's keyboard) in the field; the keyboard
+            // still reaches the button with Tab.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setShown((on) => !on)}
+          >
+            <Icon name={shown ? "eyeOff" : "eye"} />
+          </button>
+        </div>
       )}
-    </div>
+    </Field>
   );
 }

@@ -11,6 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { Field, useFieldErrors, type FieldErrors } from "../../components/Field";
 import {
   CASE_STAGES,
   EMAIL_OWNERS,
@@ -46,6 +47,29 @@ import { useHasModule } from "../../workspace";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
 // the structured visa result and the submission group.
+
+// The fields of the place that show their own error, by their name in the API.
+const PLACE_FIELDS = [
+  "destination_id",
+  "submission_country_id",
+  "visa_center_id",
+  "submission_on",
+] as const;
+const PLACE_CODES = {
+  same_country: "submission_country_id",
+  visa_center_mismatch: "visa_center_id",
+};
+// …and of the rest of the case's form.
+const CASE_FIELDS = [
+  ...PLACE_FIELDS,
+  "application_email",
+  "questionnaire_due_on",
+  "questionnaire_received_on",
+  "decided_on",
+  "visa_valid_from",
+  "visa_valid_to",
+  "stay_days",
+] as const;
 
 function ErrorAlert({ error }: { error: unknown }) {
   const { t } = useTranslation();
@@ -447,10 +471,12 @@ function PlaceFields({
   place,
   onChange,
   suggested = [],
+  errors,
 }: {
   place: Place;
   onChange: (place: Place) => void;
   suggested?: string[];
+  errors: FieldErrors;
 }) {
   const { t } = useTranslation();
   const name = useLocalName();
@@ -460,72 +486,82 @@ function PlaceFields({
   const rule = rules.data?.find((r) => r.destination_id === place.destination);
   const centers = rule?.visa_centers ?? [];
   const set = (changes: Partial<Place>) => onChange({ ...place, ...changes });
-  const cityHint = useId();
   const first = countries.filter((c) => suggested.includes(c.id));
   const rest = countries.filter((c) => !suggested.includes(c.id));
 
   return (
     <div className="form-grid">
-      <label className="field">
-        <span>{t("cases.country")}</span>
-        <select
-          required
-          value={place.destination}
-          onChange={(e) => set({ destination: e.target.value, center: "" })}
-        >
-          <option value="" />
-          {first.length > 0 && (
-            <optgroup label={t("cases.fromConsultation")}>
-              {first.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {name.country(c)}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {rest.map((c) => (
-            <option key={c.id} value={c.id}>
-              {name.country(c)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>{t("cases.submissionCountry")}</span>
-        <select
-          required
-          value={place.submission}
-          onChange={(e) => set({ submission: e.target.value, center: "" })}
-        >
-          {countries.map((c) => (
-            <option key={c.id} value={c.id}>
-              {name.country(c)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>{t("cases.city")}</span>
-        <select
-          value={place.center}
-          disabled={centers.length === 0}
-          aria-describedby={cityHint}
-          onChange={(e) => set({ center: e.target.value })}
-        >
-          <option value="" />
-          {centers.map((v) => (
-            <option key={v.id} value={v.id}>
-              {name.city(v)}
-            </option>
-          ))}
-        </select>
-        {place.destination && centers.length === 0 && (
-          <small id={cityHint}>
-            {t(rule ? "cases.noCities" : "cases.noRule")}{" "}
-            <Link to="/app/countries">{t("cases.openDirections")}</Link>
-          </small>
+      <Field label={t("cases.country")} error={errors.at("destination_id")}>
+        {(control) => (
+          <select
+            {...control}
+            required
+            value={place.destination}
+            onChange={(e) => set({ destination: e.target.value, center: "" })}
+          >
+            <option value="" />
+            {first.length > 0 && (
+              <optgroup label={t("cases.fromConsultation")}>
+                {first.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {name.country(c)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {rest.map((c) => (
+              <option key={c.id} value={c.id}>
+                {name.country(c)}
+              </option>
+            ))}
+          </select>
         )}
-      </label>
+      </Field>
+      <Field label={t("cases.submissionCountry")} error={errors.at("submission_country_id")}>
+        {(control) => (
+          <select
+            {...control}
+            required
+            value={place.submission}
+            onChange={(e) => set({ submission: e.target.value, center: "" })}
+          >
+            {countries.map((c) => (
+              <option key={c.id} value={c.id}>
+                {name.country(c)}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
+      <Field
+        label={t("cases.city")}
+        error={errors.at("visa_center_id")}
+        hint={
+          place.destination &&
+          centers.length === 0 && (
+            <>
+              {t(rule ? "cases.noCities" : "cases.noRule")}{" "}
+              <Link to="/app/countries">{t("cases.openDirections")}</Link>
+            </>
+          )
+        }
+      >
+        {(control) => (
+          <select
+            {...control}
+            value={place.center}
+            disabled={centers.length === 0}
+            onChange={(e) => set({ center: e.target.value })}
+          >
+            <option value="" />
+            {centers.map((v) => (
+              <option key={v.id} value={v.id}>
+                {name.city(v)}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
       <label className="field">
         <span>{t("cases.purpose")}</span>
         <select value={place.purpose} onChange={(e) => set({ purpose: e.target.value })}>
@@ -563,14 +599,16 @@ function PlaceFields({
           ))}
         </select>
       </label>
-      <label className="field">
-        <span>{t("cases.submissionOn")}</span>
-        <input
-          type="date"
-          value={place.submissionOn}
-          onChange={(e) => set({ submissionOn: e.target.value })}
-        />
-      </label>
+      <Field label={t("cases.submissionOn")} error={errors.at("submission_on")}>
+        {(control) => (
+          <input
+            {...control}
+            type="date"
+            value={place.submissionOn}
+            onChange={(e) => set({ submissionOn: e.target.value })}
+          />
+        )}
+      </Field>
     </div>
   );
 }
@@ -673,6 +711,7 @@ function CaseCreateForm({
       onDone();
     },
   });
+  const errors = useFieldErrors(create.error, { codes: PLACE_CODES, fields: PLACE_FIELDS });
 
   const change = (key: number, patch: Partial<NewApplicant>) =>
     setAdded((list) => list.map((x) => (x.key === key ? { ...x, ...patch } : x)));
@@ -687,6 +726,7 @@ function CaseCreateForm({
 
   return (
     <form
+      ref={errors.form}
       className="form-card consultation-form"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
@@ -698,7 +738,7 @@ function CaseCreateForm({
           ? t("cases.fileAgainTitle", { number: previous.number })
           : t(consultation ? "cases.createFromConsultation" : "cases.newTitle")}
       </h3>
-      <PlaceFields place={place} onChange={setPlace} suggested={suggested} />
+      <PlaceFields place={place} onChange={setPlace} suggested={suggested} errors={errors} />
       <fieldset className="module-block">
         <legend>{t("cases.applicants")}</legend>
         <p className="muted small">
@@ -760,7 +800,7 @@ function CaseCreateForm({
           {t("cases.addApplicant")}
         </button>
       </fieldset>
-      {create.isError && <ErrorAlert error={create.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button
           type="submit"
@@ -836,16 +876,18 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
       onDone();
     },
   });
+  const errors = useFieldErrors(save.error, { codes: PLACE_CODES, fields: CASE_FIELDS });
 
   return (
     <form
+      ref={errors.form}
       className="form-card"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         save.mutate();
       }}
     >
-      <PlaceFields place={place} onChange={setPlace} />
+      <PlaceFields place={place} onChange={setPlace} errors={errors} />
       <fieldset className="module-block">
         <legend>{t("queues.numberAndEmail")}</legend>
         <div className="form-grid">
@@ -853,15 +895,17 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
             <span>{numberLabel(c)}</span>
             <input maxLength={64} value={vacNumber} onChange={(e) => setVacNumber(e.target.value)} />
           </label>
-          <label className="field">
-            <span>{t("queues.email")}</span>
-            <input
-              type="email"
-              maxLength={320}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </label>
+          <Field label={t("queues.email")} error={errors.at("application_email")}>
+            {(control) => (
+              <input
+                {...control}
+                type="email"
+                maxLength={320}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            )}
+          </Field>
           <label className="field">
             <span>{t("queues.ownerLabel")}</span>
             <select
@@ -891,22 +935,29 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
       <fieldset className="module-block">
         <legend>{t("cases.questionnaire")}</legend>
         <div className="form-grid">
-          <label className="field">
-            <span>{t("cases.questionnaireDueOn")}</span>
-            <input
-              type="date"
-              value={questionnaireDue}
-              onChange={(e) => setQuestionnaireDue(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span>{t("cases.questionnaireReceivedOn")}</span>
-            <input
-              type="date"
-              value={questionnaireReceived}
-              onChange={(e) => setQuestionnaireReceived(e.target.value)}
-            />
-          </label>
+          <Field label={t("cases.questionnaireDueOn")} error={errors.at("questionnaire_due_on")}>
+            {(control) => (
+              <input
+                {...control}
+                type="date"
+                value={questionnaireDue}
+                onChange={(e) => setQuestionnaireDue(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("cases.questionnaireReceivedOn")}
+            error={errors.at("questionnaire_received_on")}
+          >
+            {(control) => (
+              <input
+                {...control}
+                type="date"
+                value={questionnaireReceived}
+                onChange={(e) => setQuestionnaireReceived(e.target.value)}
+              />
+            )}
+          </Field>
         </div>
       </fieldset>
       <fieldset className="module-block">
@@ -924,10 +975,16 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
             </select>
           </label>
           {outcome && (
-            <label className="field">
-              <span>{t("cases.decidedOn")}</span>
-              <input type="date" value={decidedOn} onChange={(e) => setDecidedOn(e.target.value)} />
-            </label>
+            <Field label={t("cases.decidedOn")} error={errors.at("decided_on")}>
+              {(control) => (
+                <input
+                  {...control}
+                  type="date"
+                  value={decidedOn}
+                  onChange={(e) => setDecidedOn(e.target.value)}
+                />
+              )}
+            </Field>
           )}
           {isVisa && (
             <>
@@ -945,29 +1002,39 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
                   ))}
                 </select>
               </label>
-              <label className="field">
-                <span>{t("contacts.validFrom")}</span>
-                <input type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
-              </label>
-              <label className="field">
-                <span>{t("contacts.validTo")}</span>
-                <input
-                  type="date"
-                  min={validFrom || undefined}
-                  value={validTo}
-                  onChange={(e) => setValidTo(e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>{t("cases.stayDays")}</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={3660}
-                  value={stayDays}
-                  onChange={(e) => setStayDays(e.target.value)}
-                />
-              </label>
+              <Field label={t("contacts.validFrom")} error={errors.at("visa_valid_from")}>
+                {(control) => (
+                  <input
+                    {...control}
+                    type="date"
+                    value={validFrom}
+                    onChange={(e) => setValidFrom(e.target.value)}
+                  />
+                )}
+              </Field>
+              <Field label={t("contacts.validTo")} error={errors.at("visa_valid_to")}>
+                {(control) => (
+                  <input
+                    {...control}
+                    type="date"
+                    min={validFrom || undefined}
+                    value={validTo}
+                    onChange={(e) => setValidTo(e.target.value)}
+                  />
+                )}
+              </Field>
+              <Field label={t("cases.stayDays")} error={errors.at("stay_days")}>
+                {(control) => (
+                  <input
+                    {...control}
+                    type="number"
+                    min={1}
+                    max={3660}
+                    value={stayDays}
+                    onChange={(e) => setStayDays(e.target.value)}
+                  />
+                )}
+              </Field>
             </>
           )}
         </div>
@@ -1000,7 +1067,7 @@ function CaseEditForm({ visaCase: c, onDone }: { visaCase: VisaCase; onDone: () 
           </p>
         </div>
       )}
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
           {t("common.save")}

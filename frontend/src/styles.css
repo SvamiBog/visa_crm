@@ -724,6 +724,23 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   outline-offset: -2px;
 }
 
+/* A field's own error (components/Field.tsx): the message under the control, and the
+   control's border in the error colour, focused or not */
+.field-error {
+  color: var(--c-red);
+}
+
+.field-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field [aria-invalid="true"],
+.field [aria-invalid="true"]:focus {
+  border-color: var(--c-red);
+}
+
 .alert {
   padding: 12px 16px;
   border-radius: var(--radius-sm);
