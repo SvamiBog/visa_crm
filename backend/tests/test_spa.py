@@ -91,6 +91,26 @@ def test_built_files_are_cached_and_the_page_is_always_checked(spa_app) -> None:
     assert "cache-control" not in headers
 
 
+def test_the_staging_page_is_marked_so_its_strip_draws_with_the_first_paint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The strip «Тестовый стенд…» (frontend/src/App.tsx) is drawn from the page's own mark,
+    # not after /api/health answers: otherwise it pushes the page down once it is drawn.
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text('<!doctype html><html lang="ru"><body>index</body></html>')
+    monkeypatch.setenv("FRONTEND_DIST", str(dist))
+    for env, mark in (("staging", True), ("production", False), ("local", False)):
+        monkeypatch.setenv("ENV", env)
+        get_settings.cache_clear()
+        status, headers, body = raw_response(create_app(), "/app/clients")
+        assert status == 200
+        assert headers["cache-control"] == "no-cache"
+        assert (b'<html data-env="staging" lang="ru">' in body) is mark, env
+        assert body.endswith(b"<body>index</body></html>")
+    get_settings.cache_clear()
+
+
 def test_font_files_are_served_as_fonts_and_cached(spa_app) -> None:
     # The interface fonts come from our own domain (frontend/src/fonts.css), named by
     # their type rather than as an unnamed binary file, and kept like any built file.

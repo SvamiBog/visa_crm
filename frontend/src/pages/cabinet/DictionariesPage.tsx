@@ -210,11 +210,23 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
     add.mutate();
   };
 
+  // The form of a new entry is drawn once the list has come: the list arriving above it
+  // pushed it down.
+  if (list.isPending) {
+    return (
+      <>
+        <p className="muted small">{t(`dict.${name}Hint`)}</p>
+        <section className="card">
+          <p className="muted">{t("common.loading")}</p>
+        </section>
+      </>
+    );
+  }
+
   return (
     <>
       <p className="muted small">{t(`dict.${name}Hint`)}</p>
       <section className="card">
-        {list.isPending && <p className="muted">{t("common.loading")}</p>}
         {list.data?.length === 0 && <p className="muted">{t("dict.empty")}</p>}
         {list.data && list.data.length > 0 && (
           <ul className="plain-list">

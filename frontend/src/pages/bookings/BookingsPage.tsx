@@ -61,14 +61,29 @@ export function BookingsPage() {
     dir: "asc",
   });
 
+  const header = (
+    <header className="page-header">
+      <div>
+        <h1>{t("bookings.pageTitle")}</h1>
+        <div className="muted">{t("bookings.pageSubtitle")}</div>
+      </div>
+    </header>
+  );
+  // The filter by country stands above the table only when the rows come from several
+  // countries, and the names of countries and accounts fill the columns: the page waits for
+  // all of them, so the table does not jump down or widen when they arrive.
+  if (rows.isPending || countries.isPending || accounts.pending) {
+    return (
+      <div className="page">
+        {header}
+        <p className="muted">{t("common.loading")}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>{t("bookings.pageTitle")}</h1>
-          <div className="muted">{t("bookings.pageSubtitle")}</div>
-        </div>
-      </header>
+      {header}
 
       {destinations.length > 1 && (
         <div className="filter-bar">
@@ -87,7 +102,6 @@ export function BookingsPage() {
       )}
 
       <section className="card" id={tableId}>
-        {rows.isPending && <p className="muted">{t("common.loading")}</p>}
         {rows.isError && <ErrorAlert error={rows.error} />}
         {rows.isSuccess && inCountry.length === 0 && (
           <p className="muted">{t("bookings.noneLive")}</p>

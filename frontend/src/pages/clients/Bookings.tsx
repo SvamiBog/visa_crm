@@ -14,7 +14,7 @@ import {
 } from "../../contacts";
 import { byId } from "../../reference";
 import { useOwnVault, useVaultSystems, vaultKey, type VaultEntry } from "../../vault";
-import { useHasModule } from "../../workspace";
+import { useHasModule, useWorkspace } from "../../workspace";
 import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert } from "./ui";
 
@@ -46,6 +46,7 @@ export function DeadlineChip({ days }: { days: number | null }) {
 /** Accounts a booking can be made in — the workspace's own and the client's, on booking
  * sites — and labels of every account («Booking.com · login»). Empty without the vault. */
 export function useBookingAccounts(contactId: string | null) {
+  const workspace = useWorkspace();
   const hasVault = useHasModule("vault");
   const systems = useVaultSystems();
   const own = useOwnVault(hasVault);
@@ -54,6 +55,12 @@ export function useBookingAccounts(contactId: string | null) {
     queryFn: () => apiGet<VaultEntry[]>(`/contacts/${contactId}/vault`),
     enabled: hasVault && contactId !== null,
   });
+  // The labels are still coming: a list that draws them can wait, so a column does not
+  // change its width when they arrive.
+  const pending =
+    workspace.isPending ||
+    (hasVault &&
+      (systems.isPending || own.isPending || (contactId !== null && client.isPending)));
   return useMemo(() => {
     const systemById = byId(systems.data);
     const entries = [...(own.data ?? []), ...(client.data ?? [])];
@@ -63,10 +70,11 @@ export function useBookingAccounts(contactId: string | null) {
     const choices = entries.filter((e) => kinds.has(systemById.get(e.system_id)?.kind ?? ""));
     return {
       enabled: hasVault,
+      pending,
       options: choices.map((e) => ({ id: e.id, label: label(e) })),
       labels: new Map(entries.map((e) => [e.id, label(e)])),
     };
-  }, [hasVault, systems.data, own.data, client.data]);
+  }, [hasVault, pending, systems.data, own.data, client.data]);
 }
 
 function useRefreshCards() {

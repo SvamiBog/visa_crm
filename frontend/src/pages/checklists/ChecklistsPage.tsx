@@ -27,7 +27,7 @@ export function ChecklistsPage() {
     queryKey: ["dictionaries", "purposes"],
     queryFn: () => apiGet<Purpose[]>("/dictionaries/purposes"),
   });
-  const [countryId, setCountryId] = useChecklistCountry(false);
+  const [countryId, setCountryId, choosing] = useChecklistCountry(false);
   const [submission, setSubmission] = useState("");
   const [purpose, setPurpose] = useState("");
   const [adding, setAdding] = useState(false);
@@ -54,14 +54,29 @@ export function ChecklistsPage() {
   // A narrowed list is what a case gets: switched-off items are not in it.
   const own = (checklist.data?.own ?? []).filter((i) => i.is_active || !filtered);
 
+  const header = (
+    <header className="page-header">
+      <div>
+        <h1>{t("checklists.title")}</h1>
+        <div className="muted">{t("checklists.subtitle")}</div>
+      </div>
+    </header>
+  );
+  // The filters join the country once it is chosen, the purposes fill one of them, and the
+  // list comes between them and the hint at the bottom: the page waits for all three, so
+  // nothing jumps down when they come. Another country keeps the previous list until its own.
+  if (choosing || purposes.isPending || (countryId && checklist.isPending)) {
+    return (
+      <div className="page">
+        {header}
+        <p className="muted">{t("common.loading")}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
-      <header className="page-header">
-        <div>
-          <h1>{t("checklists.title")}</h1>
-          <div className="muted">{t("checklists.subtitle")}</div>
-        </div>
-      </header>
+      {header}
 
       <div className="toolbar">
         <label className="field field-inline">
@@ -107,7 +122,6 @@ export function ChecklistsPage() {
       {filtered && <p className="muted small">{t("checklists.filteredHint")}</p>}
 
       {!countryId && <p className="muted">{t("checklists.pickCountry")}</p>}
-      {countryId && checklist.isPending && <p className="muted">{t("common.loading")}</p>}
       {checklist.isError && <ErrorAlert error={checklist.error} />}
       {countryId && checklist.data && (
         <>
