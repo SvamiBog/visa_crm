@@ -4,8 +4,10 @@ import { readFileSync } from "node:fs";
 // The kanban of the client index (backlog 1.5): a card dragged to another column asks
 // first in the site's window, because it is easy to drop one by mistake. A case moves to
 // the new stage only after «Перенести»; a client from «Консультация» dropped on a stage
-// opens the case form in the client's card after «Открыть кейс». Both languages; each
-// takes its own cards, since the tests run in parallel.
+// opens the case form in the client's card after «Открыть кейс»; a case without a result
+// dropped on «Результат» stays and, after «Внести итог», opens its form at the result
+// (CRM audit 2026-11-18). Both languages; each takes its own cards, since the tests run
+// in parallel.
 
 type Lang = "ru" | "en";
 
@@ -19,7 +21,14 @@ const EMAIL = process.env.E2E_EMAIL ?? "visa1@demo.visacrm.test";
 const PASSWORD = process.env.DEMO_PASSWORD ?? "";
 
 type Stage = "waiting" | "documents" | "submission" | "review" | "result";
-type BoardCase = { id: string; full_name: string; group_id: string | null; stage: Stage };
+type BoardCase = {
+  id: string;
+  contact_id: string;
+  full_name: string;
+  group_id: string | null;
+  stage: Stage;
+  outcome: string | null;
+};
 type BoardLead = { contact_id: string; full_name: string; held_on: string | null };
 type Board = { cases: BoardCase[]; leads: BoardLead[] };
 
@@ -120,6 +129,36 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
           data: { case_ids: [moved.id], stage: moved.stage },
         });
       }
+    });
+
+    test("a case without a result dropped on «Результат» opens its form at the result", async ({
+      page,
+    }) => {
+      // Cards of their own: the test above moves the first two single cases.
+      const open = (await board(page)).cases.filter(
+        (c) => c.group_id === null && c.stage !== "result" && c.outcome === null,
+      );
+      const kept = open[which + 2];
+      expect(kept, "the demo has too few single cases in work").toBeTruthy();
+      const from = t(`cases.stage.${kept.stage}`);
+      const result = t("cases.stage.result");
+
+      await page.goto("/app/clients?view=board");
+      const card = boardCard(page, kept.full_name);
+      await expect(column(page, from).locator(card)).toBeVisible();
+      // «Результат» is the last column: the board scrolls sideways to bring it in.
+      await title(page, result).scrollIntoViewIfNeeded();
+      await drop(page, card, result);
+      await expect(page.getByRole("dialog")).toContainText(kept.full_name);
+      await answer(page, t("common.cancel"));
+      await expect(column(page, from).locator(card), "the case stays without a result").toBeVisible();
+
+      await drop(page, card, result);
+      await answer(page, t("confirm.enterResult"));
+      await expect(page).toHaveURL(new RegExp(`/app/clients/${kept.contact_id}$`));
+      await expect(page.getByText(t("cases.resultNeedsOutcome"))).toBeVisible();
+      await expect(page.getByRole("combobox", { name: t("cases.outcomeLabel") })).toBeFocused();
+      expect((await board(page)).cases.find((c) => c.id === kept.id)?.stage).toBe(kept.stage);
     });
 
     test("a client from «Консультация» dropped on a stage opens the case form", async ({

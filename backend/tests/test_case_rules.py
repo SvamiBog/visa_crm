@@ -1,6 +1,12 @@
 from datetime import date
 
-from app.core.cases import advance, appeal_until, cleared_by_outcome, for_group_member
+from app.core.cases import (
+    advance,
+    appeal_until,
+    by_dates,
+    cleared_by_outcome,
+    for_group_member,
+)
 from app.models import CaseStage, VisaOutcome
 
 
@@ -17,6 +23,14 @@ def test_result_ends_the_case():
     assert advance(CaseStage.DOCUMENTS, {"outcome": VisaOutcome.REFUSAL}) == CaseStage.RESULT
     assert advance(CaseStage.RESULT, {"outcome": None}) == CaseStage.RESULT
     assert advance(CaseStage.WAITING, {"hall": "premium"}) == CaseStage.WAITING
+
+
+def test_without_a_result_the_dates_give_the_stage():
+    today = date(2026, 11, 18)
+    assert by_dates(None, today) == CaseStage.WAITING
+    assert by_dates(date(2026, 11, 25), today) == CaseStage.DOCUMENTS
+    assert by_dates(today, today) == CaseStage.REVIEW
+    assert by_dates(date(2026, 11, 1), today) == CaseStage.REVIEW
 
 
 def test_outcome_clears_what_does_not_apply():
@@ -93,6 +107,10 @@ def test_the_stage_moves_members_that_stood_with_the_case():
 
 def test_a_result_does_not_move_the_family():
     changed = {"outcome": VisaOutcome.REFUSAL, "stage": CaseStage.RESULT}
+    assert for_group_member(changed, PLACE, CaseStage.REVIEW, CaseStage.REVIEW, None) == {}
+    # A case with its result, moved back by hand and now to «Результат» again: a member
+    # without a result of its own does not follow it there (CRM audit 2026-11-18).
+    changed = {"stage": CaseStage.RESULT}
     assert for_group_member(changed, PLACE, CaseStage.REVIEW, CaseStage.REVIEW, None) == {}
 
 

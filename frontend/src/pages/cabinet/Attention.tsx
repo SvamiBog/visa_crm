@@ -27,6 +27,7 @@ type Kind =
   | "questionnaire"
   | "balance_queued"
   | "package"
+  | "result"
   | "card_limit"
   | "password_limit";
 
@@ -69,7 +70,7 @@ export function remindersQuery(contactId?: string) {
 
 // One family, one line (specialist run, 2026-11-04): a submission group's reminders of
 // the same kind and day go together — the family submits together and pays together.
-const FAMILY_KINDS: Kind[] = ["submission", "balance_due", "balance_queued", "package"];
+const FAMILY_KINDS: Kind[] = ["submission", "balance_due", "balance_queued", "package", "result"];
 
 type Line = { item: Reminder; members: Reminder[] };
 
@@ -180,6 +181,20 @@ function ReminderText({ item: r }: { item: Reminder }) {
     case "package":
       return (
         <>{t("attention.kind.package", { date: date(r.due_on), count: r.missing ?? 0 })}</>
+      );
+    case "result":
+      return <>{t("attention.kind.result", { date: date(r.since) })}</>;
+    case "consultation":
+      // Held and still without a decision: it asks for one (CRM audit 2026-11-18).
+      return (
+        <>
+          {t(
+            (r.days_left ?? 0) < 0
+              ? "attention.kind.consultation_undecided"
+              : "attention.kind.consultation",
+            { date: date(r.due_on) },
+          )}
+        </>
       );
     case "registrar_advance":
       return (
@@ -326,6 +341,7 @@ type Settings = {
   contract_days: number;
   questionnaire_days: number;
   package_days: number;
+  result_days: number;
 };
 
 const NUMBER_FIELDS = [
@@ -339,6 +355,7 @@ const NUMBER_FIELDS = [
   "contract_days",
   "questionnaire_days",
   "package_days",
+  "result_days",
 ] as const;
 
 /** The specialist's reminder windows («Справочники» → «Напоминания»). */

@@ -109,7 +109,28 @@ def test_a_consultation_the_day_before_and_on_the_day():
     assert r.consultation(days(1), TODAY, S) == TODAY  # tomorrow: the day-before trigger
     assert r.consultation(TODAY, TODAY, S) == TODAY  # today: the day itself
     assert r.consultation(days(2), TODAY, S) is None  # not yet
-    assert r.consultation(days(-1), TODAY, S) is None  # over
+
+
+def test_a_consultation_held_without_a_decision_asks_for_it_for_a_month():
+    """CRM audit 2026-11-18: the reminder no longer goes at the end of the day. From the
+    next day it asks for the decision — a new occurrence, so «Готово» on the day itself
+    does not hide it — and stays a month, like a thinking client."""
+    assert r.consultation(days(-1), TODAY, S) == TODAY
+    assert r.consultation(days(-10), TODAY, S) == days(-9)
+    assert r.consultation(date(2026, 9, 16), TODAY, S) == date(2026, 9, 17)  # a month: still
+    assert r.consultation(date(2026, 9, 15), TODAY, S) is None  # longer ago: gone
+
+
+def test_a_result_not_entered_long_after_the_submission():
+    """CRM audit 2026-11-18: a deal past its close date with no outcome is stale."""
+    assert S.result_days == 15
+    assert r.result(days(-15), TODAY, S) == TODAY
+    assert r.result(days(-14), TODAY, S) is None  # the consulate is still deciding
+    assert r.result(days(2), TODAY, S) is None  # not submitted yet
+    assert r.result(days(-90), TODAY, S) == days(-75)  # stays until the result is in
+    wide = r.Settings(result_days=30)
+    assert r.result(days(-15), TODAY, wide) is None
+    assert r.result(days(-30), TODAY, wide) == TODAY
 
 
 def test_the_agreed_follow_up_on_its_day_and_for_a_month():
