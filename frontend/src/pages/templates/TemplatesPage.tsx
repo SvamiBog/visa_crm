@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent } from "react";
+import { useId, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError, apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPut } from "../../api";
 import { useMe } from "../../auth";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { useDisclosure } from "../../components/Disclosure";
+import { Field, invalidProps, RowError, useFieldErrors } from "../../components/Field";
 import { formatSize, readBase64 } from "../../files";
 import {
   DOCX_TYPES,
@@ -19,6 +20,16 @@ import {
 import { ErrorAlert } from "../clients/ui";
 
 const GROUPS = ["client", "passport", "case", "money", "other"] as const;
+
+// What the server says about the Word file itself, and about the download name's codes.
+const FILE_CODES = {
+  template_not_docx: "file",
+  template_has_macros: "file",
+  template_broken: "file",
+  template_too_large: "file",
+  request_too_large: "file",
+  unknown_code_in_name: "file_name",
+};
 
 /** The specialist's document templates: her Word files with codes, the instruction and
  * every code. Templates are given to clients in the client's card. */
@@ -122,13 +133,18 @@ function UploadForm({ onDone }: { onDone: () => void }) {
     },
     onError: chosen.setError,
   });
+  const errors = useFieldErrors(chosen.error, {
+    codes: FILE_CODES,
+    fields: ["name", "file_name"],
+  });
+  const fileMessage = useId();
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (chosen.file) save.mutate(chosen.file);
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">{t("templates.uploadTitle")}</h2>
       <div className="field">
         <span>{t("templates.file")}</span>
@@ -140,22 +156,25 @@ function UploadForm({ onDone }: { onDone: () => void }) {
             className="visually-hidden"
             accept={DOCX_TYPES}
             onChange={(e) => chosen.choose(e.target.files?.[0])}
+            {...invalidProps(fileMessage, errors.at("file"))}
           />
         </label>
+        <RowError id={fileMessage} error={errors.at("file")} />
         <small className="muted">{t("templates.fileHint")}</small>
       </div>
-      <label className="field">
-        <span>{t("templates.name")}</span>
-        <input
-          maxLength={200}
-          value={name}
-          placeholder={chosen.file?.name.replace(/\.docx$/i, "")}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <small className="muted">{t("templates.nameHint")}</small>
-      </label>
-      <FileNameField value={fileName} onChange={setFileName} />
-      {chosen.error !== null && <ErrorAlert error={chosen.error} />}
+      <Field label={t("templates.name")} hint={t("templates.nameHint")} error={errors.at("name")}>
+        {(control) => (
+          <input
+            {...control}
+            maxLength={200}
+            value={name}
+            placeholder={chosen.file?.name.replace(/\.docx$/i, "")}
+            onChange={(e) => setName(e.target.value)}
+          />
+        )}
+      </Field>
+      <FileNameField value={fileName} onChange={setFileName} error={errors.at("file_name")} />
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={!chosen.file || save.isPending}>
           {save.isPending ? t("templates.uploading") : t("templates.save")}
@@ -168,19 +187,28 @@ function UploadForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-function FileNameField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function FileNameField({
+  value,
+  onChange,
+  error,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+}) {
   const { t } = useTranslation();
   return (
-    <label className="field">
-      <span>{t("templates.fileName")}</span>
-      <input
-        maxLength={200}
-        value={value}
-        placeholder={t("templates.fileNamePlaceholder")}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <small className="muted">{t("templates.fileNameHint")}</small>
-    </label>
+    <Field label={t("templates.fileName")} hint={t("templates.fileNameHint")} error={error}>
+      {(control) => (
+        <input
+          {...control}
+          maxLength={200}
+          value={value}
+          placeholder={t("templates.fileNamePlaceholder")}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </Field>
   );
 }
 
@@ -332,24 +360,30 @@ function EditForm({ template, onDone }: { template: DocumentTemplate; onDone: ()
       onDone();
     },
   });
+  const errors = useFieldErrors(save.error, {
+    codes: { unknown_code_in_name: "file_name" },
+    fields: ["name", "file_name"],
+  });
   const submit = (event: FormEvent) => {
     event.preventDefault();
     save.mutate();
   };
   return (
-    <form className="form-card booking-form" onSubmit={submit}>
-      <label className="field">
-        <span>{t("templates.name")}</span>
-        <input
-          required
-          autoFocus
-          maxLength={200}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-      <FileNameField value={fileName} onChange={setFileName} />
-      {save.isError && <ErrorAlert error={save.error} />}
+    <form ref={errors.form} className="form-card booking-form" onSubmit={submit}>
+      <Field label={t("templates.name")} error={errors.at("name")}>
+        {(control) => (
+          <input
+            {...control}
+            required
+            autoFocus
+            maxLength={200}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        )}
+      </Field>
+      <FileNameField value={fileName} onChange={setFileName} error={errors.at("file_name")} />
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending || !name.trim()}>
           {t("common.save")}

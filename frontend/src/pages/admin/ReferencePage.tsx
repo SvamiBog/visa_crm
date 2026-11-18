@@ -3,6 +3,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiGet, apiPatch, apiPost, errorCode } from "../../api";
 import { CHECKLISTS_KEY, type ChecklistItem } from "../../checklists";
+import { Field, useFieldErrors } from "../../components/Field";
 import { formatDate } from "../../contacts";
 import {
   useCountries,
@@ -218,6 +219,17 @@ function CountriesTab() {
   );
 }
 
+// The country's fields that show the API's validation under them.
+const COUNTRY_FIELDS = [
+  "code",
+  "name_ru",
+  "name_en",
+  "consultation_minutes",
+  "passport_max_age_years",
+  "passport_valid_after_months",
+  "schengen_since",
+] as const;
+
 function CountryForm({ country, onClose }: { country?: Country; onClose: () => void }) {
   const { t } = useTranslation();
   const refresh = useRefreshReference();
@@ -251,6 +263,10 @@ function CountryForm({ country, onClose }: { country?: Country; onClose: () => v
       onClose();
     },
   });
+  const errors = useFieldErrors(save.error, {
+    codes: { country_code_taken: "code" },
+    fields: COUNTRY_FIELDS,
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -258,77 +274,97 @@ function CountryForm({ country, onClose }: { country?: Country; onClose: () => v
   };
 
   return (
-    <form className="card form-card" onSubmit={submit}>
+    <form ref={errors.form} className="card form-card" onSubmit={submit}>
       <h2 className="h2">{country ? country.name_ru : t("reference.newCountry")}</h2>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("reference.colCode")}</span>
-          <input
-            required
-            pattern="[A-Za-z]{2}"
-            maxLength={2}
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            aria-describedby="country-code-hint"
-          />
-        </label>
-        <label className="field">
-          <span>{t("reference.nameRu")}</span>
-          <input required maxLength={100} value={nameRu} onChange={(e) => setNameRu(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("reference.nameEn")}</span>
-          <input required maxLength={100} value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>{t("reference.consultationMinutes")}</span>
-          <input
-            type="number"
-            min={5}
-            max={600}
-            value={minutes}
-            onChange={(e) => setMinutes(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t("reference.passportMaxAge")}</span>
-          <input
-            type="number"
-            min={1}
-            max={30}
-            value={maxAge}
-            onChange={(e) => setMaxAge(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t("reference.passportValidAfter")}</span>
-          <input
-            type="number"
-            min={0}
-            max={24}
-            value={validAfter}
-            onChange={(e) => setValidAfter(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t("reference.schengenSince")}</span>
-          <input
-            type="date"
-            value={schengenSince}
-            onChange={(e) => setSchengenSince(e.target.value)}
-          />
-        </label>
+        <Field label={t("reference.colCode")} hint={t("reference.codeHint")} error={errors.at("code")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              pattern="[A-Za-z]{2}"
+              maxLength={2}
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+            />
+          )}
+        </Field>
+        <Field label={t("reference.nameRu")} error={errors.at("name_ru")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              maxLength={100}
+              value={nameRu}
+              onChange={(e) => setNameRu(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("reference.nameEn")} error={errors.at("name_en")}>
+          {(control) => (
+            <input
+              {...control}
+              required
+              maxLength={100}
+              value={nameEn}
+              onChange={(e) => setNameEn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("reference.consultationMinutes")} error={errors.at("consultation_minutes")}>
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              min={5}
+              max={600}
+              value={minutes}
+              onChange={(e) => setMinutes(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("reference.passportMaxAge")} error={errors.at("passport_max_age_years")}>
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              min={1}
+              max={30}
+              value={maxAge}
+              onChange={(e) => setMaxAge(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("reference.passportValidAfter")} error={errors.at("passport_valid_after_months")}>
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              min={0}
+              max={24}
+              value={validAfter}
+              onChange={(e) => setValidAfter(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("reference.schengenSince")} error={errors.at("schengen_since")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              value={schengenSince}
+              onChange={(e) => setSchengenSince(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
       <p className="muted small">{t("reference.passportHint")}</p>
       <p className="muted small">{t("reference.schengenHint")}</p>
-      <p id="country-code-hint" className="muted small">
-        {t("reference.codeHint")}
-      </p>
       <label className="checkbox">
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
         {t("reference.activeLabel")}
       </label>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
           {t("common.save")}
@@ -362,6 +398,10 @@ function OperatorsTab() {
     mutationFn: (o: Operator) =>
       apiPatch<Operator>(`/admin/reference/operators/${o.id}`, { is_active: !o.is_active }),
     onSuccess: () => void refresh(),
+  });
+  const errors = useFieldErrors(add.error, {
+    codes: { operator_code_taken: "code" },
+    fields: ["code", "name"],
   });
 
   const submit = (event: FormEvent) => {
@@ -416,29 +456,38 @@ function OperatorsTab() {
         )}
         {toggle.isError && <ErrorAlert error={toggle.error} />}
       </section>
-      <form className="card form-card" onSubmit={submit}>
+      <form ref={errors.form} className="card form-card" onSubmit={submit}>
         <h2 className="h2">{t("reference.newOperator")}</h2>
         <div className="form-grid">
-          <label className="field">
-            <span>{t("reference.operatorName")}</span>
-            <input required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>{t("reference.colCode")}</span>
-            <input
-              required
-              pattern="[a-z0-9_]{2,32}"
-              maxLength={32}
-              value={code}
-              onChange={(e) => setCode(e.target.value.toLowerCase())}
-              aria-describedby="operator-code-hint"
-            />
-          </label>
+          <Field label={t("reference.operatorName")} error={errors.at("name")}>
+            {(control) => (
+              <input
+                {...control}
+                required
+                maxLength={100}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("reference.colCode")}
+            hint={t("reference.operatorCodeHint")}
+            error={errors.at("code")}
+          >
+            {(control) => (
+              <input
+                {...control}
+                required
+                pattern="[a-z0-9_]{2,32}"
+                maxLength={32}
+                value={code}
+                onChange={(e) => setCode(e.target.value.toLowerCase())}
+              />
+            )}
+          </Field>
         </div>
-        <p id="operator-code-hint" className="muted small">
-          {t("reference.operatorCodeHint")}
-        </p>
-        {add.isError && <ErrorAlert error={add.error} />}
+        {errors.general ? <ErrorAlert error={errors.general} /> : null}
         <div className="form-actions">
           <button type="submit" className="btn btn-p" disabled={add.isPending}>
             {t("reference.addOperator")}

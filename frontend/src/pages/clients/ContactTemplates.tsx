@@ -7,6 +7,7 @@ import type { VisaCase } from "../../contacts";
 import { givenKey, useTemplates, type GivenTemplate } from "../../templates";
 import { deferDelete, useDeleting } from "../../undo";
 import { useCaseOptions } from "../vault/Vault";
+import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert } from "./ui";
 
 /** «Документы по шаблонам» on a client's card (backlog 2.1): the specialist's templates
@@ -178,6 +179,13 @@ function GiveForm({
       }),
     onSuccess: onDone,
   });
+  const errors = useFieldErrors(save.error, {
+    codes: {
+      template_switched_off: "template_id",
+      template_already_given: "template_id",
+      case_of_another_contact: "case_id",
+    },
+  });
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (chosen) save.mutate();
@@ -191,33 +199,38 @@ function GiveForm({
     );
   }
   return (
-    <form className="form-card booking-form" onSubmit={submit}>
+    <form ref={errors.form} className="form-card booking-form" onSubmit={submit}>
       <div className="form-grid">
-        <label className="field">
-          <span>{t("templates.template")}</span>
-          <select value={chosen} onChange={(e) => setTemplateId(e.target.value)}>
-            {offered.length === 0 && <option value="">{t("templates.allGiven")}</option>}
-            {offered.map((tpl) => (
-              <option key={tpl.id} value={tpl.id}>
-                {tpl.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>{t("templates.case")}</span>
-          <select value={caseId} onChange={(e) => setCaseId(e.target.value)}>
-            {caseOptions.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-            <option value="">{t("templates.forClient")}</option>
-          </select>
-          <small className="muted">{t("templates.caseHint")}</small>
-        </label>
+        <Field label={t("templates.template")} error={errors.at("template_id")}>
+          {(control) => (
+            <select {...control} value={chosen} onChange={(e) => setTemplateId(e.target.value)}>
+              {offered.length === 0 && <option value="">{t("templates.allGiven")}</option>}
+              {offered.map((tpl) => (
+                <option key={tpl.id} value={tpl.id}>
+                  {tpl.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field
+          label={t("templates.case")}
+          hint={t("templates.caseHint")}
+          error={errors.at("case_id")}
+        >
+          {(control) => (
+            <select {...control} value={caseId} onChange={(e) => setCaseId(e.target.value)}>
+              {caseOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+              <option value="">{t("templates.forClient")}</option>
+            </select>
+          )}
+        </Field>
       </div>
-      {save.isError && <ErrorAlert error={save.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={!chosen || save.isPending}>
           {t("templates.giveSave")}

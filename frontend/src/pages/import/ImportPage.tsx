@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
+import { Field, FormError, useFieldErrors } from "../../components/Field";
 import { useCaseLists, useContactLists, type Entry } from "../../contacts";
 import { formatSize, readBase64 } from "../../files";
 import {
@@ -74,12 +75,21 @@ function chosenKey(choices: ImportChoices): string {
   );
 }
 
+// What the server (or the page, for the size) says about the file itself.
+const IMPORT_FILE_CODES = {
+  file_too_large: "file",
+  too_many_rows: "file",
+  file_unreadable: "file",
+  file_empty: "file",
+  request_too_large: "file",
+};
+
 export function ImportPage() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const upload = useImportUpload();
   const current = upload.data ?? null;
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<FormError | null>(null);
   const [choices, setChoices] = useState<ImportChoices>({});
   // The runs of the file this page follows, by kind.
   const [jobs, setJobs] = useState<Partial<Record<Kind, string>>>({});
@@ -169,12 +179,16 @@ export function ImportPage() {
     setFileError(null);
     if (!picked) return;
     if (picked.size > MAX_IMPORT_BYTES) {
-      setFileError("file_too_large");
+      setFileError(new FormError("file_too_large"));
       return;
     }
     setJobs({});
     uploading.mutate({ name: picked.name.slice(-200), content: await readBase64(picked) });
   };
+
+  // What is wrong with the file goes under it. No form here: the pick is the action, so
+  // the focus stays where it is.
+  const errors = useFieldErrors(fileError ?? uploading.error, { codes: IMPORT_FILE_CODES });
 
   const choose = (type: string, key: string, value: string) => {
     setChoices({ ...choices, [type]: { ...(choices[type] ?? {}), [key]: value } });
@@ -209,25 +223,21 @@ export function ImportPage() {
       <section className="card import-step">
         <h2 className="h2">{t("import.stepFile")}</h2>
         <div className="form-grid import-file">
-          <label className="field">
-            <span>{t("import.file")}</span>
-            <input
-              key={inputKey}
-              type="file"
-              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              disabled={importRunning}
-              onChange={(e) => void chooseFile(e.target.files?.[0])}
-            />
-            <small className="muted">{t("import.fileHint")}</small>
-          </label>
+          <Field label={t("import.file")} hint={t("import.fileHint")} error={errors.at("file")}>
+            {(control) => (
+              <input
+                {...control}
+                key={inputKey}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                disabled={importRunning}
+                onChange={(e) => void chooseFile(e.target.files?.[0])}
+              />
+            )}
+          </Field>
         </div>
-        {fileError && (
-          <div className="alert alert-error" role="alert">
-            {t(`errors.${fileError}`)}
-          </div>
-        )}
         {uploading.isPending && <p className="muted">{t("import.sending")}</p>}
-        {uploading.isError && <ErrorAlert error={uploading.error} />}
+        {errors.general ? <ErrorAlert error={errors.general} /> : null}
         {cancelling.isError && <ErrorAlert error={cancelling.error} />}
         {current && <Accepted upload={current} language={i18n.language} />}
       </section>

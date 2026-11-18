@@ -6,6 +6,7 @@ import { PASSPORT_FIELDS, contactKey, formatDate, type ContactCard } from "../..
 import { PhotoUnreadable, readZones } from "../../ocr";
 import { useCountries, useLocalName } from "../../reference";
 import { useHasModule } from "../../workspace";
+import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert, Row } from "./ui";
 
 // The passport on the client's card: the Latin name and the data page, entered with the
@@ -134,6 +135,11 @@ export function PassportReader({ card, onDone }: { card: ContactCard; onDone: ()
   const read = useMutation({
     mutationFn: (text: string) => apiPost<MrzReading>("/mrz/read", { text }),
   });
+  // A check, not a form: the message goes under the lines, the focus stays on the button.
+  const errors = useFieldErrors(read.error, {
+    codes: { mrz_not_found: "text" },
+    fields: ["text"],
+  });
 
   const choose = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -182,17 +188,18 @@ export function PassportReader({ card, onDone }: { card: ContactCard; onDone: ()
         </p>
       )}
       {photoError && <p className="alert alert-warn small">{t(`mrz.${photoError}`)}</p>}
-      <label className="field">
-        <span>{t("mrz.lines")}</span>
-        <textarea
-          className="mono mrz-lines"
-          rows={3}
-          spellCheck={false}
-          value={lines}
-          onChange={(e) => setLines(e.target.value)}
-        />
-        <small className="muted">{t("mrz.linesHint")}</small>
-      </label>
+      <Field label={t("mrz.lines")} hint={t("mrz.linesHint")} error={errors.at("text")}>
+        {(control) => (
+          <textarea
+            {...control}
+            className="mono mrz-lines"
+            rows={3}
+            spellCheck={false}
+            value={lines}
+            onChange={(e) => setLines(e.target.value)}
+          />
+        )}
+      </Field>
       <div className="form-actions">
         <button
           type="button"
@@ -206,7 +213,7 @@ export function PassportReader({ card, onDone }: { card: ContactCard; onDone: ()
           {t("common.cancel")}
         </button>
       </div>
-      {read.isError && <ErrorAlert error={read.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       {read.data && (
         <Reading key={read.data.lines.join()} card={card} mrz={read.data} onDone={onDone} />
       )}

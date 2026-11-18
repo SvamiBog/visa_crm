@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../api";
 import { ME_KEY, useMe, type Me } from "../auth";
+import { Field, useFieldErrors } from "../components/Field";
 import { PasswordField } from "../components/PasswordField";
 import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
 import { formatDate } from "../contacts";
@@ -156,6 +157,10 @@ function ErrorAlert({ error }: { error: unknown }) {
   );
 }
 
+// Turning two-factor login off and erasing the data both ask for the password and a code.
+const SECRET_CODES = { invalid_current_password: "password", invalid_code: "code" };
+const SECRET_FIELDS = ["password", "code"] as const;
+
 /** Two-factor login is optional: turned on with the authenticator app, turned off with the
  * password and a current code (or a recovery code). */
 function TwoFactor() {
@@ -175,6 +180,7 @@ function TwoFactor() {
     },
     onError: () => setCode(""),
   });
+  const errors = useFieldErrors(disable.error, { codes: SECRET_CODES, fields: SECRET_FIELDS });
   const on = me.data?.two_factor_enabled ?? false;
 
   return (
@@ -202,6 +208,7 @@ function TwoFactor() {
       )}
       {on && turningOff && (
         <form
+          ref={errors.form}
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             disable.mutate();
@@ -214,20 +221,23 @@ function TwoFactor() {
               autoComplete="current-password"
               value={password}
               onChange={setPassword}
+              error={errors.at("password")}
             />
-            <label className="field">
-              <span>{t("settings.twoFactorCode")}</span>
-              <input
-                autoComplete="one-time-code"
-                required
-                minLength={6}
-                maxLength={32}
-                value={code}
-                onChange={(e) => setCode(e.target.value.trim())}
-              />
-            </label>
+            <Field label={t("settings.twoFactorCode")} error={errors.at("code")}>
+              {(control) => (
+                <input
+                  {...control}
+                  autoComplete="one-time-code"
+                  required
+                  minLength={6}
+                  maxLength={32}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.trim())}
+                />
+              )}
+            </Field>
           </div>
-          {disable.isError && <ErrorAlert error={disable.error} />}
+          {errors.general ? <ErrorAlert error={errors.general} /> : null}
           <div className="form-actions">
             <button type="submit" className="btn btn-p" disabled={disable.isPending}>
               {t("settings.twoFactorTurnOff")}
@@ -265,6 +275,7 @@ function EraseData() {
     },
     onError: () => setCode(""),
   });
+  const errors = useFieldErrors(erase.error, { codes: SECRET_CODES, fields: SECRET_FIELDS });
   const twoFactorOn = me.data?.two_factor_enabled ?? false;
 
   return (
@@ -293,6 +304,7 @@ function EraseData() {
       )}
       {twoFactorOn && asking && (
         <form
+          ref={errors.form}
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             erase.mutate();
@@ -307,19 +319,22 @@ function EraseData() {
               autoComplete="current-password"
               value={password}
               onChange={setPassword}
+              error={errors.at("password")}
             />
-            <label className="field">
-              <span>{t("settings.eraseCode")}</span>
-              <input
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-                pattern="[0-9 ]{6,7}"
-                maxLength={7}
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-              />
-            </label>
+            <Field label={t("settings.eraseCode")} error={errors.at("code")}>
+              {(control) => (
+                <input
+                  {...control}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  pattern="[0-9 ]{6,7}"
+                  maxLength={7}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              )}
+            </Field>
           </div>
           <label className="checkbox">
             <input
@@ -330,7 +345,7 @@ function EraseData() {
             />
             {t("settings.eraseConfirm")}
           </label>
-          {erase.isError && <ErrorAlert error={erase.error} />}
+          {errors.general ? <ErrorAlert error={errors.general} /> : null}
           <div className="form-actions">
             <button
               type="submit"
@@ -404,6 +419,18 @@ function EmailChange() {
     mutationFn: () => apiDelete<void>("/auth/email-change"),
     onSuccess: () => queryClient.setQueryData(PENDING_KEY, null),
   });
+  const requestErrors = useFieldErrors(request.error, {
+    codes: {
+      email_taken: "new_email",
+      email_unchanged: "new_email",
+      invalid_current_password: "current_password",
+    },
+    fields: ["new_email", "current_password"],
+  });
+  const confirmErrors = useFieldErrors(confirm.error, {
+    codes: { invalid_code: "code", code_expired: "code" },
+    fields: ["code"],
+  });
 
   const until = pending.data
     ? new Intl.DateTimeFormat(i18n.language, { timeStyle: "short" }).format(
@@ -432,6 +459,7 @@ function EmailChange() {
 
       {asking ? (
         <form
+          ref={requestErrors.form}
           className="form-card"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
@@ -440,25 +468,28 @@ function EmailChange() {
         >
           <p className="muted small">{t("settings.emailHint")}</p>
           <div className="form-grid">
-            <label className="field">
-              <span>{t("settings.newEmail")}</span>
-              <input
-                type="email"
-                required
-                maxLength={320}
-                autoComplete="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-              />
-            </label>
+            <Field label={t("settings.newEmail")} error={requestErrors.at("new_email")}>
+              {(control) => (
+                <input
+                  {...control}
+                  type="email"
+                  required
+                  maxLength={320}
+                  autoComplete="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                />
+              )}
+            </Field>
             <PasswordField
               label={t("auth.currentPassword")}
               autoComplete="current-password"
               value={password}
               onChange={setPassword}
+              error={requestErrors.at("current_password")}
             />
           </div>
-          {request.isError && <ErrorAlert error={request.error} />}
+          {requestErrors.general ? <ErrorAlert error={requestErrors.general} /> : null}
           <div className="form-actions">
             <button type="submit" className="btn btn-p" disabled={request.isPending}>
               {t("settings.sendCode")}
@@ -470,6 +501,7 @@ function EmailChange() {
         </form>
       ) : pending.data ? (
         <form
+          ref={confirmErrors.form}
           className="form-card"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
@@ -477,19 +509,25 @@ function EmailChange() {
           }}
         >
           <p>{t("settings.codeSent", { email: pending.data.new_email, time: until })}</p>
-          <label className="field code-field">
-            <span>{t("settings.code")}</span>
-            <input
-              required
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9 ]{6,7}"
-              maxLength={7}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </label>
-          {confirm.isError && <ErrorAlert error={confirm.error} />}
+          <Field
+            className="field code-field"
+            label={t("settings.code")}
+            error={confirmErrors.at("code")}
+          >
+            {(control) => (
+              <input
+                {...control}
+                required
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9 ]{6,7}"
+                maxLength={7}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
+            )}
+          </Field>
+          {confirmErrors.general ? <ErrorAlert error={confirmErrors.general} /> : null}
           {cancel.isError && <ErrorAlert error={cancel.error} />}
           <div className="form-actions">
             <button type="submit" className="btn btn-p" disabled={confirm.isPending}>

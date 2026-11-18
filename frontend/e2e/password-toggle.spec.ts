@@ -84,7 +84,8 @@ for (const lang of ["ru", "en"] as const) {
       // Sending the form hides the password again.
       await page.getByLabel(t("auth.email"), { exact: true }).fill(NOBODY);
       await page.getByRole("button", { name: t("auth.signIn"), exact: true }).click();
-      await expect(page.getByRole("alert")).toHaveText(t("errors.invalid_credentials"));
+      // The error is the password field's own, under it (field-errors.spec.ts).
+      await expect(password).toHaveAccessibleDescription(t("errors.invalid_credentials"));
       await expect(password).toHaveAttribute("type", "password");
       await expect(toggle).toHaveAttribute("aria-pressed", "false");
 

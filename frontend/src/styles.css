@@ -788,6 +788,33 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   outline-offset: -2px;
 }
 
+/* A field's own error (components/Field.tsx): the message under the control, and the
+   control's border in the error colour, focused or not */
+.field-error {
+  color: var(--c-red);
+}
+
+.field-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* A row of a list or a field renamed in place: its message takes a line of its own */
+.row-editor > .field-error,
+.inline-form > .field-error {
+  flex-basis: 100%;
+}
+
+.field [aria-invalid="true"],
+.field [aria-invalid="true"]:focus,
+.row-editor [aria-invalid="true"],
+.row-editor [aria-invalid="true"]:focus,
+.inline-form [aria-invalid="true"],
+.inline-form [aria-invalid="true"]:focus {
+  border-color: var(--c-red);
+}
+
 .alert {
   padding: 12px 16px;
   border-radius: var(--radius-sm);

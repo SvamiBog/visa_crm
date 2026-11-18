@@ -12,6 +12,7 @@ import {
   type TripResult,
 } from "../../stay";
 import { ErrorAlert } from "../clients/ui";
+import { Field, useFieldErrors, type ControlProps } from "../../components/Field";
 
 // Pieces of the 90/180 calculator (backlog 2.6) shared by the client card and the
 // calculator page. The count itself is done by the API (backend/app/core/stay.py).
@@ -21,10 +22,13 @@ export function CountrySelect({
   value,
   onChange,
   required,
+  control,
 }: {
   value: string;
   onChange: (id: string) => void;
   required?: boolean;
+  // From a Field: its id and, with an error, the link to the message.
+  control?: ControlProps;
 }) {
   const { t } = useTranslation();
   const countries = useCountries();
@@ -41,7 +45,12 @@ export function CountrySelect({
     </option>
   );
   return (
-    <select required={required} value={value} onChange={(e) => onChange(e.target.value)}>
+    <select
+      {...control}
+      required={required}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
       <option value="" />
       <optgroup label={t("stay.schengenArea")}>{area.map(option)}</optgroup>
       <optgroup label={t("stay.otherCountries")}>{other.map(option)}</optgroup>
@@ -230,40 +239,52 @@ export function TripCheck({ trips, heading = true }: { trips: TripDraft[]; headi
   const signature = JSON.stringify(trips);
   const { reset } = run;
   useEffect(() => reset(), [signature, reset]);
+  // The trips counted come along with the one checked, so only the API's own validation
+  // of the checked trip's dates is surely its own.
+  const errors = useFieldErrors(run.error, { fields: ["check.entered_on", "check.left_on"] });
   const submit = (event: FormEvent) => {
     event.preventDefault();
     run.mutate();
   };
   return (
-    <form className="stay-check" onSubmit={submit} aria-label={t("stay.checkTitle")}>
+    <form
+      ref={errors.form}
+      className="stay-check"
+      onSubmit={submit}
+      aria-label={t("stay.checkTitle")}
+    >
       {heading && <h3 className="h3">{t("stay.checkTitle")}</h3>}
       {heading && <p className="muted small">{t("stay.checkHint")}</p>}
       <div className="form-grid">
-        <label className="field">
-          <span>{t("stay.entry")}</span>
-          <input
-            type="date"
-            required
-            value={enteredOn}
-            onChange={(e) => setEnteredOn(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>{t("stay.exitOptional")}</span>
-          <input
-            type="date"
-            min={enteredOn || undefined}
-            value={leftOn}
-            onChange={(e) => setLeftOn(e.target.value)}
-          />
-        </label>
+        <Field label={t("stay.entry")} error={errors.at("check.entered_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              required
+              value={enteredOn}
+              onChange={(e) => setEnteredOn(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("stay.exitOptional")} error={errors.at("check.left_on")}>
+          {(control) => (
+            <input
+              {...control}
+              type="date"
+              min={enteredOn || undefined}
+              value={leftOn}
+              onChange={(e) => setLeftOn(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={run.isPending}>
           {t("stay.check")}
         </button>
       </div>
-      {run.isError && <ErrorAlert error={run.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
       {run.data?.check && (
         <CheckResult
           check={run.data.check}

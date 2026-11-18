@@ -11,6 +11,7 @@ import {
   type PackageItem,
   type PackageState,
 } from "../../package";
+import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert } from "./ui";
 
 // The package check of a case (backlog 2.3): one line on whether the documents are
@@ -91,6 +92,15 @@ function Item({ caseId, item }: { caseId: string; item: PackageItem }) {
     if (date !== (item.document_date ?? ""))
       mark.mutate({ state: "present", document_date: date || null });
   };
+  // Saved on leaving the field, not on a submit: the message is shown under the date, but
+  // the focus is not pulled back to it (the hook gets no form).
+  const errors = useFieldErrors(mark.error, {
+    codes: {
+      document_date_in_future: "document_date",
+      document_date_needs_present: "document_date",
+    },
+    fields: ["document_date"],
+  });
 
   return (
     <li className="package-item">
@@ -129,19 +139,21 @@ function Item({ caseId, item }: { caseId: string; item: PackageItem }) {
           </select>
         </label>
         {item.state === "present" && (
-          <label className="field">
-            <span>{t("package.documentDate")}</span>
-            <input
-              type="date"
-              value={date}
-              disabled={mark.isPending}
-              onChange={(e) => setDate(e.target.value)}
-              onBlur={saveDate}
-            />
-          </label>
+          <Field label={t("package.documentDate")} error={errors.at("document_date")}>
+            {(control) => (
+              <input
+                {...control}
+                type="date"
+                value={date}
+                disabled={mark.isPending}
+                onChange={(e) => setDate(e.target.value)}
+                onBlur={saveDate}
+              />
+            )}
+          </Field>
         )}
       </div>
-      {mark.isError && <ErrorAlert error={mark.error} />}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
     </li>
   );
 }
