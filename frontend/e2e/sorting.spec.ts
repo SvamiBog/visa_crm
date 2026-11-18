@@ -19,9 +19,17 @@ const PASSWORD = process.env.DEMO_PASSWORD ?? "";
 
 const WIDTHS = [390, 1280] as const;
 const PHONE = 720;
-// «Ё» goes with «Е»: Ежов, Ёлкин, Жуков in the order of the alphabet.
-const SURNAMES = ["Жуков", "Ёлкин", "Абрамов", "Ежов"];
-const ALPHABETICAL = ["Абрамов", "Ежов", "Ёлкин", "Жуков"];
+// The demo's own clients: their Telegram is demo_<n>_<m>. Other tests make and delete
+// cards of their own meanwhile, so this one makes none and searches only the demo's.
+// (The alphabet with «Ё» is proven in backend/tests/test_client_index.py.)
+const DEMO = "demo_";
+
+/** The names the server gives for the demo's clients in this order. */
+async function serverNames(page: Page, sort: string): Promise<string[]> {
+  const found = await page.request.post("/api/contacts/search", { data: { query: DEMO, sort } });
+  expect(found.ok(), await found.text()).toBe(true);
+  return ((await found.json()).items as { full_name: string }[]).map((row) => row.full_name);
+}
 
 function header(page: Page, name: string): Locator {
   return page.getByRole("columnheader", { name, exact: true });
@@ -51,9 +59,6 @@ for (const lang of ["ru", "en"] as const) {
         return LOCALES[lang][key];
       };
       const collator = new Intl.Collator(lang, { numeric: true });
-      // Own clients of this test: a token no other card has, so a search shows only them.
-      const token = `Сортировка${lang}${width}`;
-      let own: string[] = [];
 
       test.beforeEach(async ({ page }) => {
         expect(PASSWORD, "DEMO_PASSWORD: the demo accounts' password").not.toBe("");
@@ -65,34 +70,22 @@ for (const lang of ["ru", "en"] as const) {
         expect(login.ok(), await login.text()).toBe(true);
       });
 
-      test.afterEach(async ({ page }) => {
-        for (const id of own) await page.request.delete(`/api/contacts/${id}`);
-        own = [];
-      });
-
       test("the client index sorts by name on the server and keeps it after a card", async ({
         page,
       }) => {
-        // Left by an earlier run that stopped half-way.
-        const left = await page.request.post("/api/contacts/search", { data: { query: token } });
-        for (const row of (await left.json()).items as { id: string }[]) {
-          await page.request.delete(`/api/contacts/${row.id}`);
-        }
-        for (const last_name of SURNAMES) {
-          const made = await page.request.post("/api/contacts", {
-            data: { last_name, first_name: token },
-          });
-          expect(made.ok(), await made.text()).toBe(true);
-          own.push(((await made.json()) as { id: string }).id);
-        }
+        const newest = await serverNames(page, "newest");
+        const byName = await serverNames(page, "name");
+        expect(newest.length).toBeGreaterThan(2);
+        // The demo's names are Cyrillic: the alphabet of either language puts them alike.
+        expect(byName).toEqual([...newest].sort(collator.compare));
+        expect(byName).not.toEqual(newest);
 
         await page.goto("/app/clients");
-        await page.getByRole("searchbox").fill(token);
+        await page.getByRole("searchbox").fill(DEMO);
         const names = page.locator(".clients-table tbody .cell-client a");
-        await expect(names).toHaveCount(SURNAMES.length);
-        const surnames = async () => (await names.allInnerTexts()).map((n) => n.split(" ")[0]);
+        const shown = () => names.allInnerTexts();
         // By default the newest first, and no column is marked.
-        await expect.poll(surnames).toEqual([...SURNAMES].reverse());
+        await expect.poll(shown).toEqual(newest);
         await expect(page.locator(".clients-table th[aria-sort]")).toHaveCount(0);
 
         const choice = page.getByLabel(t("index.sort.label"));
@@ -100,37 +93,37 @@ for (const lang of ["ru", "en"] as const) {
           // The cards have no headings on a phone: the order is chosen from the list.
           await expect(choice).toBeVisible();
           await choice.selectOption({ label: t("index.sort.nameAsc") });
-          await expect.poll(surnames).toEqual(ALPHABETICAL);
+          await expect.poll(shown).toEqual(byName);
           await choice.selectOption({ label: t("index.sort.nameDesc") });
-          await expect.poll(surnames).toEqual([...ALPHABETICAL].reverse());
+          await expect.poll(shown).toEqual(await serverNames(page, "-name"));
           expect(sortParam(page)).toBe("-name");
           await choice.selectOption({ label: t("index.sort.nameAsc") });
         } else {
           await expect(choice).toBeHidden();
           const client = t("index.colClient");
           await sortBy(page, client, "ascending");
-          await expect.poll(surnames).toEqual(ALPHABETICAL);
+          await expect.poll(shown).toEqual(byName);
           await sortBy(page, client, "descending");
-          await expect.poll(surnames).toEqual([...ALPHABETICAL].reverse());
+          await expect.poll(shown).toEqual(await serverNames(page, "-name"));
           expect(sortParam(page)).toBe("-name");
           // The third click brings the table's own order back.
           await sortBy(page, client, null);
           expect(sortParam(page)).toBeNull();
-          await expect.poll(surnames).toEqual([...SURNAMES].reverse());
-          await sortBy(page, client, "ascending");
+          await expect.poll(shown).toEqual(newest);
           // The date of «Дальше» is a column too.
-          await expect(header(page, t("index.colNext")).getByRole("button")).toBeVisible();
+          await sortBy(page, t("index.colNext"), "ascending");
+          await expect.poll(shown).toEqual(await serverNames(page, "next"));
+          await sortBy(page, client, "ascending");
         }
         expect(sortParam(page)).toBe("name");
-        await expect.poll(surnames).toEqual(ALPHABETICAL);
+        await expect.poll(shown).toEqual(byName);
 
         // A card and back: the same order.
         await names.first().click();
         await expect(page).toHaveURL(/\/app\/clients\/[0-9a-f-]+$/);
         await page.goBack();
         expect(sortParam(page)).toBe("name");
-        await expect(names).toHaveCount(SURNAMES.length);
-        await expect.poll(surnames).toEqual(ALPHABETICAL);
+        await expect.poll(shown).toEqual(byName);
         if (width <= PHONE) await expect(choice).toHaveValue("name");
         else await expect(header(page, t("index.colClient"))).toHaveAttribute("aria-sort", "ascending");
       });

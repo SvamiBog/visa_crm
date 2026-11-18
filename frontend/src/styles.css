@@ -408,10 +408,11 @@ h1 {
   vertical-align: middle;
 }
 
-/* A sortable column heading: the whole heading is the button, the arrow shows the order
-   (faint until the column is sorted). */
+/* A sortable column heading: the heading's full height is the button, the arrow shows the
+   order (faint until the column is sorted). The button keeps to the cell's side padding,
+   so its text starts and ends where the column's values do. */
 .tbl th.sortable {
-  padding: 0;
+  padding: 0 8px;
 }
 
 .sort-btn {
@@ -420,7 +421,7 @@ h1 {
   gap: 4px;
   width: 100%;
   min-height: 32px;
-  padding: 8px;
+  padding: 8px 0;
   border: 0;
   background: none;
   font: inherit;
@@ -430,8 +431,11 @@ h1 {
   cursor: pointer;
 }
 
+/* A column of figures: the arrow goes before the heading, so the heading ends on the
+   figures' edge. */
 .tbl th.money-cell .sort-btn {
-  justify-content: flex-end;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
 }
 
 .tbl th[aria-sort] {
