@@ -5,9 +5,11 @@ import { Link, matchPath, NavLink, useLocation, useNavigate } from "react-router
 import { apiGet, apiPost } from "../api";
 import { ME_KEY, useMe, type Role } from "../auth";
 import type { SubscriptionState } from "../subscriptions";
+import { flushPending } from "../undo";
 import { Icon, type IconName } from "./Icon";
 import { PageArea } from "./LazyPage";
 import { Logo } from "./Logo";
+import { UndoToast } from "./UndoToast";
 
 type Area = "admin" | "cabinet";
 
@@ -191,7 +193,11 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
     .filter((page) => isAt(page.to, pathname))
     .sort((a, b) => b.to.length - a.to.length)[0];
   const logout = useMutation({
-    mutationFn: () => apiPost<void>("/auth/logout"),
+    // A deletion still offering «Отменить» is sent while the session is alive.
+    mutationFn: async () => {
+      await flushPending();
+      return apiPost<void>("/auth/logout");
+    },
     onSettled: () => {
       queryClient.clear();
       queryClient.setQueryData(ME_KEY, null);
@@ -378,6 +384,7 @@ export function Shell({ area, children }: { area: Area; children: ReactNode }) {
           <PageArea>{children}</PageArea>
         )}
       </main>
+      <UndoToast />
       {menuOpen && (
         <div className="sheet-backdrop" aria-hidden="true" onClick={() => setMenuOpen(false)} />
       )}

@@ -38,7 +38,7 @@ Wait for my confirmation and answers. Only then convert.
 STEP 3. CONVERSION — THE RULES
 People
 - One person — one row of the "Clients" sheet, even if they are on many sheets and in different years.
-- Join one person: by phone, then by Telegram nick, then by full name (case, «ё» and word order do not matter). A family may share a phone: do not join people with different given names by phone. Join by name only if there is one such person and the records have no different phones or nicks.
+- Join one person: by phone, then by Telegram nick, then by full name (case, «ё» and word order do not matter). A family may share a phone and a Telegram account: do not join people with different given names by phone or nick. Join by name only if there is one such person and the records have no different phones or nicks. People with different dates of birth are different people: do not join them by phone, nick or name.
 - A full name in one cell: one word — "First name"; otherwise the first word is "Last name", the second "First name", the rest "Middle name". In Latin letters: the first word is "Last name in Latin", the rest "First name in Latin".
 - Remarks after the name — "(Anna's colleague)", "from Olga T." — are not part of the name: put them on the "Notes" sheet. Drop the remark "(again)".
 - Several people in one cell ("Anna + wife + son", "Anna and Peter"):

@@ -38,6 +38,15 @@ def advance(stage: CaseStage, changes: Mapping[str, Any]) -> CaseStage:
     return stage
 
 
+def by_dates(submission_on: date | None, today: date) -> CaseStage:
+    """Where a case without a result stands by its dates: waiting for an appointment,
+    collecting documents before it, under review once its day has come. «Результат» needs
+    a result (CRM audit 2026-11-18), so a case whose result is taken away goes back here."""
+    if submission_on is None:
+        return CaseStage.WAITING
+    return CaseStage.REVIEW if submission_on <= today else CaseStage.DOCUMENTS
+
+
 def for_group_member(
     changed: Mapping[str, Any],
     place: Mapping[str, Any],
@@ -51,13 +60,19 @@ def for_group_member(
     place after the change, `stage_before` its stage before it. Only what was changed
     goes on, and only to a member without a result: its case is over. The stage follows
     as on the board, for a member that stood where the case stood, but not when a result
-    moved the case; otherwise the member moves on by the usual rule (`advance`)."""
+    moved the case, and never into «Результат», which needs the member's own result;
+    otherwise the member moves on by the usual rule (`advance`)."""
     if member_outcome is not None:
         return {}
     taken = {f: v for f, v in changed.items() if f in GROUP_FIELDS}
     if any(f in changed for f in PLACE_FIELDS):
         taken |= {f: place[f] for f in PLACE_FIELDS}
-    if "stage" in changed and changed.get("outcome") is None and member_stage == stage_before:
+    if (
+        "stage" in changed
+        and changed["stage"] != CaseStage.RESULT
+        and changed.get("outcome") is None
+        and member_stage == stage_before
+    ):
         taken["stage"] = changed["stage"]
     elif (stage := advance(member_stage, taken)) != member_stage:
         taken["stage"] = stage

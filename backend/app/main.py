@@ -1,4 +1,5 @@
 import asyncio
+import mimetypes
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -146,6 +147,9 @@ def create_app() -> FastAPI:
     # so session cookies work without CORS. In local dev Vite serves it and proxies /api.
     dist = get_settings().frontend_dist.resolve()
     if dist.is_dir():
+        # The interface fonts (frontend/src/fonts.css): Python 3.12 does not know the type
+        # and would send them as an unnamed binary file.
+        mimetypes.add_type("font/woff2", ".woff2")
         # An old build's file is gone after a deploy: 404, which the app answers by
         # reloading (frontend/src/components/LazyPage.tsx).
         app.mount("/assets", BuiltAssets(directory=dist / "assets"), name="assets")

@@ -13,7 +13,9 @@ import {
   type QueueEntry,
 } from "../../contacts";
 import { useDisclosure } from "../../components/Disclosure";
+import { SortHeader } from "../../components/SortHeader";
 import { byId, useCountries, useLocalName, useRules, type VisaCenter } from "../../reference";
+import { useSortedTable, type SortColumns } from "../../sorting";
 import { ATTEMPT_CHIP, QUEUE_CHIP } from "../clients/Appointment";
 import { CaseChip } from "../clients/Cases";
 import { ErrorAlert } from "../clients/ui";
@@ -55,6 +57,19 @@ type QueueView = {
 
 type QueueCountry = { country_id: string; waiting: number; dated: number; open_attempts: number };
 
+type EntrySort = "applicant" | "status" | "place" | "registrar" | "queued" | "letter" | "waits";
+type AttemptSort = "applicant" | "place" | "attempt" | "sent" | "deadline";
+
+// A status sorts in the order a client goes through it, not by its name.
+const STATUS_ORDER: Record<QueueRow["status"], number> = {
+  in_queue: 0,
+  date_received: 1,
+  submitted: 2,
+  removed: 3,
+};
+const NO_ENTRIES: QueueRow[] = [];
+const NO_ATTEMPTS: AttemptRow[] = [];
+
 export function QueuesPage() {
   const { t, i18n } = useTranslation();
   const name = useLocalName();
@@ -77,7 +92,16 @@ export function QueuesPage() {
   // it, and back from a client's card the same tab opens.
   const [params, setParams] = useSearchParams();
   const picked = params.get("country") ?? "";
-  const setPicked = (id: string) => setParams({ country: id }, { replace: true });
+  // Another country keeps the chosen order of the tables.
+  const setPicked = (id: string) =>
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("country", id);
+        return next;
+      },
+      { replace: true },
+    );
   const [closed, setClosed] = useState(false);
   const averages = useDisclosure();
   const country = picked || summary.data?.[0]?.country_id || "";
@@ -94,6 +118,39 @@ export function QueuesPage() {
       .filter(Boolean)
       .join(" · ");
   };
+  const registrar = (r: QueueRow) =>
+    [registrarById.get(r.registrar_id ?? "")?.name, r.hall && t(`dict.hall.${r.hall}`)]
+      .filter(Boolean)
+      .join(" · ");
+
+  const entryColumns: SortColumns<QueueRow, EntrySort> = {
+    applicant: { kind: "text", value: (r) => r.full_name },
+    status: { kind: "number", value: (r) => STATUS_ORDER[r.status] },
+    place: { kind: "text", value: (r) => place(r.visa_center_id, r.purpose_id) },
+    registrar: { kind: "text", value: registrar },
+    queued: { kind: "date", value: (r) => r.queued_on },
+    letter: { kind: "date", value: (r) => r.letter_on },
+    waits: { kind: "number", value: (r) => r.days_waiting, first: "desc" },
+  };
+  // The server's order: who has waited longest first.
+  const entries = useSortedTable("sort", view.data?.entries ?? NO_ENTRIES, entryColumns, {
+    key: "queued",
+    dir: "asc",
+  });
+  const attemptColumns: SortColumns<AttemptRow, AttemptSort> = {
+    applicant: { kind: "text", value: (a) => a.full_name },
+    place: { kind: "text", value: (a) => place(a.visa_center_id, a.purpose_id) },
+    attempt: { kind: "number", value: (a) => a.number, first: "desc" },
+    sent: { kind: "date", value: (a) => a.sent_on },
+    deadline: { kind: "date", value: (a) => a.deadline_on },
+  };
+  // The nearest 60th day first.
+  const attempts = useSortedTable(
+    "sort_attempts",
+    view.data?.attempts ?? NO_ATTEMPTS,
+    attemptColumns,
+    { key: "deadline", dir: "asc" },
+  );
 
   return (
     <div className="page">
@@ -144,18 +201,20 @@ export function QueuesPage() {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>{t("queues.applicant")}</th>
-                  <th>{t("queues.statusLabel")}</th>
+                  <SortHeader {...entries.header("applicant")}>{t("queues.applicant")}</SortHeader>
+                  <SortHeader {...entries.header("status")}>{t("queues.statusLabel")}</SortHeader>
                   <th>{t("queues.numberAndEmail")}</th>
-                  <th>{t("queues.place")}</th>
-                  <th>{t("cases.registrar")}</th>
-                  <th>{t("queues.queuedOn")}</th>
-                  <th>{t("queues.letterDate")}</th>
-                  <th className="money-cell">{t("queues.waits")}</th>
+                  <SortHeader {...entries.header("place")}>{t("queues.place")}</SortHeader>
+                  <SortHeader {...entries.header("registrar")}>{t("cases.registrar")}</SortHeader>
+                  <SortHeader {...entries.header("queued")}>{t("queues.queuedOn")}</SortHeader>
+                  <SortHeader {...entries.header("letter")}>{t("queues.letterDate")}</SortHeader>
+                  <SortHeader className="money-cell" {...entries.header("waits")}>
+                    {t("queues.waits")}
+                  </SortHeader>
                 </tr>
               </thead>
               <tbody>
-                {view.data.entries.map((r) => (
+                {entries.rows.map((r) => (
                   <tr key={r.id}>
                     <td>
                       <Link to={`/app/clients/${r.contact_id}`}>{r.full_name}</Link>
@@ -174,14 +233,7 @@ export function QueuesPage() {
                       )}
                     </td>
                     <td>{place(r.visa_center_id, r.purpose_id)}</td>
-                    <td>
-                      {[
-                        registrarById.get(r.registrar_id ?? "")?.name,
-                        r.hall && t(`dict.hall.${r.hall}`),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </td>
+                    <td>{registrar(r)}</td>
                     <td className="nowrap">{date(r.queued_on)}</td>
                     <td className="nowrap">
                       {date(r.letter_on)}
@@ -207,17 +259,19 @@ export function QueuesPage() {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>{t("queues.applicant")}</th>
+                  <SortHeader {...attempts.header("applicant")}>{t("queues.applicant")}</SortHeader>
                   <th>{t("queues.number")}</th>
-                  <th>{t("queues.place")}</th>
-                  <th className="money-cell">{t("queues.attemptNumber")}</th>
-                  <th>{t("queues.sentOn")}</th>
-                  <th>{t("queues.deadline")}</th>
+                  <SortHeader {...attempts.header("place")}>{t("queues.place")}</SortHeader>
+                  <SortHeader className="money-cell" {...attempts.header("attempt")}>
+                    {t("queues.attemptNumber")}
+                  </SortHeader>
+                  <SortHeader {...attempts.header("sent")}>{t("queues.sentOn")}</SortHeader>
+                  <SortHeader {...attempts.header("deadline")}>{t("queues.deadline")}</SortHeader>
                   <th>{t("queues.statusLabel")}</th>
                 </tr>
               </thead>
               <tbody>
-                {view.data.attempts.map((a) => (
+                {attempts.rows.map((a) => (
                   <tr key={a.id}>
                     <td>
                       <Link to={`/app/clients/${a.contact_id}`}>{a.full_name}</Link>

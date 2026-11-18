@@ -14,6 +14,7 @@ def spa_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (dist / "index.html").write_text("<!doctype html>index")
     (dist / "robots.txt").write_text("robots")
     (dist / "assets" / "index-D1NqODF2.js").write_text("main")
+    (dist / "assets" / "onest-latin-wght-normal-Dun_Rd-l.woff2").write_bytes(b"wOF2")
     (dist / "assets" / "ocr" / "eng-4.0.0_best_int").mkdir(parents=True)
     (dist / "assets" / "ocr" / "eng-4.0.0_best_int" / "eng.traineddata.gz").write_text("model")
     (tmp_path / "secret.txt").write_text("secret")
@@ -88,6 +89,15 @@ def test_built_files_are_cached_and_the_page_is_always_checked(spa_app) -> None:
     status, headers, _ = raw_response(spa_app, "/assets/ocr/eng-4.0.0_best_int/eng.traineddata.gz")
     assert status == 200
     assert "cache-control" not in headers
+
+
+def test_font_files_are_served_as_fonts_and_cached(spa_app) -> None:
+    # The interface fonts come from our own domain (frontend/src/fonts.css), named by
+    # their type rather than as an unnamed binary file, and kept like any built file.
+    status, headers, _ = raw_response(spa_app, "/assets/onest-latin-wght-normal-Dun_Rd-l.woff2")
+    assert status == 200
+    assert headers["content-type"] == "font/woff2"
+    assert headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
 def test_a_file_of_an_old_build_is_not_found(spa_app) -> None:

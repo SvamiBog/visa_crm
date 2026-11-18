@@ -3,10 +3,12 @@ import { useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { apiGet, apiPost, errorCode } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { useDisclosure } from "../../components/Disclosure";
 import {
   CASE_STAGES,
   CREATE_CASE,
+  enterResult,
   FROM_INDEX,
   formatDate,
   useCaseLists,
@@ -23,13 +25,21 @@ import type { Filters } from "./ClientsPage";
 // stage. A submission group at one stage is one card and moves together. A card is easy
 // to drop in the wrong column, so every drop asks first; a client from «Консультация»
 // dropped on a stage opens the case form in the client's card (a case needs the place
-// of submission and the applicants, which the board does not have).
+// of submission and the applicants, which the board does not have). «Результат» takes a
+// case only with its result (CRM audit 2026-11-18): a case without one dropped there
+// opens its form at the result instead.
 
 const DRAG_TYPE = "application/x-visacrm-cases";
 const LEAD_DRAG_TYPE = "application/x-visacrm-lead";
 
-/** What a case card carries while it is dragged. */
-type CaseDrag = { ids: string[]; from: CaseStage; names: string[] };
+/** What a case card carries while it is dragged; `noResult`: its first case without a
+ * result, which «Результат» does not take. */
+type CaseDrag = {
+  ids: string[];
+  from: CaseStage;
+  names: string[];
+  noResult: { caseId: string; contactId: string; name: string } | null;
+};
 /** What a card from «Консультация» carries. */
 type LeadDrag = { contactId: string; name: string };
 
@@ -56,6 +66,7 @@ function cardsByStage(cases: BoardCase[]): Map<CaseStage, Card[]> {
 
 export function BoardView({ filters, query }: { filters: Filters; query: string }) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const hint = useDisclosure();
@@ -101,27 +112,48 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
   }, [board.data, term]);
   const leads = (board.data?.leads ?? []).filter((lead) => !term || matches(lead.full_name, term));
 
-  const drop = (stage: CaseStage) => (event: DragEvent) => {
+  // What was dragged is read before the question: the drop's data is gone after it.
+  const drop = (stage: CaseStage) => async (event: DragEvent) => {
     event.preventDefault();
     setOver(null);
     const lead = event.dataTransfer.getData(LEAD_DRAG_TYPE);
     if (lead) {
       const { contactId, name } = JSON.parse(lead) as LeadDrag;
-      if (window.confirm(t("index.confirmOpenCase", { name }))) {
+      const yes = await confirm({
+        message: t("index.confirmOpenCase", { name }),
+        action: t("confirm.openCase"),
+        tone: "neutral",
+      });
+      if (yes) {
         navigate(`/app/clients/${contactId}`, { state: { ...FROM_INDEX, ...CREATE_CASE } });
       }
       return;
     }
     const raw = event.dataTransfer.getData(DRAG_TYPE);
     if (!raw) return;
-    const { ids, from, names } = JSON.parse(raw) as CaseDrag;
+    const { ids, from, names, noResult } = JSON.parse(raw) as CaseDrag;
     if (from === stage) return;
+    if (stage === "result" && noResult) {
+      const yes = await confirm({
+        message: t("index.confirmResult", { name: noResult.name }),
+        action: t("confirm.enterResult"),
+        tone: "neutral",
+      });
+      if (yes) {
+        navigate(`/app/clients/${noResult.contactId}`, {
+          state: { ...FROM_INDEX, ...enterResult(noResult.caseId) },
+        });
+      }
+      return;
+    }
     const question = t("index.confirmMove", {
       name: names.join(", "),
       from: t(`cases.stage.${from}`),
       to: t(`cases.stage.${stage}`),
     });
-    if (window.confirm(question)) move.mutate({ ids, stage });
+    if (await confirm({ message: question, action: t("confirm.move"), tone: "neutral" })) {
+      move.mutate({ ids, stage });
+    }
   };
 
   if (board.isPending) return <p className="muted">{t("common.loading")}</p>;
@@ -193,10 +225,14 @@ function CaseCard({ card }: { card: Card }) {
       className="board-card"
       draggable
       onDragStart={(e) => {
+        const open = card.cases.find((c) => c.outcome === null);
         const drag: CaseDrag = {
           ids: card.cases.map((c) => c.id),
           from: first.stage,
           names: card.cases.map((c) => c.full_name),
+          noResult: open
+            ? { caseId: open.id, contactId: open.contact_id, name: open.full_name }
+            : null,
         };
         e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(drag));
         e.dataTransfer.effectAllowed = "move";

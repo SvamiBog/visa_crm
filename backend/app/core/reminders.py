@@ -35,6 +35,8 @@ class ReminderKind(StrEnum):
     BALANCE_QUEUED = "balance_queued"
     # Documents not collected before the submission (backlog 2.3).
     PACKAGE = "package"
+    # The submission is long past and no result is entered (CRM audit 2026-11-18).
+    RESULT = "result"
     # An employee went over a daily limit (backlog Т.14); for the specialist only.
     CARD_LIMIT = "card_limit"
     PASSWORD_LIMIT = "password_limit"
@@ -53,6 +55,7 @@ class Settings:
     contract_days: int = 3  # after the case is opened
     questionnaire_days: int = 1  # before the questionnaire is due, and on the day
     package_days: int = 7  # before the submission, and the day before (question 26)
+    result_days: int = 15  # after the submission, until a result is entered
 
 
 def occurrence(triggers: Iterable[date], today: date, until: date | None = None) -> date | None:
@@ -104,9 +107,12 @@ def appeal(decided_on: date, appeal_until: date, today: date, s: Settings) -> da
 
 
 def consultation(held_on: date, today: date, s: Settings) -> date | None:
-    """A consultation ahead: the call is not to be forgotten."""
-    triggers = (held_on - timedelta(days=s.consultation_days), held_on)
-    return occurrence(triggers, today, until=held_on)
+    """A consultation ahead: the call is not to be forgotten. Held and still without a
+    decision, it asks for one from the next day (CRM audit 2026-11-18) — its own
+    occurrence, so «Готово» on the day does not hide it — and, like a thinking client,
+    stays a month."""
+    triggers = (held_on - timedelta(days=s.consultation_days), held_on, held_on + timedelta(1))
+    return occurrence(triggers, today, until=add_months(held_on, 1))
 
 
 def follow_up(follow_up_on: date, today: date) -> date | None:
@@ -150,6 +156,13 @@ def package(submission_on: date, ready: bool, today: date, s: Settings) -> date 
         return None
     triggers = (submission_on - timedelta(days=s.package_days), submission_on - timedelta(1))
     return occurrence(triggers, today, until=submission_on)
+
+
+def result(submission_on: date, today: date, s: Settings) -> date | None:
+    """The submission was long ago and no result is entered: the funnel, the approval
+    rate and the reminders that follow a result (appeal, the visa expiring) wait for it.
+    Stays until the result is in."""
+    return occurrence([submission_on + timedelta(days=s.result_days)], today)
 
 
 def birthday_in(birth_date: date, year: int) -> date:

@@ -27,6 +27,10 @@ _PHONE = re.compile(r"^\+[\d\s()\-]+$")
 # Telegram usernames: 5–32 letters, digits and underscores, starting with a letter. The
 # card's duplicate warning uses it too (app/api/contacts.py).
 TELEGRAM_NICK = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
+# A profile link as Telegram copies it: «https://t.me/anna_iv».
+_TELEGRAM_LINK = re.compile(
+    r"^(?:https?://)?(?:www\.)?(?:t|telegram)\.me/([^/?#\s]+)/?$", re.IGNORECASE
+)
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_LENGTH = 320
 _YES = {"да", "yes"}
@@ -184,6 +188,16 @@ def parse_phone(cell: Cell) -> str:
         return normalize_phone(cell)
     except ValueError as error:
         raise CellError("phone") from error
+
+
+def telegram_nick(value: str) -> str:
+    """What the card keeps of a typed Telegram: the nick of «@anna_iv» or of a profile link
+    «t.me/anna_iv», so the duplicate warning and the chat button see it; other text (a
+    name, a group link) as typed."""
+    text = value.strip()
+    if (link := _TELEGRAM_LINK.match(text)) and TELEGRAM_NICK.match(link.group(1)):
+        return link.group(1)
+    return text.removeprefix("@").strip()
 
 
 def parse_telegram(cell: Cell) -> str:

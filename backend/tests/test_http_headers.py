@@ -22,6 +22,16 @@ async def test_responses_carry_security_headers(client: AsyncClient):
     assert "content-security-policy" not in (await client.get("/api/docs")).headers
 
 
+async def test_styles_and_fonts_come_only_from_the_site_itself(client: AsyncClient):
+    # The fonts are served from our own domain (frontend/src/fonts.css): the page asks
+    # nothing of Google, so a specialist's IP address does not reach it.
+    policy = (await client.get("/api/health")).headers["content-security-policy"]
+    directives = dict(part.strip().split(" ", 1) for part in policy.split(";"))
+    assert directives["style-src"] == "'self'"
+    assert directives["font-src"] == "'self'"
+    assert "google" not in policy
+
+
 async def test_production_is_indexed_and_served_over_https_only(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):

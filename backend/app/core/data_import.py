@@ -39,7 +39,7 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cases import cleared_by_outcome
+from app.core.cases import by_dates, cleared_by_outcome
 from app.core.data_format import CREATABLE, ValueType
 from app.core.data_values import normalize
 from app.core.finance import to_base
@@ -334,7 +334,8 @@ class WorkbookImport:
             self.locked = True
         self.contacts: dict[uuid.UUID, Contact] = {}
         self.by_phone: dict[str, uuid.UUID] = {}
-        self.by_telegram: dict[str, uuid.UUID] = {}
+        # A nick may be on several cards: a family shares one account.
+        self.by_telegram: defaultdict[str, list[uuid.UUID]] = defaultdict(list)
         self.by_name: defaultdict[str, list[uuid.UUID]] = defaultdict(list)
         for contact in await s.scalars(select(Contact), execution_options=FRESH):
             self._index_contact(contact)
@@ -452,9 +453,14 @@ class WorkbookImport:
         self.contacts[contact.id] = contact
         if contact.phone:
             self.by_phone.setdefault(contact.phone, contact.id)
-        if contact.telegram:
-            self.by_telegram.setdefault(contact.telegram.casefold(), contact.id)
+        self._index_telegram(contact)
         self.by_name[name_key(contact.full_name)].append(contact.id)
+
+    def _index_telegram(self, contact: Contact) -> None:
+        if contact.telegram and contact.id not in (
+            cards := self.by_telegram[contact.telegram.casefold()]
+        ):
+            cards.append(contact.id)
 
     def _index_account(self, entry: VaultEntry) -> None:
         self.vault[entry.id] = entry
@@ -559,8 +565,8 @@ class WorkbookImport:
             if inspect(obj).expired:
                 await self.session.refresh(obj)
         contacts = list(self.contacts.values())
-        self.contacts, self.by_phone, self.by_telegram = {}, {}, {}
-        self.by_name = defaultdict(list)
+        self.contacts, self.by_phone = {}, {}
+        self.by_telegram, self.by_name = defaultdict(list), defaultdict(list)
         for contact in contacts:
             self._index_contact(contact)
         entries = list(self.vault.values())
@@ -764,13 +770,14 @@ class WorkbookImport:
     # --- Clients ------------------------------------------------------------------------
 
     def _match(self, v: dict[str, Any]) -> uuid.UUID | None:
-        """The card of a person: by phone, by Telegram nick or by a unique name — unless
-        that card has another phone or nick than the row."""
+        """The card of a person: by phone or by Telegram nick, unless that card has another
+        given name (a family shares them); else by a unique name, unless that card has
+        another phone or nick than the row. Never a card born on another day."""
         phone, nick = v.get("phone"), (v.get("telegram") or "").casefold() or None
-        if phone and phone in self.by_phone and self._given(v, self.by_phone[phone]):
+        if phone and phone in self.by_phone and self._fits(v, self.by_phone[phone]):
             return self.by_phone[phone]
-        if nick and nick in self.by_telegram:
-            return self.by_telegram[nick]
+        if nick and (same := [c for c in self.by_telegram.get(nick, []) if self._fits(v, c)]):
+            return same[0]
         name = joined(v.get("last_name"), v.get("first_name"), v.get("middle_name"))
         if name is None:
             return None
@@ -781,14 +788,32 @@ class WorkbookImport:
             and not (
                 nick and self.contacts[c].telegram and self.contacts[c].telegram.casefold() != nick  # type: ignore[union-attr]
             )
+            and self._born(v, c)
         ]
         return same[0] if len(same) == 1 else None
 
+    def _fits(self, v: dict[str, Any], contact_id: uuid.UUID) -> bool:
+        return self._given(v, contact_id) and self._born(v, contact_id)
+
     def _given(self, v: dict[str, Any], contact_id: uuid.UUID) -> bool:
-        """A family shares a phone: the row of a person with another given name is not the
-        phone's card. A surname changes, and a card or a row may be without a given name."""
+        """A family shares a phone and a Telegram account: the row of a person with another
+        given name is not their card (owner's decisions 2026-11-16 and 2026-11-18). A
+        surname changes, and a card or a row may be without a given name."""
         mine, theirs = v.get("first_name"), self.contacts[contact_id].first_name
         return not (mine and theirs) or normalize(mine) == normalize(theirs)
+
+    def _born(self, v: dict[str, Any], contact_id: uuid.UUID) -> bool:
+        """People born on different days are different people, whatever joins them:
+        namesakes, a father and a son with one phone (owner's decision 2026-11-18). A date
+        the import does not take (a year typed wrong) is not compared."""
+        mine, theirs = self._in_years(v.get("birth_date")), self.contacts[contact_id].birth_date
+        return mine is None or theirs is None or mine == theirs
+
+    def _in_years(self, born: date | None) -> date | None:
+        """The date of birth, if it is within the years the import takes."""
+        if born is None or not date(BIRTH_YEARS_FROM, 1, 1) <= born <= self.today:
+            return None
+        return born
 
     async def _clients(self, r: _Row) -> None:
         v = r.values
@@ -840,8 +865,7 @@ class WorkbookImport:
         changed |= self._assign(r, contact, fields)
         if contact.phone:
             self.by_phone[contact.phone] = contact.id
-        if contact.telegram:
-            self.by_telegram.setdefault(contact.telegram.casefold(), contact.id)
+        self._index_telegram(contact)
         changed |= self._latin(r, contact, made)
         changed |= self._passport(r, contact, made)
         if not made:
@@ -884,7 +908,7 @@ class WorkbookImport:
 
     def _birth_date(self, r: _Row) -> date | None:
         born = r.values.get("birth_date")
-        if born is not None and not (date(BIRTH_YEARS_FROM, 1, 1) <= born <= self.today):
+        if born is not None and self._in_years(born) is None:
             r.warn("birth_date", "out_of_range")
             return None
         return born
@@ -1235,18 +1259,17 @@ class WorkbookImport:
     def _stage(self, r: _Row, case: VisaCase) -> bool:
         """The stage from the file, else from the data: a result ends the case, a
         submission in the past puts it under review, one ahead — documents are collected.
-        Worked out, the stage only moves on."""
-        if "stage" in r.values:
-            stage = CaseStage(r.values["stage"])
-        else:
+        Worked out, the stage only moves on. «Результат» needs a result (CRM audit
+        2026-11-18): asked for without one, the stage is worked out."""
+        stage = CaseStage(r.values["stage"]) if "stage" in r.values else None
+        if stage == CaseStage.RESULT and case.outcome is None:
+            r.warn("stage", "needs_outcome")
+            stage = None
+        if stage is None:
             if case.outcome is not None:
                 stage = CaseStage.RESULT
-            elif case.submission_on is not None:
-                stage = (
-                    CaseStage.REVIEW if case.submission_on <= self.today else CaseStage.DOCUMENTS
-                )
             else:
-                stage = CaseStage.WAITING
+                stage = by_dates(case.submission_on, self.today)
             if STAGE_ORDER.index(stage) <= STAGE_ORDER.index(case.stage):
                 return False
         if case.stage == stage:
