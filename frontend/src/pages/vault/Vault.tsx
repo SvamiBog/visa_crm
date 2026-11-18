@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { EMAIL_OWNERS, type EmailOwner, type VisaCase } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import {
@@ -115,6 +116,7 @@ export function VaultEntryView({
 }) {
   const Heading = headingLevel === 2 ? "h2" : "h3";
   const { t, i18n } = useTranslation();
+  const confirm = useConfirm();
   const refresh = useRefreshVault();
   const [shown, setShown] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -219,8 +221,10 @@ export function VaultEntryView({
           type="button"
           className="link-button"
           disabled={remove.isPending}
-          onClick={() => {
-            if (window.confirm(t("vault.confirmDelete"))) remove.mutate();
+          onClick={async () => {
+            if (await confirm({ message: t("vault.confirmDelete"), action: t("confirm.delete") })) {
+              remove.mutate();
+            }
           }}
         >
           {t("vault.delete")}

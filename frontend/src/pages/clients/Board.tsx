@@ -3,6 +3,7 @@ import { useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { apiGet, apiPost, errorCode } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { useDisclosure } from "../../components/Disclosure";
 import {
   CASE_STAGES,
@@ -65,6 +66,7 @@ function cardsByStage(cases: BoardCase[]): Map<CaseStage, Card[]> {
 
 export function BoardView({ filters, query }: { filters: Filters; query: string }) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const hint = useDisclosure();
@@ -110,13 +112,19 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
   }, [board.data, term]);
   const leads = (board.data?.leads ?? []).filter((lead) => !term || matches(lead.full_name, term));
 
-  const drop = (stage: CaseStage) => (event: DragEvent) => {
+  // What was dragged is read before the question: the drop's data is gone after it.
+  const drop = (stage: CaseStage) => async (event: DragEvent) => {
     event.preventDefault();
     setOver(null);
     const lead = event.dataTransfer.getData(LEAD_DRAG_TYPE);
     if (lead) {
       const { contactId, name } = JSON.parse(lead) as LeadDrag;
-      if (window.confirm(t("index.confirmOpenCase", { name }))) {
+      const yes = await confirm({
+        message: t("index.confirmOpenCase", { name }),
+        action: t("confirm.openCase"),
+        tone: "neutral",
+      });
+      if (yes) {
         navigate(`/app/clients/${contactId}`, { state: { ...FROM_INDEX, ...CREATE_CASE } });
       }
       return;
@@ -126,7 +134,12 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
     const { ids, from, names, noResult } = JSON.parse(raw) as CaseDrag;
     if (from === stage) return;
     if (stage === "result" && noResult) {
-      if (window.confirm(t("index.confirmResult", { name: noResult.name }))) {
+      const yes = await confirm({
+        message: t("index.confirmResult", { name: noResult.name }),
+        action: t("confirm.enterResult"),
+        tone: "neutral",
+      });
+      if (yes) {
         navigate(`/app/clients/${noResult.contactId}`, {
           state: { ...FROM_INDEX, ...enterResult(noResult.caseId) },
         });
@@ -138,7 +151,9 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
       from: t(`cases.stage.${from}`),
       to: t(`cases.stage.${stage}`),
     });
-    if (window.confirm(question)) move.mutate({ ids, stage });
+    if (await confirm({ message: question, action: t("confirm.move"), tone: "neutral" })) {
+      move.mutate({ ids, stage });
+    }
   };
 
   if (board.isPending) return <p className="muted">{t("common.loading")}</p>;

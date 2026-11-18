@@ -45,12 +45,11 @@ async function addRegistrar(request: APIRequestContext, name: string): Promise<R
   return (await created.json()) as Registrar;
 }
 
-/** Every confirm on the way is answered «yes». */
-function acceptDialogs(page: Page, seen: string[]): void {
-  page.on("dialog", (dialog) => {
-    seen.push(dialog.message());
-    void dialog.accept();
-  });
+/** The site asks exactly this; its button of that name answers, and the window closes. */
+async function answer(page: Page, question: string, button: string): Promise<void> {
+  const ask = page.getByRole("dialog", { name: question, exact: true });
+  await ask.getByRole("button", { name: button, exact: true }).click();
+  await expect(ask).toBeHidden();
 }
 
 for (const lang of ["ru", "en"] as const) {
@@ -93,15 +92,13 @@ for (const lang of ["ru", "en"] as const) {
 
     test("an unused registrar is deleted from its row", async ({ page }) => {
       const { name } = await addOwn(page.request, UNUSED[lang]);
-      const seen: string[] = [];
-      acceptDialogs(page, seen);
 
       await openRegistrars(page);
       const row = page.getByRole("row").filter({ hasText: name });
       await row.getByRole("button", { name: t("dict.deleteRegistrarFor", { name }) }).click();
+      await answer(page, t("dict.confirmDeleteRegistrar", { name }), t("confirm.delete"));
 
       await expect(row).toHaveCount(0);
-      expect(seen).toEqual([t("dict.confirmDeleteRegistrar", { name })]);
     });
 
     test("a registrar with payments is switched off instead", async ({ page }) => {
@@ -111,25 +108,22 @@ for (const lang of ["ru", "en"] as const) {
         data: { paid_on: "2026-05-01", amount: "100", method: "cash" },
       });
       expect(paid.ok(), await paid.text()).toBe(true);
-      const seen: string[] = [];
-      acceptDialogs(page, seen);
 
       await openRegistrars(page);
       const row = page.getByRole("row").filter({ hasText: name });
       const remove = row.getByRole("button", { name: t("dict.deleteRegistrarFor", { name }) });
       await expect(row).toContainText(t("reference.on"));
       await remove.click();
+      await answer(page, t("dict.confirmDeleteRegistrar", { name }), t("confirm.delete"));
+      await answer(page, t("dict.registrarInUseSwitchOff"), t("confirm.switchOff"));
 
       await expect(row).toContainText(t("reference.off"));
-      expect(seen).toEqual([
-        t("dict.confirmDeleteRegistrar", { name }),
-        t("dict.registrarInUseSwitchOff"),
-      ]);
       await expect(page.getByRole("alert")).toHaveCount(0);
 
       // Already off, it can only stay: she is told why, and the note goes once she opens
       // the form, which deletes on its own.
       await remove.click();
+      await answer(page, t("dict.confirmDeleteRegistrar", { name }), t("confirm.delete"));
       await expect(page.getByRole("alert")).toHaveText(t("errors.registrar_in_use"));
       await row.getByRole("button", { name: t("reference.edit"), exact: true }).click();
       await expect(page.locator("form.form-card h2")).toHaveText(name);

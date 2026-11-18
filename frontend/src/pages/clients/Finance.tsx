@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
 import { formatDate, type VisaCase } from "../../contacts";
+import { deferDelete, useDeleting } from "../../undo";
 import { ErrorAlert, todayIso } from "./ui";
 
 // Case finances (backlog 1.9): everything in the specialist's base currency (BYN);
@@ -141,6 +142,7 @@ function useBankRate(
 
 export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
   const { t, i18n } = useTranslation();
+  const deleting = useDeleting();
   const money = useMoney();
   const rateText = useRateText();
   const finance = useQuery({
@@ -217,6 +219,7 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                   </>
                 }
                 value={`−${money(p.amount_base)}`}
+                deleting={deleting.has(`/payments/${p.id}`)}
               />
             ))}
             <MoneyRow strong label={t("finance.balance")} value={money(f.balance)} />
@@ -280,6 +283,7 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                   </>
                 }
                 value={money(e.amount_base)}
+                deleting={deleting.has(`/expenses/${e.id}`)}
               />
             ))}
             <MoneyRow strong label={t("finance.profit")} value={money(f.profit)} />
@@ -295,14 +299,21 @@ function MoneyRow({
   value,
   strong = false,
   muted = false,
+  deleting = false,
 }: {
   label: ReactNode;
   value: string;
   strong?: boolean;
   muted?: boolean;
+  /** Waits for its deletion: struck through until it goes. */
+  deleting?: boolean;
 }) {
   return (
-    <tr className={strong ? "money-total" : muted ? "muted" : undefined}>
+    <tr
+      className={
+        deleting ? "deleting" : strong ? "money-total" : muted ? "muted" : undefined
+      }
+    >
       <td>{label}</td>
       <td className="mono money-cell">{value}</td>
     </tr>
@@ -369,7 +380,9 @@ function ItemActions({
   caseId: string;
 }) {
   const { t } = useTranslation();
+  const deleting = useDeleting();
   const queryClient = useQueryClient();
+  const waiting = deleting.has(deleteUrl);
   const remove = useMutation({
     mutationFn: () => apiDelete<Finance>(deleteUrl),
     onSuccess: (data) => {
@@ -379,16 +392,20 @@ function ItemActions({
   });
   return (
     <span className="finance-actions">
-      <button type="button" className="link-button" onClick={onEdit}>
+      <button type="button" className="link-button" onClick={onEdit} disabled={waiting}>
         {t("reference.edit")}
       </button>
       <button
         type="button"
         className="link-button"
-        disabled={remove.isPending}
-        onClick={() => {
-          if (window.confirm(t("finance.confirmDelete"))) remove.mutate();
-        }}
+        disabled={remove.isPending || waiting}
+        onClick={() =>
+          deferDelete({
+            key: deleteUrl,
+            message: t("undo.recordDeleted"),
+            commit: () => remove.mutateAsync(),
+          })
+        }
       >
         {t("vault.delete")}
       </button>

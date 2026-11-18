@@ -1,7 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { calculateStay, type TripDraft } from "../../stay";
+import { deferDelete, flushPending } from "../../undo";
 import { ErrorAlert } from "../clients/ui";
 import { CountrySelect, StaySummaryView, TripCheck, TripResultLine } from "./StayParts";
 
@@ -11,6 +12,8 @@ import { CountrySelect, StaySummaryView, TripCheck, TripResultLine } from "./Sta
 // them, so it is in view while the dates are typed.
 
 type Row = TripDraft & { key: number };
+
+const CLEAR_KEY = "stay-calculator";
 
 export function StayCalculatorPage() {
   const { t } = useTranslation();
@@ -32,9 +35,14 @@ export function StayCalculatorPage() {
     setRows((current) => current.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
   const filled = rows.some((r) => r.country_id || r.entered_on || r.left_on);
+  // Cleared at once; «Отменить» puts the rows back. Nothing is on the server, so leaving
+  // the page ends the offer.
   const clear = () => {
-    if (window.confirm(t("stay.confirmClear"))) setRows([blank(nextKey.current++)]);
+    const saved = rows;
+    setRows([blank(nextKey.current++)]);
+    deferDelete({ key: CLEAR_KEY, message: t("undo.tripsCleared"), restore: () => setRows(saved) });
   };
+  useEffect(() => () => void flushPending(CLEAR_KEY), []);
 
   return (
     <div className="page">

@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { apiDelete, apiDownload, apiGet, apiPost } from "../../api";
 import type { VisaCase } from "../../contacts";
 import { givenKey, useTemplates, type GivenTemplate } from "../../templates";
+import { deferDelete, useDeleting } from "../../undo";
 import { useCaseOptions } from "../vault/Vault";
 import { ErrorAlert } from "./ui";
 
@@ -13,6 +14,7 @@ import { ErrorAlert } from "./ui";
  * named for the client. */
 export function ContactTemplates({ contactId, cases }: { contactId: string; cases: VisaCase[] }) {
   const { t } = useTranslation();
+  const deleting = useDeleting();
   const queryClient = useQueryClient();
   const given = useQuery({
     queryKey: givenKey(contactId),
@@ -26,20 +28,23 @@ export function ContactTemplates({ contactId, cases }: { contactId: string; case
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const url = `/contacts/${contactId}/templates`;
-  const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: givenKey(contactId) });
-    // The «how many clients» count on the templates page.
-    void queryClient.invalidateQueries({ queryKey: ["templates"], exact: true });
-  };
+  // Resolves once the list is fetched again: a template taken off stays struck through
+  // until then instead of flashing back.
+  const refresh = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: givenKey(contactId) }),
+      // The «how many clients» count on the templates page.
+      queryClient.invalidateQueries({ queryKey: ["templates"], exact: true }),
+    ]);
 
   const download = useMutation({
     mutationFn: (item: GivenTemplate) => apiDownload(`${url}/${item.id}/file`, item.file_name),
     onError: setError,
   });
+  // Taken off after «Отменить» is no longer offered; a refusal shows in that message.
   const remove = useMutation({
     mutationFn: (id: string) => apiDelete<void>(`${url}/${id}`),
     onSuccess: refresh,
-    onError: setError,
   });
 
   return (
@@ -71,7 +76,10 @@ export function ContactTemplates({ contactId, cases }: { contactId: string; case
       {given.data && given.data.length > 0 && (
         <ul className="booking-list templates">
           {given.data.map((item) => (
-            <li key={item.id} className="booking-item">
+            <li
+              key={item.id}
+              className={deleting.has(`${url}/${item.id}`) ? "booking-item deleting" : "booking-item"}
+            >
               <div className="booking-line">
                 <strong>{item.name}</strong>
                 <span className="muted small">
@@ -111,11 +119,14 @@ export function ContactTemplates({ contactId, cases }: { contactId: string; case
                 <button
                   type="button"
                   className="link-button"
-                  disabled={remove.isPending}
+                  disabled={deleting.has(`${url}/${item.id}`)}
                   onClick={() => {
                     setError(null);
-                    if (window.confirm(t("templates.confirmTakeBack", { name: item.name })))
-                      remove.mutate(item.id);
+                    deferDelete({
+                      key: `${url}/${item.id}`,
+                      message: t("undo.templateTakenBack"),
+                      commit: () => remove.mutateAsync(item.id),
+                    });
                   }}
                 >
                   {t("templates.takeBack")}

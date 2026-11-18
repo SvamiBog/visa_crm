@@ -1,12 +1,13 @@
-import { expect, test, type Dialog, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
 // The kanban of the client index (backlog 1.5): a card dragged to another column asks
-// first, because it is easy to drop one by mistake. A case moves to the new stage only
-// after «OK»; a client from «Консультация» dropped on a stage opens the case form in the
-// client's card; a case without a result dropped on «Результат» stays and opens its form
-// at the result (CRM audit 2026-11-18). Both languages; each takes its own cards, since
-// the tests run in parallel.
+// first in the site's window, because it is easy to drop one by mistake. A case moves to
+// the new stage only after «Перенести»; a client from «Консультация» dropped on a stage
+// opens the case form in the client's card after «Открыть кейс»; a case without a result
+// dropped on «Результат» stays and, after «Внести итог», opens its form at the result
+// (CRM audit 2026-11-18). Both languages; each takes its own cards, since the tests run
+// in parallel.
 
 type Lang = "ru" | "en";
 
@@ -66,15 +67,11 @@ async function drop(page: Page, card: Locator, stage: string): Promise<void> {
   await card.dragTo(target);
 }
 
-/** Answers the next confirmation and keeps its text. */
-function answerNext(page: Page, accept: boolean): Promise<string> {
-  return new Promise((resolve) => {
-    page.once("dialog", async (dialog: Dialog) => {
-      const message = dialog.message();
-      await (accept ? dialog.accept() : dialog.dismiss());
-      resolve(message);
-    });
-  });
+/** Answers the site's question with the button of that name; it closes. */
+async function answer(page: Page, button: string): Promise<void> {
+  const ask = page.getByRole("dialog");
+  await ask.getByRole("button", { name: button, exact: true }).click();
+  await expect(ask).toBeHidden();
 }
 
 // The whole demo board fits on a wide screen, so nothing scrolls during a drag.
@@ -110,18 +107,18 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
       const card = boardCard(page, moved.full_name);
       await expect(column(page, from).locator(card)).toBeVisible();
       try {
-        const declined = answerNext(page, false);
         await drop(page, card, to);
-        const question = await declined;
-        for (const part of [moved.full_name, from, to]) expect(question).toContain(part);
+        for (const part of [moved.full_name, from, to]) {
+          await expect(page.getByRole("dialog")).toContainText(part);
+        }
+        await answer(page, t("common.cancel"));
         await expect(column(page, from).locator(card), "«Cancel» leaves it").toBeVisible();
         expect((await board(page)).cases.find((c) => c.id === moved.id)?.stage).toBe(
           moved.stage,
         );
 
-        const accepted = answerNext(page, true);
         await drop(page, card, to);
-        await accepted;
+        await answer(page, t("confirm.move"));
         await expect(column(page, to).locator(card)).toBeVisible();
         await expect
           .poll(async () => (await board(page)).cases.find((c) => c.id === moved.id)?.stage)
@@ -151,14 +148,13 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
       await expect(column(page, from).locator(card)).toBeVisible();
       // «Результат» is the last column: the board scrolls sideways to bring it in.
       await title(page, result).scrollIntoViewIfNeeded();
-      const declined = answerNext(page, false);
       await drop(page, card, result);
-      expect(await declined).toContain(kept.full_name);
+      await expect(page.getByRole("dialog")).toContainText(kept.full_name);
+      await answer(page, t("common.cancel"));
       await expect(column(page, from).locator(card), "the case stays without a result").toBeVisible();
 
-      const accepted = answerNext(page, true);
       await drop(page, card, result);
-      await accepted;
+      await answer(page, t("confirm.enterResult"));
       await expect(page).toHaveURL(new RegExp(`/app/clients/${kept.contact_id}$`));
       await expect(page.getByText(t("cases.resultNeedsOutcome"))).toBeVisible();
       await expect(page.getByRole("combobox", { name: t("cases.outcomeLabel") })).toBeFocused();
@@ -175,14 +171,13 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
       const card = boardCard(page, lead.full_name);
       const waiting = t("cases.stage.waiting");
 
-      const declined = answerNext(page, false);
       await drop(page, card, waiting);
-      expect(await declined).toContain(lead.full_name);
+      await expect(page.getByRole("dialog")).toContainText(lead.full_name);
+      await answer(page, t("common.cancel"));
       await expect(card, "«Cancel» stays on the board").toBeVisible();
 
-      const accepted = answerNext(page, true);
       await drop(page, card, waiting);
-      await accepted;
+      await answer(page, t("confirm.openCase"));
       await expect(page).toHaveURL(new RegExp(`/app/clients/${lead.contact_id}$`));
       await expect(
         page.getByRole("heading", { name: t("cases.createFromConsultation"), exact: true }),

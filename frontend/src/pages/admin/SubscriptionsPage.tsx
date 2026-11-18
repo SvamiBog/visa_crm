@@ -3,6 +3,7 @@ import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { apiDelete, apiPatch, apiPost, apiPut } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { PaymentsTable, SubscriptionChip } from "../../components/Subscription";
 import { formatDate } from "../../contacts";
 import {
@@ -131,6 +132,7 @@ function SpecialistSubscription({
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const subscription = useSubscriptionOf(tenantId);
   const remove = useMutation({
@@ -173,11 +175,13 @@ function SpecialistSubscription({
           <PaymentsTable
             payments={s.payments}
             deleting={remove.isPending}
-            onDelete={(payment) => {
+            onDelete={async (payment) => {
               const date = formatDate(payment.paid_on, i18n.language);
-              if (window.confirm(t("subscription.confirmDeletePayment", { date }))) {
-                remove.mutate(payment);
-              }
+              const yes = await confirm({
+                message: t("subscription.confirmDeletePayment", { date }),
+                action: t("confirm.delete"),
+              });
+              if (yes) remove.mutate(payment);
             }}
           />
           {remove.isError && <ErrorAlert error={remove.error} />}
