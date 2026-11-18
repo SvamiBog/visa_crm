@@ -50,7 +50,8 @@ function select(scope: Page | Locator, label: string): Locator {
 async function openCard(page: Page): Promise<void> {
   const found = await page.request.post("/api/contacts/search", { data: {} });
   expect(found.ok()).toBe(true);
-  const [first] = (await found.json()).items as { id: string }[];
+  // Oldest first: a demo card, not one other tests make and delete meanwhile.
+  const [first] = ((await found.json()).items as { id: string }[]).reverse();
   await page.goto(`/app/clients/${first.id}`);
   await page.locator("h1").waitFor();
 }

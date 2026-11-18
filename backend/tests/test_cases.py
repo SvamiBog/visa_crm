@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text, update
@@ -6,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import VisaCase
-from tests.helpers import MakeUser, give_cases, login
+from tests.helpers import MakeUser, give_cases, login, workspace_today
 
 CONTACTS = "/api/contacts"
 
@@ -212,6 +214,75 @@ async def test_stage_moves_on_with_date_and_result(client: AsyncClient, make_use
     refusal = (await client.patch(url, json={"outcome": "refusal"})).json()
     assert refusal["visa_entries"] is None and refusal["visa_valid_to"] is None
     assert refusal["decided_on"] == "2026-12-01"
+
+
+async def test_the_result_stage_needs_a_result(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """CRM audit 2026-11-18 (owner's decision): a case put in «Результат» without a result
+    left the work list for the archive, missed the funnel and the approval rate and never
+    brought the appeal or visa-expiry reminder. «Результат» takes a case only with its
+    result; a result taken away puts the case back where its dates say."""
+    await as_specialist(client, make_user)
+    contact = await new_contact(client)
+    [case] = (await open_case(client, contact["id"])).json()
+    url = f"/api/cases/{case['id']}"
+    move = {"case_ids": [case["id"]], "stage": "result"}
+
+    by_hand = await client.patch(url, json={"stage": "result"})
+    assert by_hand.status_code == 422 and by_hand.json()["detail"] == "outcome_required"
+    on_board = await client.post("/api/cases/stage", json=move)
+    assert on_board.status_code == 422 and on_board.json()["detail"] == "outcome_required"
+    cleared_with_it = await client.patch(url, json={"stage": "result", "outcome": None})
+    assert cleared_with_it.status_code == 422
+    assert (await client.get(url)).json()["stage"] == "waiting"
+
+    # With its result it goes there, also after the specialist moved it back by hand.
+    submitted = (workspace_today() - timedelta(days=20)).isoformat()
+    visa = await client.patch(
+        url, json={"submission_on": submitted, "outcome": "visa", "decided_on": submitted}
+    )
+    assert visa.json()["stage"] == "result"
+    assert (await client.patch(url, json={"stage": "review"})).json()["stage"] == "review"
+    assert (await client.post("/api/cases/stage", json=move)).status_code == 204
+
+    # Taken away, the result puts the case back by its dates: submitted — under review.
+    reopened = (await client.patch(url, json={"outcome": None})).json()
+    assert (reopened["stage"], reopened["decided_on"]) == ("review", None)
+
+    # A case already closed without a result before this rule can still be edited.
+    [old] = (await open_case(client, contact["id"], destination="LV")).json()
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE visa_cases SET stage = 'result' WHERE id = CAST(:id AS uuid)"),
+            {"id": old["id"]},
+        )
+    edited = await client.patch(f"/api/cases/{old['id']}", json={"hall": "premium"})
+    assert edited.status_code == 200 and edited.json()["stage"] == "result"
+
+
+async def test_a_family_does_not_follow_a_case_into_the_result(
+    client: AsyncClient, make_user: MakeUser
+):
+    """A case with its result goes to «Результат» again by hand; a member without one
+    stays where it stood, and the board refuses a family with any case without one."""
+    await as_specialist(client, make_user)
+    anna, sergey, _ = await family_of_three(client)
+    await client.patch(
+        f"/api/cases/{anna['id']}", json={"outcome": "visa", "decided_on": "2026-11-01"}
+    )
+    for c in (anna, sergey):
+        await client.patch(f"/api/cases/{c['id']}", json={"stage": "review"})
+
+    response = await client.patch(
+        f"/api/cases/{anna['id']}", json={"stage": "result", "apply_to_group": True}
+    )
+    assert response.status_code == 200, response.text
+    assert (await client.get(f"/api/cases/{sergey['id']}")).json()["stage"] == "review"
+
+    both = {"case_ids": [anna["id"], sergey["id"]], "stage": "result"}
+    refused = await client.post("/api/cases/stage", json=both)
+    assert refused.status_code == 422 and refused.json()["detail"] == "outcome_required"
 
 
 async def test_result_rules(client: AsyncClient, make_user: MakeUser):

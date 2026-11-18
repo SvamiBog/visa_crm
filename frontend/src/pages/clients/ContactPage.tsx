@@ -12,7 +12,9 @@ import {
   errorCode,
 } from "../../api";
 import { useMe } from "../../auth";
+import { useConfirm } from "../../components/ConfirmDialog";
 import {
+  caseToEnterResult,
   contactKey,
   FROM_INDEX,
   formatDate,
@@ -30,6 +32,7 @@ import {
 } from "../../contacts";
 import { formatSize, readBase64 } from "../../files";
 import { byId } from "../../reference";
+import { deferDelete, useDeleting } from "../../undo";
 import { AttentionList } from "../cabinet/Attention";
 import { ContactVault } from "../vault/Vault";
 import { Cases } from "./Cases";
@@ -80,6 +83,7 @@ function Slot({ name, children }: { name: string; children: ReactNode }) {
 export function ContactPage() {
   const { id = "" } = useParams();
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const card = useQuery({
     queryKey: contactKey(id),
@@ -104,6 +108,16 @@ export function ContactPage() {
       const [latest] = card.data.consultations;
       setCreatingCase(latest && latest.decision !== "no" ? latest : "blank");
     }
+    const state = openedFromIndex(location.state) ? FROM_INDEX : null;
+    navigate(location.pathname, { replace: true, state });
+  }, [card.data, location.state, location.pathname, navigate]);
+  // A case without a result dropped on «Результат» of the board: its form opens at the
+  // result, once, the same way.
+  const [resultCaseId, setResultCaseId] = useState<string | null>(null);
+  useEffect(() => {
+    const caseId = caseToEnterResult(location.state);
+    if (!card.data || caseId === null) return;
+    setResultCaseId(caseId);
     const state = openedFromIndex(location.state) ? FROM_INDEX : null;
     navigate(location.pathname, { replace: true, state });
   }, [card.data, location.state, location.pathname, navigate]);
@@ -161,10 +175,12 @@ export function ContactPage() {
               type="button"
               className="btn btn-danger"
               disabled={remove.isPending}
-              onClick={() => {
-                if (window.confirm(t("contacts.confirmDeleteCard", { name: contact.full_name }))) {
-                  remove.mutate();
-                }
+              onClick={async () => {
+                const yes = await confirm({
+                  message: t("contacts.confirmDeleteCard", { name: contact.full_name }),
+                  action: t("confirm.delete"),
+                });
+                if (yes) remove.mutate();
               }}
             >
               {t("contacts.deleteCard")}
@@ -226,7 +242,12 @@ export function ContactPage() {
           <div className="column">
             {card.data.cases !== null && (
               <Slot name="cases">
-                <Cases card={card.data} creating={creatingCase} onCreating={setCreatingCase} />
+                <Cases
+                  card={card.data}
+                  creating={creatingCase}
+                  onCreating={setCreatingCase}
+                  resultCaseId={resultCaseId}
+                />
               </Slot>
             )}
             {workspace.data?.modules.includes("vault") && (
@@ -375,6 +396,7 @@ function DocumentFiles({
   fileStorage: boolean;
 }) {
   const { t, i18n } = useTranslation();
+  const confirm = useConfirm();
   const me = useMe();
   const queryClient = useQueryClient();
   const [error, setError] = useState<unknown>(null);
@@ -449,11 +471,13 @@ function DocumentFiles({
                   type="button"
                   className="btn btn-sm"
                   disabled={remove.isPending}
-                  onClick={() => {
+                  onClick={async () => {
                     setError(null);
-                    const name = document.file_name;
-                    if (window.confirm(t("contacts.confirmDeleteDocument", { name })))
-                      remove.mutate(document.id);
+                    const yes = await confirm({
+                      message: t("contacts.confirmDeleteDocument", { name: document.file_name }),
+                      action: t("confirm.delete"),
+                    });
+                    if (yes) remove.mutate(document.id);
                   }}
                 >
                   {t("contacts.deleteDocument")}
@@ -686,6 +710,7 @@ function LinkForm({
 
 function Timeline({ contactId, notes }: { contactId: string; notes: Note[] }) {
   const { t, i18n } = useTranslation();
+  const deleting = useDeleting();
   const me = useMe();
   const queryClient = useQueryClient();
   const workspace = useQuery({
@@ -712,9 +737,11 @@ function Timeline({ contactId, notes }: { contactId: string; notes: Note[] }) {
       void refresh();
     },
   });
+  // Resolves once the list is fetched again, so the struck-through note does not flash
+  // back before it goes.
   const remove = useMutation({
     mutationFn: (id: string) => apiDelete<void>(`${url}/${id}`),
-    onSuccess: () => void refresh(),
+    onSuccess: () => refresh(),
   });
 
   const when = new Intl.DateTimeFormat(i18n.language, {
@@ -756,7 +783,7 @@ function Timeline({ contactId, notes }: { contactId: string; notes: Note[] }) {
       {notes.length === 0 && <p className="muted small">{t("contacts.noNotes")}</p>}
       <ol className="notes">
         {notes.map((note) => (
-          <li key={note.id}>
+          <li key={note.id} className={deleting.has(`${url}/${note.id}`) ? "deleting" : undefined}>
             <div className="muted small">
               {when.format(new Date(note.created_at))}
               {note.author_email && ` · ${note.author_email}`}
@@ -794,6 +821,7 @@ function Timeline({ contactId, notes }: { contactId: string; notes: Note[] }) {
                 <button
                   type="button"
                   className="link-button"
+                  disabled={deleting.has(`${url}/${note.id}`)}
                   onClick={() => setEditing({ id: note.id, body: note.body })}
                 >
                   {t("contacts.editNote")}
@@ -801,10 +829,14 @@ function Timeline({ contactId, notes }: { contactId: string; notes: Note[] }) {
                 <button
                   type="button"
                   className="link-button"
-                  disabled={remove.isPending}
-                  onClick={() => {
-                    if (window.confirm(t("contacts.confirmDeleteNote"))) remove.mutate(note.id);
-                  }}
+                  disabled={deleting.has(`${url}/${note.id}`)}
+                  onClick={() =>
+                    deferDelete({
+                      key: `${url}/${note.id}`,
+                      message: t("undo.noteDeleted"),
+                      commit: () => remove.mutateAsync(note.id),
+                    })
+                  }
                 >
                   {t("contacts.deleteNote")}
                 </button>
@@ -813,7 +845,7 @@ function Timeline({ contactId, notes }: { contactId: string; notes: Note[] }) {
           </li>
         ))}
       </ol>
-      {(edit.isError || remove.isError) && <ErrorAlert error={edit.error ?? remove.error} />}
+      {edit.isError && <ErrorAlert error={edit.error} />}
     </section>
   );
 }

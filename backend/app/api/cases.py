@@ -25,6 +25,7 @@ from app.core.cases import (
     VISA_DETAILS,
     advance,
     appeal_until,
+    by_dates,
     cleared_by_outcome,
     for_group_member,
 )
@@ -641,6 +642,10 @@ async def move_cases(body: StageIn, user: Member, session: TenantSession) -> Res
     cases = list(await session.scalars(select(VisaCase).where(VisaCase.id.in_(ids))))
     if len(cases) != len(ids):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    # «Результат» needs each case's own result (CRM audit 2026-11-18): the board opens
+    # the case form for it instead.
+    if body.stage == CaseStage.RESULT and any(case.outcome is None for case in cases):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "outcome_required")
     for case in cases:
         if case.stage != body.stage:
             case.stage = body.stage
@@ -675,6 +680,19 @@ async def update_case(
         # again leaves a case the specialist moved back by hand where it is.
         new = {f: v for f, v in changes.items() if getattr(case, f) != v}
         changes["stage"] = advance(case.stage, new)
+        # A result taken away: «Результат» needs one, the dates say where the case is.
+        if changes["stage"] == CaseStage.RESULT and "outcome" in new and new["outcome"] is None:
+            submission_on = changes.get("submission_on", case.submission_on)
+            today = await workspace_today(session, user.tenant_id)
+            changes["stage"] = by_dates(submission_on, today)
+    # A move into «Результат», or a result cleared there, needs the result; a case closed
+    # without one before this rule keeps its stage while edited.
+    if (
+        changes["stage"] == CaseStage.RESULT
+        and changes.get("outcome", case.outcome) is None
+        and (case.stage != CaseStage.RESULT or case.outcome is not None)
+    ):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "outcome_required")
     changed = sorted(f for f, v in changes.items() if getattr(case, f) != v)
     stage_before = case.stage
     for field, value in changes.items():
