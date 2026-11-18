@@ -6,6 +6,7 @@ import { apiPost, errorCode } from "../api";
 import { homePath, ME_KEY, useMe, type Me } from "../auth";
 import { LanguageSwitch } from "../components/LanguageSwitch";
 import { Logo } from "../components/Logo";
+import { PasswordField } from "../components/PasswordField";
 
 type LoginResult = Me | { mfa_required: true };
 
@@ -67,16 +68,12 @@ export function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
             />
           </label>
-          <label className="field">
-            <span>{t("auth.password")}</span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
+          <PasswordField
+            label={t("auth.password")}
+            autoComplete="current-password"
+            value={password}
+            onChange={setPassword}
+          />
 
           {login.isError && (
             <div className="alert alert-error" role="alert">

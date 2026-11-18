@@ -151,7 +151,7 @@ export function QueuesPage() {
                   <th>{t("cases.registrar")}</th>
                   <th>{t("queues.queuedOn")}</th>
                   <th>{t("queues.letterDate")}</th>
-                  <th>{t("queues.waits")}</th>
+                  <th className="money-cell">{t("queues.waits")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -191,7 +191,7 @@ export function QueuesPage() {
                         </div>
                       )}
                     </td>
-                    <td className="nowrap">{t("queues.daysShort", { count: r.days_waiting })}</td>
+                    <td className="money-cell">{t("queues.daysShort", { count: r.days_waiting })}</td>
                   </tr>
                 ))}
               </tbody>
@@ -210,7 +210,7 @@ export function QueuesPage() {
                   <th>{t("queues.applicant")}</th>
                   <th>{t("queues.number")}</th>
                   <th>{t("queues.place")}</th>
-                  <th>{t("queues.attemptNumber")}</th>
+                  <th className="money-cell">{t("queues.attemptNumber")}</th>
                   <th>{t("queues.sentOn")}</th>
                   <th>{t("queues.deadline")}</th>
                   <th>{t("queues.statusLabel")}</th>
@@ -227,7 +227,7 @@ export function QueuesPage() {
                     </td>
                     <td className="mono nowrap">{a.vac_number}</td>
                     <td>{place(a.visa_center_id, a.purpose_id)}</td>
-                    <td>{a.number}</td>
+                    <td className="money-cell">{a.number}</td>
                     <td className="nowrap">{date(a.sent_on)}</td>
                     <td className="nowrap">
                       {date(a.deadline_on)}

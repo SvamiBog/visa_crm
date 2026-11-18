@@ -103,14 +103,18 @@ export function VaultEntryView({
   systemName,
   caseLabel,
   onEdit,
+  headingLevel = 3,
   children,
 }: {
   entry: VaultEntry;
   systemName: string;
   caseLabel?: string;
   onEdit: () => void;
+  /** 2 on the vault's own page, where the accounts sit right under the page's title. */
+  headingLevel?: 2 | 3;
   children?: ReactNode;
 }) {
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   const { t, i18n } = useTranslation();
   const confirm = useConfirm();
   const refresh = useRefreshVault();
@@ -160,7 +164,7 @@ export function VaultEntryView({
   return (
     <article className="vault-entry">
       <div className="card-head">
-        <h3 className="h3">{systemName}</h3>
+        <Heading className="h3">{systemName}</Heading>
         <span className="vault-tags">
           {caseLabel && <span className="chip st-blue">{caseLabel}</span>}
           {entry.created_manually && (

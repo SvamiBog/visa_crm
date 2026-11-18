@@ -25,6 +25,8 @@
   "auth.loginSubtitle": "CRM для визовиков",
   "auth.email": "Email",
   "auth.password": "Пароль",
+  "auth.showPassword": "Показать пароль",
+  "auth.hidePassword": "Скрыть пароль",
   "auth.signIn": "Войти",
   "auth.signingIn": "Входим…",
   "auth.noRegistration": "Аккаунт создаёт администратор платформы. Если вы забыли пароль, напишите ему.",

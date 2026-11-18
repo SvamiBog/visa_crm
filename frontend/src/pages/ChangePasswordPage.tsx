@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { apiPost, errorCode } from "../api";
 import { homePath, ME_KEY, useMe, type Me } from "../auth";
 import { Logo } from "../components/Logo";
+import { PasswordField } from "../components/PasswordField";
 
 // Must match MIN_PASSWORD_LENGTH in backend/app/core/security.py.
 const MIN_LENGTH = 10;
@@ -49,43 +50,27 @@ export function ChangePasswordPage() {
           {forced ? t("auth.changePasswordForced") : t("auth.changePasswordHint")}
         </p>
 
-        <label className="field">
-          <span>{t(forced ? "auth.temporaryPassword" : "auth.currentPassword")}</span>
-          <input
-            type="password"
-            autoComplete="current-password"
-            required
-            autoFocus
-            value={current}
-            onChange={(e) => setCurrent(e.target.value)}
-          />
-        </label>
-        <div className="field">
-          <label htmlFor="new-password">{t("auth.newPassword")}</label>
-          <input
-            id="new-password"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={MIN_LENGTH}
-            aria-describedby="new-password-rule"
-            value={next}
-            onChange={(e) => setNext(e.target.value)}
-          />
-          <small id="new-password-rule" className="muted">
-            {t("auth.passwordRule", { count: MIN_LENGTH })}
-          </small>
-        </div>
-        <label className="field">
-          <span>{t("auth.repeatPassword")}</span>
-          <input
-            type="password"
-            autoComplete="new-password"
-            required
-            value={repeat}
-            onChange={(e) => setRepeat(e.target.value)}
-          />
-        </label>
+        <PasswordField
+          label={t(forced ? "auth.temporaryPassword" : "auth.currentPassword")}
+          autoComplete="current-password"
+          autoFocus
+          value={current}
+          onChange={setCurrent}
+        />
+        <PasswordField
+          label={t("auth.newPassword")}
+          autoComplete="new-password"
+          minLength={MIN_LENGTH}
+          hint={t("auth.passwordRule", { count: MIN_LENGTH })}
+          value={next}
+          onChange={setNext}
+        />
+        <PasswordField
+          label={t("auth.repeatPassword")}
+          autoComplete="new-password"
+          value={repeat}
+          onChange={setRepeat}
+        />
 
         {error && (
           <div className="alert alert-error" role="alert">

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-// The menu's icons: drawn here in 24×24 outline, so no icon library is needed. They take
-// the text colour (currentColor), so every theme colours them as its menu.
+// The menu's icons and a few of the buttons': drawn here in 24×24 outline, so no icon
+// library is needed. They take the text colour (currentColor), so every theme colours them.
 const PATHS = {
   home: (
     <>
@@ -86,6 +86,20 @@ const PATHS = {
   ),
   more: <path d="M5.5 12h.01M12 12h.01M18.5 12h.01" strokeWidth={3} />,
   chevron: <path d="m7 10 5 5 5-5" />,
+  // The button of a password field (PasswordField): the password is hidden / shown.
+  eye: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="m4 4 16 16" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

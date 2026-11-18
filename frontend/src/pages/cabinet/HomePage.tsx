@@ -16,7 +16,7 @@ import { useHasModule } from "../../workspace";
 import { useMoney } from "../clients/Finance";
 import { PackageChip } from "../clients/Package";
 import { ErrorAlert } from "../clients/ui";
-import { AttentionList } from "./Attention";
+import { AttentionList, remindersQuery } from "./Attention";
 
 // Главный экран (backlog 1.12): what to do today — metrics, «Требует внимания», the
 // nearest submissions, the month's funnel, the queues. The API leaves out the blocks
@@ -442,7 +442,11 @@ export function HomePage() {
     queryFn: () => apiGet<Workspace>("/workspace"),
   });
   const home = useQuery({ queryKey: ["home"], queryFn: () => apiGet<Home>("/home") });
-  const data = home.data;
+  // «Требует внимания» stands above the figures on a phone: the page shows once both have
+  // come, so nothing jumps down under the finger when the list arrives.
+  const reminders = useQuery({ ...remindersQuery(), enabled: tasks });
+  const loading = home.isPending || (tasks && reminders.isPending);
+  const data = loading ? undefined : home.data;
 
   return (
     <div className="page home-page">
@@ -465,13 +469,13 @@ export function HomePage() {
         )}
       </header>
 
-      {home.isPending && <p className="muted">{t("common.loading")}</p>}
+      {loading && <p className="muted">{t("common.loading")}</p>}
       {home.isError && <ErrorAlert error={home.error} />}
       {data && <Metrics home={data} />}
 
       <div className="home-grid">
         <div className="column">
-          {tasks && <AttentionList limit={8} />}
+          {tasks && !loading && <AttentionList limit={8} />}
           {data?.submissions && (
             <UpcomingSubmissions rows={data.submissions.upcoming} withMoney={!!data.money} />
           )}

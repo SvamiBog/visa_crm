@@ -25,6 +25,8 @@
   "auth.loginSubtitle": "CRM for visa specialists",
   "auth.email": "Email",
   "auth.password": "Password",
+  "auth.showPassword": "Show password",
+  "auth.hidePassword": "Hide password",
   "auth.signIn": "Sign in",
   "auth.signingIn": "Signing in…",
   "auth.noRegistration": "Accounts are created by the platform admin. If you forgot your password, contact them.",
