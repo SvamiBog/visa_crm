@@ -183,5 +183,27 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
         page.getByRole("heading", { name: t("cases.createFromConsultation"), exact: true }),
       ).toBeVisible();
     });
+
+    test("«Результат» shows the results of the chosen period and remembers it", async ({
+      page,
+    }) => {
+      await page.goto("/app/clients?view=board");
+      const result = t("cases.stage.result");
+      const period = column(page, result).getByRole("combobox", {
+        name: t("index.resultPeriod"),
+      });
+      await expect(period).toHaveValue("30");
+
+      const reloaded = page.waitForResponse((r) => r.url().includes("result_days=180"));
+      await period.selectOption({ label: t("index.resultPeriod180") });
+      const longer = (await (await reloaded).json()) as Board;
+      const cards = new Set(
+        longer.cases.filter((c) => c.stage === "result").map((c) => c.group_id ?? c.id),
+      );
+      await expect(title(page, result)).toHaveText(new RegExp(`\\s${cards.size}$`));
+
+      await page.reload();
+      await expect(period, "the choice stays after a reload").toHaveValue("180");
+    });
   });
 }

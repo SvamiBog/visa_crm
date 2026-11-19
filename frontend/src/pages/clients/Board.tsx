@@ -31,6 +31,29 @@ import type { Filters } from "./ClientsPage";
 
 const DRAG_TYPE = "application/x-visacrm-cases";
 const LEAD_DRAG_TYPE = "application/x-visacrm-lead";
+const PERIOD_KEY = "visacrm.boardResultDays";
+
+/** How far back «Результат» reaches, in days: a month by default, longer on request. */
+const RESULT_PERIODS = [30, 90, 180] as const;
+type ResultPeriod = (typeof RESULT_PERIODS)[number];
+
+// The chosen period is a per-browser convenience; storage may be unavailable.
+function savedPeriod(): ResultPeriod {
+  try {
+    const saved = Number(localStorage.getItem(PERIOD_KEY));
+    return RESULT_PERIODS.find((days) => days === saved) ?? RESULT_PERIODS[0];
+  } catch {
+    return RESULT_PERIODS[0];
+  }
+}
+
+function savePeriod(days: ResultPeriod) {
+  try {
+    localStorage.setItem(PERIOD_KEY, String(days));
+  } catch {
+    // The choice just is not remembered.
+  }
+}
 
 /** What a case card carries while it is dragged; `noResult`: its first case without a
  * result, which «Результат» does not take. */
@@ -71,10 +94,12 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
   const navigate = useNavigate();
   const hint = useDisclosure();
   const term = query.trim();
+  const [period, setPeriod] = useState<ResultPeriod>(savedPeriod);
   const params = new URLSearchParams();
   if (filters.country) params.set("country_id", filters.country);
   if (filters.channel) params.set("channel_id", filters.channel);
   if (filters.registrar) params.set("registrar_id", filters.registrar);
+  if (period !== RESULT_PERIODS[0]) params.set("result_days", String(period));
   const key = ["cases", "board", params.toString()];
   const board = useQuery({
     queryKey: key,
@@ -199,6 +224,24 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
               <h2 className="board-title">
                 {t(`cases.stage.${stage}`)} <span className="muted">{cards.length}</span>
               </h2>
+              {stage === "result" && (
+                <select
+                  className="board-period"
+                  aria-label={t("index.resultPeriod")}
+                  value={period}
+                  onChange={(e) => {
+                    const days = Number(e.target.value) as ResultPeriod;
+                    setPeriod(days);
+                    savePeriod(days);
+                  }}
+                >
+                  {RESULT_PERIODS.map((days) => (
+                    <option key={days} value={days}>
+                      {t(`index.resultPeriod${days}`)}
+                    </option>
+                  ))}
+                </select>
+              )}
               {cards.map((card) => (
                 <CaseCard key={card.key} card={card} />
               ))}
