@@ -63,9 +63,11 @@ Member = Annotated[CurrentUser, Depends(require_module("cases"))]
 
 MAX_APPLICANTS = 30
 EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-# Board (backlog 1.5): results stay in the «Результат» column for a month, leads in the
-# «Консультация» column for three months after their latest consultation.
+# Board (backlog 1.5): results stay in the «Результат» column for a month unless the
+# specialist picks a longer period (up to a year), leads in the «Консультация» column for
+# three months after their latest consultation.
 RECENT_RESULT_DAYS = 30
+MAX_RESULT_DAYS = 366
 RECENT_LEAD_DAYS = 90
 BOARD_LIMIT = 500
 
@@ -561,9 +563,11 @@ async def board(
     country_id: Annotated[uuid.UUID | None, Query()] = None,
     channel_id: Annotated[uuid.UUID | None, Query()] = None,
     registrar_id: Annotated[uuid.UUID | None, Query()] = None,
+    result_days: Annotated[int, Query(ge=1, le=MAX_RESULT_DAYS)] = RECENT_RESULT_DAYS,
 ) -> Board:
-    """Kanban of the client index: cases in work by stage, results of the last month, and
-    clients after a consultation without a case in work."""
+    """Kanban of the client index: cases in work by stage, results of the last
+    `result_days` days (a month by default), and clients after a consultation without a
+    case in work."""
     today = await workspace_today(session, user.tenant_id)
     decided = func.coalesce(VisaCase.decided_on, cast(VisaCase.updated_at, Date))
     query = (
@@ -572,7 +576,7 @@ async def board(
         .where(
             or_(
                 VisaCase.stage != CaseStage.RESULT,
-                decided >= today - timedelta(days=RECENT_RESULT_DAYS),
+                decided >= today - timedelta(days=result_days),
             )
         )
     )

@@ -200,6 +200,27 @@ async def test_board(client: AsyncClient, make_user: MakeUser):
     assert by_country["cases"] == [] and len(by_country["leads"]) == 1
 
 
+async def test_board_shows_results_of_the_chosen_period(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    decided = {}
+    for name, days in (("Месяц", 20), ("Квартал", 80), ("Полгода", 170), ("Год", 300)):
+        case = await open_case(client, await contact(client, name))
+        on = (workspace_today() - timedelta(days=days)).isoformat()
+        await client.patch(f"/api/cases/{case['id']}", json={"outcome": "visa", "decided_on": on})
+        decided[case["id"]] = name
+
+    async def shown(**params: int) -> set[str]:
+        board = (await client.get("/api/cases/board", params=params)).json()
+        return {decided[c["id"]] for c in board["cases"]}
+
+    assert await shown() == {"Месяц"}
+    assert await shown(result_days=90) == {"Месяц", "Квартал"}
+    assert await shown(result_days=180) == {"Месяц", "Квартал", "Полгода"}
+    for wrong in (0, 367):
+        response = await client.get("/api/cases/board", params={"result_days": wrong})
+        assert response.status_code == 422
+
+
 async def test_moving_a_group_on_the_board(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     codes = await countries(client)

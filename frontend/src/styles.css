@@ -2320,6 +2320,20 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   font-weight: 600;
 }
 
+/* How far back «Результат» reaches: a quiet picker under the column's title */
+.board-period {
+  align-self: flex-start;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--c-field-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+}
+
 .board-card {
   display: flex;
   flex-direction: column;
