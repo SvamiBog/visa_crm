@@ -189,21 +189,51 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
     }) => {
       await page.goto("/app/clients?view=board");
       const result = t("cases.stage.result");
-      const period = column(page, result).getByRole("combobox", {
-        name: t("index.resultPeriod"),
-      });
-      await expect(period).toHaveValue("30");
+      const periods = page.getByRole("group", { name: t("index.resultPeriod"), exact: true });
+      const choice = (period: string) =>
+        periods.getByRole("button", { name: t(`index.resultPeriods.${period}`), exact: true });
+      const from = page.getByLabel(t("index.resultFrom"), { exact: true });
+      const to = page.getByLabel(t("index.resultTo"), { exact: true });
+      await expect(choice("month")).toHaveAttribute("aria-pressed", "true");
+      await expect(from, "own dates open with «Период» only").toHaveCount(0);
 
-      const reloaded = page.waitForResponse((r) => r.url().includes("result_days=180"));
-      await period.selectOption({ label: t("index.resultPeriod180") });
-      const longer = (await (await reloaded).json()) as Board;
-      const cards = new Set(
-        longer.cases.filter((c) => c.stage === "result").map((c) => c.group_id ?? c.id),
+      /** Does what changes the period and checks «Результат» against the board it asked for. */
+      const shows = async (asked: Record<string, string>, change: () => Promise<void>) => {
+        const response = page.waitForResponse((r) => {
+          const url = new URL(r.url());
+          return (
+            url.pathname === "/api/cases/board" &&
+            Object.entries(asked).every(([key, value]) => url.searchParams.get(key) === value)
+          );
+        });
+        await change();
+        const data = (await (await response).json()) as Board;
+        const cards = new Set(
+          data.cases.filter((c) => c.stage === "result").map((c) => c.group_id ?? c.id),
+        );
+        await expect(title(page, result)).toHaveText(new RegExp(`\\s${cards.size}$`));
+      };
+
+      await shows({ result_period: "year" }, () => choice("year").click());
+      await shows({ result_period: "all" }, () => choice("all").click());
+      await expect(choice("all")).toHaveAttribute("aria-pressed", "true");
+
+      // Own dates: both ends go in order whichever was typed first.
+      await choice("dates").click();
+      await shows({ result_period: "dates", result_from: "2025-01-01" }, () =>
+        from.fill("2025-01-01"),
       );
-      await expect(title(page, result)).toHaveText(new RegExp(`\\s${cards.size}$`));
+      await shows({ result_from: "2024-12-31", result_to: "2025-01-01" }, () =>
+        to.fill("2024-12-31"),
+      );
 
       await page.reload();
-      await expect(period, "the choice stays after a reload").toHaveValue("180");
+      await expect(choice("dates"), "the choice stays after a reload").toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expect(from).toHaveValue("2025-01-01");
+      await expect(to).toHaveValue("2024-12-31");
     });
   });
 }

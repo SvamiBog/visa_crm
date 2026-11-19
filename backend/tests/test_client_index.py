@@ -2,10 +2,12 @@
 
 from datetime import timedelta
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.api import cases as cases_api
 from tests.helpers import MakeUser, give_cases, login, workspace_today
 
 CONTACTS = "/api/contacts"
@@ -202,23 +204,70 @@ async def test_board(client: AsyncClient, make_user: MakeUser):
 
 async def test_board_shows_results_of_the_chosen_period(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
-    decided = {}
-    for name, days in (("Месяц", 20), ("Квартал", 80), ("Полгода", 170), ("Год", 300)):
+
+    def ago(days: int) -> str:
+        return (workspace_today() - timedelta(days=days)).isoformat()
+
+    shown_as = {(await open_case(client, await contact(client, "В работе")))["id"]: "В работе"}
+    for name, days in (("Неделя", 7), ("Квартал", 80), ("Полгода", 170), ("Год", 300)):
         case = await open_case(client, await contact(client, name))
-        on = (workspace_today() - timedelta(days=days)).isoformat()
-        await client.patch(f"/api/cases/{case['id']}", json={"outcome": "visa", "decided_on": on})
-        decided[case["id"]] = name
+        await client.patch(
+            f"/api/cases/{case['id']}", json={"outcome": "visa", "decided_on": ago(days)}
+        )
+        shown_as[case["id"]] = name
+    case = await open_case(client, await contact(client, "Давно"))
+    await client.patch(f"/api/cases/{case['id']}", json={"outcome": "visa", "decided_on": ago(500)})
+    shown_as[case["id"]] = "Давно"
 
-    async def shown(**params: int) -> set[str]:
-        board = (await client.get("/api/cases/board", params=params)).json()
-        return {decided[c["id"]] for c in board["cases"]}
+    async def shown(**params: str) -> set[str]:
+        response = await client.get("/api/cases/board", params=params)
+        assert response.status_code == 200, response.text
+        return {shown_as[c["id"]] for c in response.json()["cases"]} - {"В работе"}
 
-    assert await shown() == {"Месяц"}
-    assert await shown(result_days=90) == {"Месяц", "Квартал"}
-    assert await shown(result_days=180) == {"Месяц", "Квартал", "Полгода"}
-    for wrong in (0, 367):
-        response = await client.get("/api/cases/board", params={"result_days": wrong})
-        assert response.status_code == 422
+    assert await shown() == {"Неделя"}
+    assert await shown(result_period="month") == {"Неделя"}
+    assert await shown(result_period="half_year") == {"Неделя", "Квартал", "Полгода"}
+    assert await shown(result_period="year") == {"Неделя", "Квартал", "Полгода", "Год"}
+    assert await shown(result_period="all") == {"Неделя", "Квартал", "Полгода", "Год", "Давно"}
+    # Own dates: both ends count, either may be left open.
+    period = {"result_period": "dates"}
+    assert await shown(**period, result_from=ago(300), result_to=ago(80)) == {
+        "Квартал",
+        "Полгода",
+        "Год",
+    }
+    assert await shown(**period, result_from=ago(170)) == {"Неделя", "Квартал", "Полгода"}
+    assert await shown(**period, result_to=ago(300)) == {"Год", "Давно"}
+
+    # A case in work stays on the board whatever the period.
+    board = (await client.get("/api/cases/board", params={**period, "result_to": ago(600)})).json()
+    assert [shown_as[c["id"]] for c in board["cases"]] == ["В работе"]
+
+    reversed_dates = {**period, "result_from": ago(80), "result_to": ago(300)}
+    response = await client.get("/api/cases/board", params=reversed_dates)
+    assert response.status_code == 422 and response.json()["detail"] == "dates_order"
+    for wrong in ({"result_period": "week"}, {**period, "result_from": "0026-11-05"}):
+        assert (await client.get("/api/cases/board", params=wrong)).status_code == 422
+
+
+async def test_results_never_crowd_cases_in_work_off_the_board(
+    client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+):
+    """The board holds a limited number of cases: with all results shown, the oldest case
+    in work (the lowest number) still comes before any result."""
+    await as_specialist(client, make_user)
+    in_work = await open_case(client, await contact(client, "Ждёт"))
+    for name in ("Первый", "Второй"):
+        case = await open_case(client, await contact(client, name))
+        await client.patch(
+            f"/api/cases/{case['id']}",
+            json={"outcome": "visa", "decided_on": workspace_today().isoformat()},
+        )
+    monkeypatch.setattr(cases_api, "BOARD_LIMIT", 2)
+
+    board = (await client.get("/api/cases/board", params={"result_period": "all"})).json()
+    assert len(board["cases"]) == 2
+    assert in_work["id"] in {c["id"] for c in board["cases"]}
 
 
 async def test_moving_a_group_on_the_board(client: AsyncClient, make_user: MakeUser):

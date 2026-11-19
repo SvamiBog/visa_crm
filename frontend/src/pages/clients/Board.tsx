@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type DragEvent } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useId, useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { apiGet, apiPost, errorCode } from "../../api";
@@ -20,6 +20,7 @@ import {
 import { byId, useCountries, useLocalName } from "../../reference";
 import { CaseChip } from "./Cases";
 import type { Filters } from "./ClientsPage";
+import { todayIso } from "./ui";
 
 // Kanban of the client index (backlog 1.5): clients after a consultation, then cases by
 // stage. A submission group at one stage is one card and moves together. A card is easy
@@ -31,28 +32,74 @@ import type { Filters } from "./ClientsPage";
 
 const DRAG_TYPE = "application/x-visacrm-cases";
 const LEAD_DRAG_TYPE = "application/x-visacrm-lead";
-const PERIOD_KEY = "visacrm.boardResultDays";
+const PERIOD_KEY = "visacrm.boardResultPeriod";
 
-/** How far back «Результат» reaches, in days: a month by default, longer on request. */
-const RESULT_PERIODS = [30, 90, 180] as const;
+/** Which decisions «Результат» shows (app/core/cases.py → ResultPeriod): the last month by
+ * default, half a year, a year, all of them, or the specialist's own dates. */
+const RESULT_PERIODS = ["month", "half_year", "year", "all", "dates"] as const;
 type ResultPeriod = (typeof RESULT_PERIODS)[number];
+const PERIOD_MONTHS: Partial<Record<ResultPeriod, number>> = { month: 1, half_year: 6, year: 12 };
+/** The period with its own dates as typed (ISO, or empty for an open end). */
+type PeriodChoice = { period: ResultPeriod; from: string; to: string };
+const DEFAULT_CHOICE: PeriodChoice = { period: "month", from: "", to: "" };
+// The days the API takes (app/core/days.py): a year still being typed («0202») is not sent.
+const FIRST_DAY = "1900-01-01";
+const LAST_DAY = "2100-12-31";
+
+function isDay(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    value >= FIRST_DAY &&
+    value <= LAST_DAY
+  );
+}
+
+/** The same day `months` calendar months earlier; the 31st becomes the last day of a
+ * shorter month, as on the server. */
+function monthsBefore(day: string, months: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(y, m - months, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m - 1 - months, Math.min(d, lastDay))).toISOString().slice(0, 10);
+}
 
 // The chosen period is a per-browser convenience; storage may be unavailable.
-function savedPeriod(): ResultPeriod {
+function savedChoice(): PeriodChoice {
   try {
-    const saved = Number(localStorage.getItem(PERIOD_KEY));
-    return RESULT_PERIODS.find((days) => days === saved) ?? RESULT_PERIODS[0];
+    const saved = JSON.parse(localStorage.getItem(PERIOD_KEY) ?? "null") as Record<
+      string,
+      unknown
+    > | null;
+    const period = RESULT_PERIODS.find((p) => p === saved?.period);
+    if (!saved || !period) return DEFAULT_CHOICE;
+    return {
+      period,
+      from: isDay(saved.from) ? saved.from : "",
+      to: isDay(saved.to) ? saved.to : "",
+    };
   } catch {
-    return RESULT_PERIODS[0];
+    return DEFAULT_CHOICE;
   }
 }
 
-function savePeriod(days: ResultPeriod) {
+function saveChoice(choice: PeriodChoice) {
   try {
-    localStorage.setItem(PERIOD_KEY, String(days));
+    localStorage.setItem(PERIOD_KEY, JSON.stringify(choice));
   } catch {
     // The choice just is not remembered.
   }
+}
+
+/** The board's query for «Результат»: nothing for the default month; own dates in order,
+ * an end not (yet) a whole date left open. */
+function periodParams(choice: PeriodChoice, params: URLSearchParams) {
+  if (choice.period === DEFAULT_CHOICE.period) return;
+  params.set("result_period", choice.period);
+  if (choice.period !== "dates") return;
+  const reversed = isDay(choice.from) && isDay(choice.to) && choice.from > choice.to;
+  const [from, to] = reversed ? [choice.to, choice.from] : [choice.from, choice.to];
+  if (isDay(from)) params.set("result_from", from);
+  if (isDay(to)) params.set("result_to", to);
 }
 
 /** What a case card carries while it is dragged; `noResult`: its first case without a
@@ -94,16 +141,22 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
   const navigate = useNavigate();
   const hint = useDisclosure();
   const term = query.trim();
-  const [period, setPeriod] = useState<ResultPeriod>(savedPeriod);
+  const [choice, setChoice] = useState<PeriodChoice>(savedChoice);
+  const choose = (next: PeriodChoice) => {
+    setChoice(next);
+    saveChoice(next);
+  };
   const params = new URLSearchParams();
   if (filters.country) params.set("country_id", filters.country);
   if (filters.channel) params.set("channel_id", filters.channel);
   if (filters.registrar) params.set("registrar_id", filters.registrar);
-  if (period !== RESULT_PERIODS[0]) params.set("result_days", String(period));
+  periodParams(choice, params);
   const key = ["cases", "board", params.toString()];
   const board = useQuery({
     queryKey: key,
     queryFn: () => apiGet<Board>(`/cases/board${params.toString() ? `?${params}` : ""}`),
+    // Another period keeps the board on screen until the new one comes.
+    placeholderData: keepPreviousData,
   });
   const [over, setOver] = useState<CaseStage | null>(null);
 
@@ -192,6 +245,7 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
       <p className="muted small" {...hint.panel}>
         {t("index.boardHint")}
       </p>
+      <PeriodBar choice={choice} onChange={choose} />
       {move.isError && (
         <div className="alert alert-error" role="alert">
           {t(`errors.${errorCode(move.error)}`, { defaultValue: t("errors.unknown") })}
@@ -224,24 +278,6 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
               <h2 className="board-title">
                 {t(`cases.stage.${stage}`)} <span className="muted">{cards.length}</span>
               </h2>
-              {stage === "result" && (
-                <select
-                  className="board-period"
-                  aria-label={t("index.resultPeriod")}
-                  value={period}
-                  onChange={(e) => {
-                    const days = Number(e.target.value) as ResultPeriod;
-                    setPeriod(days);
-                    savePeriod(days);
-                  }}
-                >
-                  {RESULT_PERIODS.map((days) => (
-                    <option key={days} value={days}>
-                      {t(`index.resultPeriod${days}`)}
-                    </option>
-                  ))}
-                </select>
-              )}
               {cards.map((card) => (
                 <CaseCard key={card.key} card={card} />
               ))}
@@ -250,6 +286,67 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
         })}
       </div>
     </section>
+  );
+}
+
+/** Above the board, where it is seen without scrolling to «Результат» (the last column):
+ * quick choices, all time, and «Период» that opens the fields of own dates. They start
+ * from the period chosen before, so the board does not change until a date is. */
+function PeriodBar({
+  choice,
+  onChange,
+}: {
+  choice: PeriodChoice;
+  onChange: (choice: PeriodChoice) => void;
+}) {
+  const { t } = useTranslation();
+  const label = useId();
+  const pick = (period: ResultPeriod) => {
+    if (period !== "dates") return onChange({ ...choice, period });
+    if (choice.period === "dates") return;
+    const today = todayIso();
+    const months = PERIOD_MONTHS[choice.period];
+    const from = choice.from || (months ? monthsBefore(today, months) : "");
+    onChange({ period, from, to: choice.to || today });
+  };
+  const date = (field: "from" | "to") => (
+    <label className="field board-date">
+      <span>{t(field === "from" ? "index.resultFrom" : "index.resultTo")}</span>
+      <input
+        type="date"
+        min={FIRST_DAY}
+        max={LAST_DAY}
+        value={choice[field]}
+        onChange={(e) => onChange({ ...choice, [field]: e.target.value })}
+      />
+    </label>
+  );
+
+  return (
+    <div className="board-period">
+      <span id={label} className="board-period-label">
+        {t("index.resultPeriod")}
+      </span>
+      <div className="view-switch" role="group" aria-labelledby={label}>
+        {RESULT_PERIODS.map((period) => (
+          <button
+            key={period}
+            type="button"
+            aria-pressed={choice.period === period}
+            className={choice.period === period ? "on" : undefined}
+            onClick={() => pick(period)}
+          >
+            {t(`index.resultPeriods.${period}`)}
+          </button>
+        ))}
+      </div>
+      {choice.period === "dates" && (
+        <div className="board-dates">
+          {date("from")}
+          {date("to")}
+        </div>
+      )}
+    </div>
   );
 }
 

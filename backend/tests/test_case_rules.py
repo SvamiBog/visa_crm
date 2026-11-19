@@ -1,13 +1,37 @@
 from datetime import date
 
 from app.core.cases import (
+    ResultPeriod,
     advance,
     appeal_until,
     by_dates,
     cleared_by_outcome,
     for_group_member,
+    result_window,
 )
 from app.models import CaseStage, VisaOutcome
+
+
+def test_the_result_column_reaches_back_by_calendar_months():
+    today = date(2026, 11, 19)
+    assert result_window(ResultPeriod.MONTH, today) == (date(2026, 10, 19), None)
+    assert result_window(ResultPeriod.HALF_YEAR, today) == (date(2026, 5, 19), None)
+    assert result_window(ResultPeriod.YEAR, today) == (date(2025, 11, 19), None)
+    # The 31st goes back to the last day of a shorter month.
+    assert result_window(ResultPeriod.HALF_YEAR, date(2026, 8, 31)) == (date(2026, 2, 28), None)
+
+
+def test_the_result_column_shows_all_time_or_the_specialists_own_dates():
+    today = date(2026, 11, 19)
+    jan, mar = date(2026, 1, 1), date(2026, 3, 31)
+    assert result_window(ResultPeriod.ALL, today) == (None, None)
+    assert result_window(ResultPeriod.DATES, today, jan, mar) == (jan, mar)
+    assert result_window(ResultPeriod.DATES, today, jan, None) == (jan, None)
+    assert result_window(ResultPeriod.DATES, today, None, mar) == (None, mar)
+    assert result_window(ResultPeriod.DATES, today) == (None, None)
+    # A quick choice does not mix with dates left in the request.
+    assert result_window(ResultPeriod.YEAR, today, jan, mar) == (date(2025, 11, 19), None)
+    assert result_window(ResultPeriod.ALL, today, jan, mar) == (None, None)
 
 
 def test_appointment_date_ends_the_wait():
