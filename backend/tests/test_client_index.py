@@ -139,6 +139,69 @@ async def test_row_shows_the_case_in_work(client: AsyncClient, make_user: MakeUs
     assert row["consultation"]["decision"] == "yes"
 
 
+async def test_a_consultation_for_a_relative(client: AsyncClient, make_user: MakeUser):
+    """The daughter came to the consultation, the case is her father's (pilot remark
+    1.15.1, owner's decision 2026-11-19): one case, one card in work. The daughter's row
+    and consultation name the father's case, the case names who came."""
+    await as_specialist(client, make_user)
+    codes = await countries(client)
+    daughter = await contact(client, "Ирина")
+    consultation = await consult(client, daughter, destination_ids=[codes["PL"]])
+    response = await client.post(
+        f"{CONTACTS}/{daughter}/cases",
+        json={
+            "consultation_id": consultation["id"],
+            "destination_id": codes["PL"],
+            "submission_country_id": codes["BY"],
+            "applicants": [{"first_name": "Пётр", "label": "папа"}],
+        },
+    )
+    assert response.status_code == 201, response.text
+    [case] = response.json()
+    assert case["consulted_by"] == {
+        "contact_id": daughter,
+        "full_name": "Ирина",
+        "held_on": consultation["held_on"],
+    }
+
+    [row] = (await search(client, query="Ирина"))["items"]
+    assert row["tab"] == "archive" and row["case"] is None
+    opened = [
+        {
+            "id": case["id"],
+            "number": case["number"],
+            "contact_id": case["contact_id"],
+            "full_name": "Пётр",
+            "stage": "waiting",
+            "outcome": None,
+        }
+    ]
+    assert row["consultation"]["cases"] == opened
+    assert (await search(client))["counts"]["work"] == 1
+    board = (await client.get("/api/cases/board")).json()
+    assert [c["full_name"] for c in board["cases"]] == ["Пётр"] and board["leads"] == []
+
+    card = (await client.get(f"{CONTACTS}/{daughter}")).json()
+    assert card["consultations"][0]["cases"] == opened
+    # The father's own case does not name him as the one who came.
+    [own] = (await client.get(f"{CONTACTS}/{case['contact_id']}")).json()["cases"]
+    assert own["consulted_by"]["contact_id"] == daughter
+    father_consultation = await consult(client, case["contact_id"])
+    [again] = (
+        await client.post(
+            f"{CONTACTS}/{case['contact_id']}/cases",
+            params={"allow_duplicate": "true"},
+            json={
+                "consultation_id": father_consultation["id"],
+                "destination_id": codes["LT"],
+                "submission_country_id": codes["BY"],
+                "applicants": [{"contact_id": case["contact_id"]}],
+            },
+        )
+    ).json()
+    assert again["consulted_by"] is None
+
+
 async def test_rows_without_the_cases_module(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):

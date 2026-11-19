@@ -10,7 +10,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { useMe } from "../../auth";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { Field, useFieldErrors, type FieldErrors } from "../../components/Field";
 import {
@@ -109,6 +110,7 @@ function useRefreshCards() {
     void queryClient.invalidateQueries({ queryKey: ["queues"] });
     void queryClient.invalidateQueries({ queryKey: ["reminders"] });
     void queryClient.invalidateQueries({ queryKey: ["home"] });
+    void queryClient.invalidateQueries({ queryKey: ["cases", "board"] });
   };
 }
 
@@ -278,6 +280,13 @@ function CasePanel({
       {previousNumber !== undefined && (
         <Row label={t("cases.previousCase")}>
           {t("cases.afterCase", { number: previousNumber })}
+        </Row>
+      )}
+      {c.consulted_by && (
+        // The daughter came to the consultation, the case is her father's (pilot 1.15.1).
+        <Row label={t("cases.consultedBy")}>
+          <Link to={`/app/clients/${c.consulted_by.contact_id}`}>{c.consulted_by.full_name}</Link>
+          {`, ${date(c.consulted_by.held_on)}`}
         </Row>
       )}
 
@@ -730,9 +739,12 @@ function CaseCreateForm({
   const named = added.filter((a) => a.last_name.trim() || a.first_name.trim());
   const count = chosen.size + named.length;
 
+  // A second case in work to the same country is asked about (pilot remark 1.15.1):
+  // «create anyway» sends the form again with the permission.
   const create = useMutation({
-    mutationFn: () =>
-      apiPost<VisaCase[]>(`/contacts/${card.contact.id}/cases`, {
+    mutationFn: (allowDuplicate: boolean) => {
+      const query = allowDuplicate ? "?allow_duplicate=true" : "";
+      return apiPost<VisaCase[]>(`/contacts/${card.contact.id}/cases${query}`, {
         ...placeBody(place),
         consultation_id: consultation?.id ?? null,
         previous_case_id: previous?.id ?? null,
@@ -745,13 +757,18 @@ function CaseCreateForm({
             label: a.label.trim() || null,
           })),
         ],
-      }),
+      });
+    },
     onSuccess: () => {
       void refresh();
       onDone();
     },
   });
   const errors = useFieldErrors(create.error, { codes: PLACE_CODES, fields: PLACE_FIELDS });
+  const exists =
+    create.error instanceof ApiError && create.error.code === "case_exists" ? create.error : null;
+  const existsFor = exists ? String(exists.data.contact_id ?? "") : "";
+  const existsName = people.find((p) => p.id === existsFor)?.full_name ?? card.contact.full_name;
 
   const change = (key: number, patch: Partial<NewApplicant>) =>
     setAdded((list) => list.map((x) => (x.key === key ? { ...x, ...patch } : x)));
@@ -770,7 +787,7 @@ function CaseCreateForm({
       className="form-card consultation-form"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
-        create.mutate();
+        create.mutate(false);
       }}
     >
       <h3 className="h3">
@@ -840,7 +857,30 @@ function CaseCreateForm({
           {t("cases.addApplicant")}
         </button>
       </fieldset>
-      {errors.general ? <ErrorAlert error={errors.general} /> : null}
+      {exists ? (
+        <div className="alert alert-warn case-exists" role="alert">
+          <p>
+            {t("cases.caseExists", { name: existsName, number: String(exists.data.number ?? "") })}
+          </p>
+          <div className="form-actions">
+            {existsFor && existsFor !== card.contact.id && (
+              <Link className="btn btn-sm" to={`/app/clients/${existsFor}`}>
+                {t("cases.openExistingCase")}
+              </Link>
+            )}
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={create.isPending}
+              onClick={() => create.mutate(true)}
+            >
+              {t("cases.createAnyway")}
+            </button>
+          </div>
+        </div>
+      ) : errors.general ? (
+        <ErrorAlert error={errors.general} />
+      ) : null}
       <div className="form-actions">
         <button
           type="submit"
@@ -934,6 +974,29 @@ function CaseEditForm({
     },
   });
   const errors = useFieldErrors(save.error, { codes: PLACE_CODES, fields: CASE_FIELDS });
+  // A case opened twice by mistake (pilot remark 1.15.1): the specialist deletes an empty
+  // one; for a case with history the form says why it stays instead of asking.
+  const me = useMe();
+  const confirm = useConfirm();
+  const [keptBecause, setKeptBecause] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => apiDelete<void>(`/cases/${c.id}`),
+    onSuccess: () => {
+      void refresh();
+      onDone();
+    },
+  });
+  const askToDelete = async () => {
+    if (!c.deletable) {
+      setKeptBecause(true);
+      return;
+    }
+    const yes = await confirm({
+      message: t("cases.confirmDelete", { number: c.number }),
+      action: t("confirm.delete"),
+    });
+    if (yes) remove.mutate();
+  };
 
   return (
     <form
@@ -1134,6 +1197,12 @@ function CaseEditForm({
         </div>
       )}
       {errors.general ? <ErrorAlert error={errors.general} /> : null}
+      {keptBecause && (
+        <div className="alert alert-error" role="alert">
+          {t("errors.case_has_history")}
+        </div>
+      )}
+      {remove.isError && <ErrorAlert error={remove.error} />}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
           {t("common.save")}
@@ -1141,6 +1210,16 @@ function CaseEditForm({
         <button type="button" className="btn btn-sm" onClick={onDone}>
           {t("common.cancel")}
         </button>
+        {me.data?.role === "specialist" && (
+          <button
+            type="button"
+            className="btn btn-sm btn-danger"
+            disabled={remove.isPending}
+            onClick={() => void askToDelete()}
+          >
+            {t("cases.delete")}
+          </button>
+        )}
       </div>
     </form>
   );

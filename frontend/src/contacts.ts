@@ -54,6 +54,17 @@ export type Relation = { related_id: string; full_name: string; label: string | 
 export const DECISIONS = ["yes", "no", "thinking"] as const;
 export type Decision = (typeof DECISIONS)[number];
 
+/** A case opened from a consultation, whoever it is for: the daughter came, the case is
+ * her father's (pilot remark 1.15.1). */
+export type OpenedCase = {
+  id: string;
+  number: number;
+  contact_id: string;
+  full_name: string;
+  stage: CaseStage;
+  outcome: Outcome | null;
+};
+
 export type Consultation = {
   id: string;
   contact_id: string;
@@ -71,6 +82,8 @@ export type Consultation = {
   fee_paid_on: string | null;
   notes: string | null;
   created_at: string;
+  /** Cases opened from it; empty without the «cases» module. */
+  cases: OpenedCase[];
 };
 
 export const VISA_KINDS = ["schengen", "national", "uk", "usa", "asia", "other"] as const;
@@ -217,6 +230,10 @@ export type VisaCase = {
   attempts: Attempt[];
   average_wait_days: number | null;
   bookings: Booking[];
+  /** Nothing keeps the specialist from deleting it as a duplicate. */
+  deletable: boolean;
+  /** The consultation it was opened from was with another person. */
+  consulted_by: { contact_id: string; full_name: string; held_on: string } | null;
 };
 
 export const BOOKING_KINDS = ["hotel", "flight"] as const;
@@ -320,7 +337,12 @@ export type ContactRow = ContactListItem & {
   tab: Exclude<Tab, "all">;
   case: CaseBrief | null;
   cases_in_work: number;
-  consultation: { held_on: string; decision: Decision | null; destination_ids: string[] } | null;
+  consultation: {
+    held_on: string;
+    decision: Decision | null;
+    destination_ids: string[];
+    cases: OpenedCase[];
+  } | null;
 };
 
 export type SearchPage = { items: ContactRow[]; has_more: boolean; counts: Record<Tab, number> };

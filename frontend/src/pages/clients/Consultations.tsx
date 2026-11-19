@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { PURPOSE_KINDS } from "../../checklists";
 import { Field, invalidProps, RowError, useFieldErrors } from "../../components/Field";
@@ -16,12 +17,14 @@ import {
   type ContactCard,
   type Decision,
   type Hint,
+  type OpenedCase,
   type Questionnaire,
   type Refusal,
   type VisaRecord,
 } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { useWorkspace } from "../../workspace";
+import { CaseChip } from "./Cases";
 import { useMoney } from "./Finance";
 import { useSortedCountries } from "./ui";
 
@@ -221,6 +224,7 @@ export function Consultations({
                   .join(" · ")}
               </div>
               {c.notes && <p className="note-body">{c.notes}</p>}
+              {c.cases.length > 0 && <OpenedCases cases={c.cases} />}
             </div>
             <div className="actions">
               {onCreateCase && c.decision !== "no" && (
@@ -236,6 +240,25 @@ export function Consultations({
         ))}
       </ul>
     </section>
+  );
+}
+
+/** Where the consultation led: after «Создать кейс» the card shows the cases opened from
+ * it, a relative's too — the daughter came, the case is her father's (pilot remark
+ * 1.15.1). Without it the card looked as if no case had been opened. */
+function OpenedCases({ cases }: { cases: OpenedCase[] }) {
+  const { t } = useTranslation();
+  return (
+    <div className="opened-cases">
+      <span className="muted small">{t("contacts.openedCases", { count: cases.length })}</span>
+      {cases.map((c) => (
+        <span key={c.id} className="opened-case">
+          <Link to={`/app/clients/${c.contact_id}`}>{c.full_name}</Link>
+          <span className="muted small">{t("cases.number", { number: c.number })}</span>
+          <CaseChip stage={c.stage} outcome={c.outcome} />
+        </span>
+      ))}
+    </div>
   );
 }
 

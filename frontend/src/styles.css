@@ -2839,6 +2839,32 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   color: var(--c-orange);
 }
 
+/* The cases a consultation led to, under it on the client's card (pilot 1.15.1). */
+.opened-cases {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+
+.opened-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* «The client already has this case» above the new case form's buttons (pilot 1.15.1). */
+.case-exists {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.case-exists p {
+  margin: 0;
+}
+
 .warn-text {
   color: var(--c-orange);
 }

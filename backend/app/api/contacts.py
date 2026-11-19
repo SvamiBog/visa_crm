@@ -28,7 +28,14 @@ from app.api.client_status import (
     sort_contacts,
     tab_of,
 )
-from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
+from app.api.consultations import (
+    ConsultationOut,
+    HintOut,
+    OpenedCase,
+    consultations_of,
+    hints_for,
+    opened_cases,
+)
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.core.audit import record
@@ -204,6 +211,9 @@ class ConsultationBrief(BaseModel):
     held_on: date
     decision: Decision | None
     destination_ids: list[uuid.UUID]
+    # Cases opened from it, with the «cases» module: a row without a case of its own
+    # names the case it led to (the daughter came, the case is her father's).
+    cases: list[OpenedCase] = []
 
 
 class ContactRow(ContactListItem):
@@ -403,7 +413,7 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
         contact=ContactOut.model_validate(contact),
         notes=await _notes(session, contact.id),
         relations=await _relations(session, contact.id),
-        consultations=await consultations_of(session, contact.id),
+        consultations=await consultations_of(session, contact.id, with_cases),
         questionnaire=Questionnaire.model_validate(contact.questionnaire),
         hints=await hints_for(session, contact),
         cases=await cases_of(session, contact.id) if with_cases else None,
@@ -504,7 +514,9 @@ async def _rows(
     }
     cases: dict[uuid.UUID, list[VisaCase]] = {}
     group_sizes: dict[uuid.UUID, int] = {}
+    opened: dict[uuid.UUID, list[OpenedCase]] = {}
     if with_cases:
+        opened = await opened_cases(session, [c.id for c in latest.values()])
         for visa_case in await session.scalars(
             select(VisaCase).where(VisaCase.contact_id.in_(ids)).order_by(VisaCase.number.desc())
         ):
@@ -529,6 +541,7 @@ async def _rows(
                 held_on=consultation.held_on,
                 decision=consultation.decision,
                 destination_ids=consultation.destination_ids,
+                cases=opened.get(consultation.id, []),
             )
         own = cases.get(contact.id, [])
         in_work = [c for c in own if c.stage != CaseStage.RESULT]

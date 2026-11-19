@@ -21,6 +21,7 @@ from app.core.money import Amount, Currency
 from app.core.questionnaire import Questionnaire, Refusal
 from app.models import (
     AuditAction,
+    CaseStage,
     Consultation,
     Contact,
     Country,
@@ -76,6 +77,18 @@ class ConsultationUpdate(BaseModel):
     notes: Annotated[str, Field(max_length=5000)] | None = None
 
 
+class OpenedCase(BaseModel):
+    """A case opened from a consultation, whoever it is for: the daughter came, the case
+    is her father's (pilot remark 1.15.1)."""
+
+    id: uuid.UUID
+    number: int
+    contact_id: uuid.UUID
+    full_name: str
+    stage: CaseStage
+    outcome: VisaOutcome | None
+
+
 class ConsultationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -94,6 +107,8 @@ class ConsultationOut(BaseModel):
     fee_paid_on: date | None
     notes: str | None
     created_at: datetime
+    # Cases opened from it; empty without the «cases» module.
+    cases: list[OpenedCase] = []
 
     @computed_field
     @property
@@ -161,13 +176,53 @@ async def _check_currency(session: AsyncSession, user: CurrentUser, currency: st
 # --- Read helpers for the contact card (app/api/contacts.py) --------------------------
 
 
-async def consultations_of(session: AsyncSession, contact_id: uuid.UUID) -> list[ConsultationOut]:
-    rows = await session.scalars(
-        select(Consultation)
-        .where(Consultation.contact_id == contact_id)
-        .order_by(Consultation.held_on.desc(), Consultation.created_at.desc())
+async def consultations_of(
+    session: AsyncSession, contact_id: uuid.UUID, with_cases: bool = False
+) -> list[ConsultationOut]:
+    """The card's consultations, newest first, each with the cases opened from it when
+    the user has the «cases» module."""
+    consultations = [
+        ConsultationOut.model_validate(c)
+        for c in await session.scalars(
+            select(Consultation)
+            .where(Consultation.contact_id == contact_id)
+            .order_by(Consultation.held_on.desc(), Consultation.created_at.desc())
+        )
+    ]
+    if with_cases:
+        opened = await opened_cases(session, [c.id for c in consultations])
+        for consultation in consultations:
+            consultation.cases = opened.get(consultation.id, [])
+    return consultations
+
+
+async def opened_cases(
+    session: AsyncSession, consultation_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[OpenedCase]]:
+    """Cases opened from these consultations by number. An employee sees only the cases
+    given to them (RLS, migration 0031)."""
+    if not consultation_ids:
+        return {}
+    rows = await session.execute(
+        select(VisaCase, Contact.full_name)
+        .join(Contact, Contact.id == VisaCase.contact_id)
+        .where(VisaCase.consultation_id.in_(consultation_ids))
+        .order_by(VisaCase.number)
     )
-    return [ConsultationOut.model_validate(c) for c in rows]
+    opened: dict[uuid.UUID, list[OpenedCase]] = {}
+    for case, name in rows:
+        assert case.consultation_id is not None
+        opened.setdefault(case.consultation_id, []).append(
+            OpenedCase(
+                id=case.id,
+                number=case.number,
+                contact_id=case.contact_id,
+                full_name=name,
+                stage=case.stage,
+                outcome=case.outcome,
+            )
+        )
+    return opened
 
 
 async def hints_for(session: AsyncSession, contact: Contact) -> list[HintOut]:

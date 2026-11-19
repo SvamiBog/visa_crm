@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.core.db import scope_to_tenant
 from app.models import VisaCase
 from tests.helpers import MakeUser, give_cases, login, workspace_today
+from tests.test_templates import turn_on, upload
 
 CONTACTS = "/api/contacts"
 
@@ -34,7 +35,9 @@ async def new_contact(client: AsyncClient, **fields) -> dict:
     return response.json()
 
 
-async def open_case(client: AsyncClient, contact_id: str, destination="PL", **fields):
+async def open_case(
+    client: AsyncClient, contact_id: str, destination="PL", allow_duplicate=False, **fields
+):
     codes = await countries(client)
     body = {
         "destination_id": codes[destination],
@@ -42,7 +45,8 @@ async def open_case(client: AsyncClient, contact_id: str, destination="PL", **fi
         "applicants": [{"contact_id": contact_id}],
         **fields,
     }
-    return await client.post(f"{CONTACTS}/{contact_id}/cases", json=body)
+    params = {"allow_duplicate": "true"} if allow_duplicate else {}
+    return await client.post(f"{CONTACTS}/{contact_id}/cases", json=body, params=params)
 
 
 async def card(client: AsyncClient, contact_id: str) -> dict:
@@ -698,3 +702,197 @@ async def test_a_case_filed_again_is_linked_to_the_previous_one(
         },
     )
     assert unknown.status_code == 404
+
+
+# --- A duplicate case (pilot remark 1.15.1, owner's decision 2026-11-19) -------------
+
+
+async def test_an_empty_duplicate_case_can_be_deleted(client: AsyncClient, make_user: MakeUser):
+    """A case opened twice by mistake goes, with its package marks; the log keeps the
+    fact by id and number."""
+    await as_specialist(client, make_user)
+    anna = await new_contact(client)
+    [kept] = (await open_case(client, anna["id"])).json()
+    [duplicate] = (await open_case(client, anna["id"], allow_duplicate=True)).json()
+    assert [c["deletable"] for c in (await card(client, anna["id"]))["cases"]] == [True, True]
+
+    deleted = await client.delete(f"/api/cases/{duplicate['id']}")
+    assert deleted.status_code == 204, deleted.text
+    assert (await client.get(f"/api/cases/{duplicate['id']}")).status_code == 404
+    assert [c["id"] for c in (await card(client, anna["id"]))["cases"]] == [kept["id"]]
+    events = (await client.get("/api/audit")).json()["events"]
+    [event] = [e for e in events if e["action"] == "cases.deleted"]
+    assert event["target_id"] == duplicate["id"]
+    assert event["details"] == {"contact": anna["id"], "number": duplicate["number"]}
+
+
+async def test_a_case_with_history_is_not_deleted(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Money, a queue, an application, a booking, a vault account, a template given for it
+    or a result keep the case: those are the client's history, not a mistake."""
+    tenant_id = await as_specialist(client, make_user)
+    await turn_on(owner_engine, tenant_id)
+    anna = await new_contact(client)
+    today = workspace_today()
+
+    async def fresh(destination="PL") -> str:
+        response = await open_case(client, anna["id"], destination, allow_duplicate=True)
+        assert response.status_code == 201, response.text
+        return response.json()[0]["id"]
+
+    mail = (
+        await client.post(
+            "/api/dictionaries/vault-systems", json={"name": "Почта", "kind": "email"}
+        )
+    ).json()
+    template = (await upload(client)).json()
+    makers = {
+        "payment": lambda c: client.post(
+            f"/api/cases/{c}/payments",
+            json={"paid_on": today.isoformat(), "amount": "100", "currency": "BYN"},
+        ),
+        "expense": lambda c: client.post(
+            f"/api/cases/{c}/expenses",
+            json={
+                "spent_on": today.isoformat(),
+                "amount": "10",
+                "currency": "BYN",
+                "description": "Справка",
+            },
+        ),
+        "talon": lambda c: client.patch(
+            f"/api/cases/{c}/finance",
+            json={"registrar_fee_amount": "60", "registrar_fee_currency": "BYN"},
+        ),
+        "partner payout": lambda c: client.patch(
+            f"/api/cases/{c}/finance",
+            json={
+                "price": "500",
+                "partner_terms": "percent",
+                "partner_percent": "10",
+                "partner_paid_on": today.isoformat(),
+            },
+        ),
+        "queue": lambda c: client.post(
+            f"/api/cases/{c}/queue", json={"queued_on": today.isoformat()}
+        ),
+        "booking": lambda c: client.post(
+            f"/api/cases/{c}/bookings",
+            json={
+                "kind": "hotel",
+                "place": "Отель",
+                "starts_on": (today + timedelta(days=40)).isoformat(),
+                "ends_on": (today + timedelta(days=44)).isoformat(),
+            },
+        ),
+        "vault": lambda c: client.post(
+            "/api/vault/entries",
+            json={"system_id": mail["id"], "contact_id": anna["id"], "login": "x", "case_id": c},
+        ),
+        "template": lambda c: client.post(
+            f"{CONTACTS}/{anna['id']}/templates",
+            json={"template_id": template["id"], "case_id": c},
+        ),
+        "result": lambda c: client.patch(f"/api/cases/{c}", json={"outcome": "not_submitted"}),
+    }
+    cases = {}
+    for what, make in makers.items():
+        cases[what] = await fresh()
+        response = await make(cases[what])
+        assert response.status_code in (200, 201), (what, response.text)
+    cases["application"] = await fresh("FR")
+    sent = await client.post(
+        f"/api/cases/{cases['application']}/attempts", json={"sent_on": today.isoformat()}
+    )
+    assert sent.status_code == 201, sent.text
+
+    shown = {c["id"]: c["deletable"] for c in (await card(client, anna["id"]))["cases"]}
+    for what, case_id in cases.items():
+        assert shown[case_id] is False, what
+        response = await client.delete(f"/api/cases/{case_id}")
+        assert response.status_code == 409, what
+        assert response.json()["detail"] == "case_has_history"
+        assert (await client.get(f"/api/cases/{case_id}")).status_code == 200
+
+
+async def test_a_deleted_case_leaves_its_group(client: AsyncClient, make_user: MakeUser):
+    """The rest of the family stays grouped; a group left with one case is dissolved."""
+    await as_specialist(client, make_user)
+    anna, sergey, maria = await family_of_three(client)
+    assert (await client.delete(f"/api/cases/{maria['id']}")).status_code == 204
+    shown = (await client.get(f"/api/cases/{anna['id']}")).json()
+    assert [m["case_id"] for m in shown["group"]] == [sergey["id"]]
+
+    assert (await client.delete(f"/api/cases/{sergey['id']}")).status_code == 204
+    alone = (await client.get(f"/api/cases/{anna['id']}")).json()
+    assert alone["group_id"] is None and alone["group"] == []
+
+
+async def test_only_the_specialist_deletes_a_case(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant_id = await as_specialist(client, make_user)
+    contact = await new_contact(client)
+    [case] = (await open_case(client, contact["id"])).json()
+    client.cookies.clear()
+
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE users SET modules = '{clients,cases}' WHERE email = 'olga@example.com'")
+        )
+    await give_cases(owner_engine, "olga@example.com", case["id"])
+    await login(client, "olga@example.com")
+    response = await client.delete(f"/api/cases/{case['id']}")
+    assert response.status_code == 403 and response.json()["detail"] == "forbidden"
+    client.cookies.clear()
+
+    await as_specialist(client, make_user, "bella@example.com")
+    assert (await client.delete(f"/api/cases/{case['id']}")).status_code == 404
+    client.cookies.clear()
+    await login(client, "anna@example.com")
+    assert (await client.get(f"/api/cases/{case['id']}")).status_code == 200
+
+
+async def test_a_second_case_to_the_same_country_is_asked_about(
+    client: AsyncClient, make_user: MakeUser
+):
+    """A case in work to the same country is most likely the one opened a minute ago: the
+    form names it and offers to create anyway."""
+    await as_specialist(client, make_user)
+    anna = await new_contact(client)
+    [first] = (await open_case(client, anna["id"])).json()
+
+    again = await open_case(client, anna["id"])
+    assert again.status_code == 409
+    assert again.json() == {
+        "detail": "case_exists",
+        "case_id": first["id"],
+        "contact_id": anna["id"],
+        "number": first["number"],
+    }
+    assert [c["id"] for c in (await card(client, anna["id"]))["cases"]] == [first["id"]]
+    # Another country, a new person by name, or «create anyway» go through.
+    assert (await open_case(client, anna["id"], destination="LT")).status_code == 201
+    codes = await countries(client)
+    with_family = await client.post(
+        f"{CONTACTS}/{anna['id']}/cases",
+        json={
+            "destination_id": codes["LT"],
+            "submission_country_id": codes["BY"],
+            "applicants": [{"first_name": "Сергей"}],
+        },
+    )
+    assert with_family.status_code == 201, with_family.text
+    assert (await open_case(client, anna["id"], allow_duplicate=True)).status_code == 201
+
+
+async def test_a_finished_case_does_not_block_a_new_one(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    anna = await new_contact(client)
+    [refused] = (await open_case(client, anna["id"])).json()
+    await client.patch(
+        f"/api/cases/{refused['id']}", json={"outcome": "refusal", "decided_on": "2026-10-01"}
+    )
+    assert (await open_case(client, anna["id"])).status_code == 201

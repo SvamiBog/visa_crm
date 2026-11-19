@@ -497,6 +497,24 @@ function RowStage({ row }: { row: ContactRow }) {
       </span>
     );
   }
+  // The daughter came, the case is her father's (pilot remark 1.15.1): her row names his
+  // case instead of «yes, no case yet».
+  const [opened, ...more] = row.consultation?.cases ?? [];
+  if (opened) {
+    return (
+      <span className="stage-cell">
+        <CaseChip stage={opened.stage} outcome={opened.outcome} />
+        <span className="small">
+          <Link to={`/app/clients/${opened.contact_id}`} state={FROM_INDEX}>
+            {t("index.caseOf", { number: opened.number, name: opened.full_name })}
+          </Link>
+          {more.length > 0 && (
+            <span className="muted"> {t("index.moreCases", { count: more.length })}</span>
+          )}
+        </span>
+      </span>
+    );
+  }
   const decision = row.consultation?.decision;
   if (!row.consultation) return <span className="chip st-gray">{t("index.newContact")}</span>;
   if (decision === "thinking") return <span className="chip st-orange">{t("contacts.decision.thinking")}</span>;
