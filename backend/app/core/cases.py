@@ -4,11 +4,29 @@ the API applies them to a case after a change.
 
 from collections.abc import Mapping
 from datetime import date, timedelta
+from enum import StrEnum
 from typing import Any
 
+from app.core.consultation_checks import add_months
 from app.models.visa_case import CaseStage, VisaOutcome
 
 VISA_DETAILS = ("visa_entries", "visa_valid_from", "visa_valid_to", "stay_days")
+
+
+class ResultPeriod(StrEnum):
+    """Which decisions the «Результат» column of the board shows (owner's request
+    2026-11-19, docs/decisions.md → «Период колонки «Результат»»): the last month, half a
+    year or year, all of them, or the specialist's own dates."""
+
+    MONTH = "month"
+    HALF_YEAR = "half_year"
+    YEAR = "year"
+    ALL = "all"
+    DATES = "dates"
+
+
+# How far back each quick choice reaches, in calendar months.
+RESULT_PERIOD_MONTHS = {ResultPeriod.MONTH: 1, ResultPeriod.HALF_YEAR: 6, ResultPeriod.YEAR: 12}
 
 # What a submission group has in common (owner's decision 2026-11-15, docs/decisions.md →
 # «Правка группы подачи»); the result, the questionnaire received and money are each
@@ -106,3 +124,15 @@ def appeal_until(
     if deadline_days is None:
         return None
     return decided_on + timedelta(days=deadline_days)
+
+
+def result_window(
+    period: ResultPeriod, today: date, start: date | None = None, end: date | None = None
+) -> tuple[date | None, date | None]:
+    """First and last day of decision the «Результат» column shows; None leaves that end
+    open. `start` and `end` are the specialist's own dates, taken only with `DATES`."""
+    if period == ResultPeriod.DATES:
+        return start, end
+    if period == ResultPeriod.ALL:
+        return None, None
+    return add_months(today, -RESULT_PERIOD_MONTHS[period]), None

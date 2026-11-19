@@ -2320,18 +2320,56 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   font-weight: 600;
 }
 
-/* How far back «Результат» reaches: a quiet picker under the column's title */
+/* Which decisions «Результат» shows: a row above the board, own dates after it */
 .board-period {
-  align-self: flex-start;
-  min-height: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 4px 0 12px;
+}
+
+.board-period-label {
+  font-size: 14px;
+  color: var(--c-muted);
+}
+
+.board-period .view-switch {
   max-width: 100%;
-  padding: 0 8px;
-  border: 1px solid var(--c-field-border);
-  border-radius: var(--radius-sm);
-  background: var(--c-surface);
-  font: inherit;
-  font-size: 13px;
-  color: inherit;
+}
+
+.board-dates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+/* «С» and «По» stand before their fields, as the row's own words */
+.board-date {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 400;
+  color: var(--c-muted);
+}
+
+.board-date input {
+  color: var(--c-text);
+}
+
+/* A phone: the label above, the five choices share the width */
+@media (max-width: 520px) {
+  .board-period .view-switch {
+    display: flex;
+    width: 100%;
+  }
+
+  .board-period .view-switch button {
+    flex: 1 1 auto;
+    padding: 0 6px;
+    font-size: 14px;
+  }
 }
 
 .board-card {

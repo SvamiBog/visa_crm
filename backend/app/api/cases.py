@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Date, any_, cast, func, or_, select, text, true, tuple_
+from sqlalchemy import Date, and_, any_, cast, func, or_, select, text, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.appointments import AttemptOut, QueueEntryOut, appointments_of, average_waits
@@ -23,11 +23,13 @@ from app.core.audit import record
 from app.core.cases import (
     PLACE_FIELDS,
     VISA_DETAILS,
+    ResultPeriod,
     advance,
     appeal_until,
     by_dates,
     cleared_by_outcome,
     for_group_member,
+    result_window,
 )
 from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
@@ -63,11 +65,9 @@ Member = Annotated[CurrentUser, Depends(require_module("cases"))]
 
 MAX_APPLICANTS = 30
 EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-# Board (backlog 1.5): results stay in the «Результат» column for a month unless the
-# specialist picks a longer period (up to a year), leads in the «Консультация» column for
-# three months after their latest consultation.
-RECENT_RESULT_DAYS = 30
-MAX_RESULT_DAYS = 366
+# Board (backlog 1.5): the «Результат» column shows the decisions of the period the
+# specialist picks (app/core/cases.py → result_window, a month by default), the
+# «Консультация» column leads of three months after their latest consultation.
 RECENT_LEAD_DAYS = 90
 BOARD_LIMIT = 500
 
@@ -563,22 +563,29 @@ async def board(
     country_id: Annotated[uuid.UUID | None, Query()] = None,
     channel_id: Annotated[uuid.UUID | None, Query()] = None,
     registrar_id: Annotated[uuid.UUID | None, Query()] = None,
-    result_days: Annotated[int, Query(ge=1, le=MAX_RESULT_DAYS)] = RECENT_RESULT_DAYS,
+    result_period: Annotated[ResultPeriod, Query()] = ResultPeriod.MONTH,
+    result_from: Annotated[Day | None, Query()] = None,
+    result_to: Annotated[Day | None, Query()] = None,
 ) -> Board:
-    """Kanban of the client index: cases in work by stage, results of the last
-    `result_days` days (a month by default), and clients after a consultation without a
-    case in work."""
+    """Kanban of the client index: cases in work by stage, results decided in
+    `result_period` (a month by default; with `dates`, from `result_from` to `result_to`,
+    both days included, either end open), and clients after a consultation without a case
+    in work."""
+    if result_from is not None and result_to is not None and result_from > result_to:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "dates_order")
     today = await workspace_today(session, user.tenant_id)
+    first, last = result_window(result_period, today, result_from, result_to)
     decided = func.coalesce(VisaCase.decided_on, cast(VisaCase.updated_at, Date))
+    shown = []
+    if first is not None:
+        shown.append(decided >= first)
+    if last is not None:
+        shown.append(decided <= last)
+    is_result = VisaCase.stage == CaseStage.RESULT
     query = (
         select(VisaCase, Contact.full_name)
         .join(Contact, Contact.id == VisaCase.contact_id)
-        .where(
-            or_(
-                VisaCase.stage != CaseStage.RESULT,
-                decided >= today - timedelta(days=result_days),
-            )
-        )
+        .where(or_(~is_result, and_(true(), *shown)))
     )
     if country_id is not None:
         query = query.where(VisaCase.destination_id == country_id)
@@ -586,7 +593,11 @@ async def board(
         query = query.where(Contact.lead_channel_id == channel_id)
     if registrar_id is not None:
         query = query.where(VisaCase.registrar_id == registrar_id)
-    rows = await session.execute(query.order_by(VisaCase.number.desc()).limit(BOARD_LIMIT))
+    # Cases in work first: however many results the period holds, they never push a case
+    # in work off the board.
+    rows = await session.execute(
+        query.order_by(is_result, VisaCase.number.desc()).limit(BOARD_LIMIT)
+    )
     cases = [
         BoardCase(
             id=c.id,
