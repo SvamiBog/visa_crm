@@ -20,6 +20,7 @@ import {
   HALLS,
   OUTCOMES,
   VISA_ENTRIES,
+  contactKey,
   formatDate,
   useCaseLists,
   type CaseStage,
@@ -112,6 +113,19 @@ function useRefreshCards() {
     void queryClient.invalidateQueries({ queryKey: ["reminders"] });
     void queryClient.invalidateQueries({ queryKey: ["home"] });
   };
+}
+
+/** Puts a saved case into its client's card at once, before the card is fetched again: a
+ * form opened in between starts from what was saved, not from the case before the save,
+ * and saving that form again would undo the change (a result wiped, pilot T4 review). */
+function usePutCase() {
+  const queryClient = useQueryClient();
+  return (saved: VisaCase) =>
+    queryClient.setQueryData<ContactCard>(contactKey(saved.contact_id), (card) =>
+      card?.cases
+        ? { ...card, cases: card.cases.map((c) => (c.id === saved.id ? saved : c)) }
+        : card,
+    );
 }
 
 const OUTCOME_CHIP: Record<Outcome, string> = {
@@ -1141,6 +1155,7 @@ function CaseEditForm({
 }) {
   const { t } = useTranslation();
   const refresh = useRefreshCards();
+  const putCase = usePutCase();
   const caseName = useCaseName();
   const titleId = useId();
   const resultRef = useRef<HTMLFieldSetElement>(null);
@@ -1215,7 +1230,8 @@ function CaseEditForm({
         questionnaire_due_on: questionnaireDue || null,
         questionnaire_received_on: questionnaireReceived || null,
       }),
-    onSuccess: () => {
+    onSuccess: (saved) => {
+      putCase(saved);
       void refresh();
       onDone();
     },
