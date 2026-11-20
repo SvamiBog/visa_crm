@@ -36,6 +36,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.cases import (
     PLACE_FIELDS,
+    RESULT_FIELDS,
     VISA_DETAILS,
     ResultPeriod,
     advance,
@@ -172,6 +173,9 @@ class CaseUpdate(BaseModel):
     # The same change for the rest of the group, apart from the result (owner's decision
     # 2026-11-15, app/core/cases.py → for_group_member).
     apply_to_group: bool = False
+    # The result entered or changed here goes into the group's cases without a result
+    # (pilot fix 7, owner's decision 2026-11-19); cases with a result are left alone.
+    result_to_group: bool = False
 
     @field_validator("vac_number", "application_email", mode="before")
     @classmethod
@@ -189,6 +193,9 @@ class GroupMember(BaseModel):
     full_name: str
     destination_id: uuid.UUID
     stage: CaseStage
+    # The member's own result: the case form offers the same result only to those
+    # without one (pilot fix 7).
+    outcome: VisaOutcome | None = None
 
 
 class CaseSource(BaseModel):
@@ -392,6 +399,7 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
                     full_name=name,
                     destination_id=member.destination_id,
                     stage=member.stage,
+                    outcome=member.outcome,
                 )
             )
     pairs = {(c.destination_id, c.submission_country_id) for c in cases}
@@ -809,7 +817,9 @@ async def update_case(
 ) -> CaseOut:
     case = await _case(session, case_id)
     await _open_card_of(session, user, case)
-    changes = body.model_dump(exclude_unset=True, exclude={"fill_group", "apply_to_group"})
+    changes = body.model_dump(
+        exclude_unset=True, exclude={"fill_group", "apply_to_group", "result_to_group"}
+    )
     for required in ("destination_id", "submission_country_id", "stage", "after_appeal"):
         if changes.get(required, ...) is None:
             changes.pop(required)  # null means «leave as is» for required fields
@@ -862,8 +872,17 @@ async def update_case(
         _audit(session, AuditAction.CASE_UPDATED, user, case, {"fields": ",".join(changed)})
     if body.fill_group and case.group_id is not None:
         await _fill_group(session, user, case)
-    if body.apply_to_group and case.group_id is not None and changed:
-        await _apply_to_group(session, user, case, {f: changes[f] for f in changed}, stage_before)
+    shared = {f: changes[f] for f in changed} if body.apply_to_group else {}
+    # Only a result entered or changed here goes on: the form sent again copies nothing.
+    result = (
+        {f: getattr(case, f) for f in RESULT_FIELDS}
+        if body.result_to_group
+        and case.outcome is not None
+        and any(f in RESULT_FIELDS for f in changed)
+        else None
+    )
+    if case.group_id is not None and (shared or result):
+        await _apply_to_group(session, user, case, shared, stage_before, result)
     await session.commit()
     return await _one_out(session, case)
 
@@ -874,16 +893,19 @@ async def _apply_to_group(
     case: VisaCase,
     changed: dict[str, Any],
     stage_before: CaseStage,
+    result: dict[str, Any] | None,
 ) -> None:
     """The family is filed together: what the case changed goes to the rest of its group,
-    apart from the result (owner's decision 2026-11-15). The place is the case's, already
-    checked, so the members need no check of their own."""
+    apart from the result (owner's decision 2026-11-15), and the result goes into the
+    cases without one when asked (pilot fix 7). The place and the result are the case's,
+    already checked, so the members need no check of their own. Only the cases the user
+    sees are read, so an employee reaches only those (`employee_scope`)."""
     place = {f: getattr(case, f) for f in PLACE_FIELDS}
     members = await session.scalars(
         select(VisaCase).where(VisaCase.group_id == case.group_id, VisaCase.id != case.id)
     )
     for member in members:
-        taken = for_group_member(changed, place, stage_before, member.stage, member.outcome)
+        taken = for_group_member(changed, place, stage_before, member.stage, member.outcome, result)
         fields = sorted(f for f, v in taken.items() if getattr(member, f) != v)
         for field in fields:
             setattr(member, field, taken[field])
@@ -937,6 +959,7 @@ async def group_candidates(case_id: uuid.UUID, session: TenantSession) -> list[G
             full_name=name,
             destination_id=c.destination_id,
             stage=c.stage,
+            outcome=c.outcome,
         )
         for c, name in rows
     ]

@@ -173,6 +173,8 @@ export type GroupMember = {
   full_name: string;
   destination_id: string;
   stage: CaseStage;
+  // The member's own result: the same result is offered only to those without one.
+  outcome: Outcome | null;
 };
 
 export const EMAIL_OWNERS = ["client", "specialist", "specialist_backup", "registrar"] as const;

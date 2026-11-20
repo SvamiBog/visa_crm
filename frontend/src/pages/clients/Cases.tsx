@@ -1022,6 +1022,10 @@ function CaseEditForm({
   // A family is filed together: the edit goes to the whole group, apart from the result.
   const [applyToGroup, setApplyToGroup] = useState(c.group.length > 0);
   const groupHint = useId();
+  // A family usually gets the same result: it goes into the cases still without one.
+  const [resultToGroup, setResultToGroup] = useState(true);
+  const resultGroupHint = useId();
+  const withoutResult = c.group.filter((m) => m.outcome === null);
   const [questionnaireDue, setQuestionnaireDue] = useState(c.questionnaire_due_on ?? "");
   const [questionnaireReceived, setQuestionnaireReceived] = useState(
     c.questionnaire_received_on ?? "",
@@ -1029,23 +1033,32 @@ function CaseEditForm({
   const numberLabel = useNumberLabel();
   const isVisa = outcome === "visa";
   const decided = outcome === "visa" || outcome === "refusal";
+  const result = {
+    outcome: outcome || null,
+    decided_on: outcome ? decidedOn || null : null,
+    visa_entries: isVisa ? entries || null : null,
+    visa_valid_from: isVisa ? validFrom || null : null,
+    visa_valid_to: isVisa ? validTo || null : null,
+    stay_days: isVisa && stayDays ? Number(stayDays) : null,
+    after_appeal: decided ? afterAppeal : false,
+  };
+  // Offered while a result is being entered or changed: the API copies only that.
+  const resultEdited = (Object.keys(result) as (keyof typeof result)[]).some(
+    (field) => result[field] !== c[field],
+  );
+  const offerResultToGroup = outcome !== "" && resultEdited && withoutResult.length > 0;
 
   const save = useMutation({
     mutationFn: () =>
       apiPatch<VisaCase>(`/cases/${c.id}`, {
         ...placeBody(place),
-        outcome: outcome || null,
-        decided_on: outcome ? decidedOn || null : null,
-        visa_entries: isVisa ? entries || null : null,
-        visa_valid_from: isVisa ? validFrom || null : null,
-        visa_valid_to: isVisa ? validTo || null : null,
-        stay_days: isVisa && stayDays ? Number(stayDays) : null,
-        after_appeal: decided ? afterAppeal : false,
+        ...result,
         vac_number: vacNumber.trim() || null,
         application_email: email.trim() || null,
         application_email_owner: email.trim() ? emailOwner || null : null,
         fill_group: c.group.length > 0 && fillGroup,
         apply_to_group: c.group.length > 0 && applyToGroup,
+        result_to_group: offerResultToGroup && resultToGroup,
         questionnaire_due_on: questionnaireDue || null,
         questionnaire_received_on: questionnaireReceived || null,
       }),
@@ -1234,6 +1247,26 @@ function CaseEditForm({
             />
             <span>{t("cases.afterAppealLabel")}</span>
           </label>
+        )}
+        {offerResultToGroup && (
+          <div>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                aria-describedby={resultGroupHint}
+                checked={resultToGroup}
+                onChange={(e) => setResultToGroup(e.target.checked)}
+              />
+              <span>
+                {t("cases.resultToGroup", {
+                  names: withoutResult.map((m) => m.full_name).join(", "),
+                })}
+              </span>
+            </label>
+            <p id={resultGroupHint} className="muted small">
+              {t("cases.resultToGroupHint")}
+            </p>
+          </div>
         )}
       </fieldset>
       {c.group.length > 0 && (
