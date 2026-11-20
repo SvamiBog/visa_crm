@@ -1836,6 +1836,8 @@
   "directions.copy": "Копировать",
   "directions.copyFor": "Копировать направление: {{country}}",
   "directions.destination": "Страна визы",
+  "directions.takenFrom": "{{country}} уже есть с подачей из стран: {{submissions}}. Выберите другую страну подачи.",
+  "directions.takenEverywhere": "{{country}} уже есть с подачей из всех стран. Новое направление не добавить, измените одно из существующих.",
   "directions.bookingHint.waiting_list": "Клиента ставят в очередь, письмо с датой приходит позже.",
   "directions.bookingHint.windowed_application": "Заявка ждёт письма заданное число дней, потом отправляется заново.",
   "directions.bookingHint.direct_slot": "Слот ловят на сайте визового центра при раздаче.",
