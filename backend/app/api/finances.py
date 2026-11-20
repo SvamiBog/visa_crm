@@ -204,7 +204,8 @@ class Suggestions(BaseModel):
 class FinanceOut(BaseModel):
     case_id: uuid.UUID
     base_currency: str
-    tax_rate: Decimal
+    # None: not set yet; 0: no tax.
+    tax_rate: Decimal | None
     # The price's currency and its rate (base units for one unit).
     currency: str
     rate: Decimal = Decimal("1")

@@ -224,7 +224,7 @@ def _case_day(case: VisaCase) -> date:
 
 
 async def _profits(
-    session: AsyncSession, case_ids: list[uuid.UUID], tax_rate: Decimal
+    session: AsyncSession, case_ids: list[uuid.UUID], tax_rate: Decimal | None
 ) -> dict[uuid.UUID, Decimal]:
     """Profit of each case that has a price, in the base currency (app/core/finance.py)."""
     if not case_ids:

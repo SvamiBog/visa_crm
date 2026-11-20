@@ -26,9 +26,11 @@ from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.base_currency import change_base
 from app.api.deps import CurrentUser, TenantSession, require_specialist, require_tenant_user
 from app.core.audit import record
-from app.core.money import CENT, CURRENCIES, Amount, Currency, Percent
+from app.core.modules import TaxRate
+from app.core.money import CENT, Amount, Currency, Percent, ordered_currencies
 from app.models import (
     AuditAction,
     Country,
@@ -308,17 +310,25 @@ class SystemOut(BaseModel):
 
 
 class MoneyOut(BaseModel):
-    """Currencies and tax. The base currency and the tax rate are set by the admin."""
+    """Currencies and tax. The specialist sets the base currency and the tax rate herself
+    in «Настройки» (pilot T8); the admin may too."""
 
     base_currency: str
     payment_currencies: list[str]
     # Exchange rates: National Bank of the Republic of Belarus on the payment date.
     rate_source: Literal["nbrb"] = "nbrb"
-    tax_rate: Decimal
+    # None: not set yet; 0: no tax.
+    tax_rate: Decimal | None
 
 
 class MoneyUpdate(BaseModel):
-    payment_currencies: list[Currency] = Field(min_length=1)
+    """Only the fields sent are changed. The base currency is one she accepts; a new one
+    counts again what is kept in the base currency (app/core/base_currency.py). The tax
+    rate: null — not set, 0 — no tax."""
+
+    payment_currencies: list[Currency] | None = Field(default=None, min_length=1)
+    base_currency: Currency | None = None
+    tax_rate: TaxRate | None = None
 
 
 # --- Helpers -------------------------------------------------------------------------
@@ -668,15 +678,10 @@ async def replace_prepayments(
 # --- Currencies and tax --------------------------------------------------------------
 
 
-def _ordered_currencies(base: str, chosen: list[str]) -> list[str]:
-    """The base currency first (payments in it are always possible), then the rest."""
-    return [base] + [c for c in CURRENCIES if c in chosen and c != base]
-
-
 def _money(tenant: Tenant) -> MoneyOut:
     return MoneyOut(
         base_currency=tenant.base_currency,
-        payment_currencies=_ordered_currencies(tenant.base_currency, tenant.payment_currencies),
+        payment_currencies=ordered_currencies(tenant.base_currency, tenant.payment_currencies),
         tax_rate=tenant.tax_rate,
     )
 
@@ -694,8 +699,33 @@ async def get_money(user: Reader, session: TenantSession) -> MoneyOut:
 
 @router.patch("/money")
 async def update_money(body: MoneyUpdate, user: Specialist, session: TenantSession) -> MoneyOut:
-    tenant = await _tenant(session, user)
-    tenant.payment_currencies = _ordered_currencies(tenant.base_currency, body.payment_currencies)
-    _audit(session, AuditAction.REFERENCE_UPDATED, user, "currencies", tenant.id)
+    """The accepted currencies, the tax rate and the base currency. A new base currency
+    counts the amounts kept in it again, in this transaction with one audit record;
+    a rate the site does not have, or an import writing now, changes nothing."""
+    # Locked: two changes of the base currency at once would count the amounts twice.
+    tenant = await session.get(Tenant, user.tenant_id, with_for_update=True, populate_existing=True)
+    assert tenant is not None  # the session dependency already checked the workspace
+    if body.payment_currencies is not None:
+        tenant.payment_currencies = ordered_currencies(
+            tenant.base_currency, body.payment_currencies
+        )
+        _audit(session, AuditAction.REFERENCE_UPDATED, user, "currencies", tenant.id)
+    if "tax_rate" in body.model_fields_set and body.tax_rate != tenant.tax_rate:
+        tenant.tax_rate = body.tax_rate
+        _audit(session, AuditAction.REFERENCE_UPDATED, user, "tax_rate", tenant.id)
+    new = body.base_currency
+    if new is not None and new != tenant.base_currency:
+        if new not in tenant.payment_currencies:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "currency_not_accepted")
+        old = tenant.base_currency
+        recounted = await change_base(session, tenant, new)
+        record(
+            session,
+            AuditAction.BASE_CURRENCY_CHANGED,
+            actor=user,
+            target_type="tenant",
+            target_id=tenant.id,
+            details=recounted.details(old, new),
+        )
     await session.commit()
     return _money(tenant)

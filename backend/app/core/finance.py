@@ -11,13 +11,14 @@ base currency, converted once when entered.
 - Partner payout: a percent of the whole price in the base currency (no deductions), a
   fixed amount, nothing, or not tracked at all («не указывать»: neither counted nor stored).
 - Tax (НПД) = rate × payments marked official, in the base currency; no tax while the
-  workspace has no rate (pilot fix 5).
+  workspace has no rate (pilot fix 5). A rate of 0 is her explicit «no tax» (pilot T8).
 - Profit, in the base currency = price − talon − partner payout − tax − other expenses.
 """
 
 from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from typing import TypeGuard
 
 from app.models import PartnerTermsType
 
@@ -97,9 +98,9 @@ def in_case_currency(paid: Paid, currency: str, rate: Decimal) -> Decimal:
     return paid.amount_base / rate
 
 
-def tax_rate_set(rate: Decimal | None) -> bool:
-    """A rate of 0 is the default of a new workspace: the admin has not set one yet."""
-    return rate is not None and rate > 0
+def tax_rate_set(rate: Decimal | None) -> TypeGuard[Decimal]:
+    """None: the specialist has not set her rate yet; 0 is a rate she chose, no tax."""
+    return rate is not None
 
 
 @dataclass(frozen=True)
@@ -138,9 +139,7 @@ def summarize(
     official = [p.amount_base for p in payments if p.official]
     price_base = None if price is None else to_base(price, rate)
     payout = partner_payout(partner_terms, price_base, partner_percent, partner_fixed)
-    tax_amount = (
-        tax(official, tax_rate) if tax_rate is not None and tax_rate_set(tax_rate) else None
-    )
+    tax_amount = tax(official, tax_rate) if tax_rate_set(tax_rate) else None
     # Rounded once: not payment by payment.
     left = None if price is None else price - consultation_credit - paid
     return Summary(

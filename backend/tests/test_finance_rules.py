@@ -3,6 +3,7 @@ case and the edge cases around it."""
 
 from decimal import Decimal as D
 
+from app.core.base_currency import converted, rebased
 from app.core.finance import (
     Paid,
     balance,
@@ -14,6 +15,7 @@ from app.core.finance import (
     tax_rate_set,
     to_base,
 )
+from app.core.rates import cross_rate
 from app.models import PartnerTermsType
 
 
@@ -146,13 +148,15 @@ def test_her_case_in_base_pln_with_the_price_in_byn():
     assert summary.profit == D("362.44")
 
 
-def test_without_a_tax_rate_the_tax_is_not_set_rather_than_zero():
-    for rate in (None, D("0")):
-        summary = _her_case(base_rate=D("1"), price=D("300"), tax_rate=rate)
-        assert summary.tax is None
-        # Nothing is taken for a tax nobody set.
-        assert summary.profit == D("300.00")
-    assert not tax_rate_set(None) and not tax_rate_set(D("0")) and tax_rate_set(D("10"))
+def test_without_a_tax_rate_the_tax_is_not_set_and_a_rate_of_zero_is_no_tax():
+    # Pilot T8: NULL is «not set» (the case asks for it), 0 is her explicit «no tax».
+    unset = _her_case(base_rate=D("1"), price=D("300"), tax_rate=None)
+    assert unset.tax is None
+    assert unset.profit == D("300.00")  # nothing is taken for a tax nobody set
+    zero = _her_case(base_rate=D("1"), price=D("300"), tax_rate=D("0"))
+    assert zero.tax == D("0.00")
+    assert zero.profit == D("300.00")
+    assert not tax_rate_set(None) and tax_rate_set(D("0")) and tax_rate_set(D("10"))
 
 
 def test_without_a_price_there_is_no_balance_or_profit_never_a_loss():
@@ -223,3 +227,34 @@ def _her_case(*, base_rate: D, price: D | None, tax_rate: D | None):
         tax_rate=tax_rate,
         expenses=[],
     )
+
+
+# The National Bank's rates as the site keeps them: BYN for one unit (pilot T8).
+NBRB = {"USD": D("3.1"), "EUR": D("3.4"), "PLN": D("0.74496")}
+
+
+def test_a_cross_rate_goes_through_byn_to_six_places():
+    assert cross_rate("USD", "BYN", NBRB) == D("3.100000")
+    assert cross_rate("BYN", "PLN", NBRB) == D("1.342354")  # 1 / 0.74496
+    assert cross_rate("USD", "PLN", NBRB) == D("4.161297")  # 3.1 / 0.74496
+    assert cross_rate("PLN", "PLN", NBRB) == D("1")
+    assert cross_rate("BYN", "BYN", {}) == D("1")  # no rate needed
+
+
+def test_a_new_base_keeps_a_rows_own_amount_and_gives_it_the_banks_rate():
+    # From base PLN to base BYN: a payment in USD, one in BYN (now the base), one in PLN.
+    assert rebased(D("100"), "USD", "BYN", NBRB) == (D("3.100000"), D("310.00"))
+    assert rebased(D("150"), "BYN", "BYN", NBRB) == (D("1"), D("150.00"))
+    assert rebased(D("333.33"), "PLN", "BYN", NBRB) == (D("0.744960"), D("248.32"))  # 248.3175
+    # From base BYN to base PLN: the stored rate times the amount, rounded once.
+    assert rebased(D("10.01"), "USD", "PLN", NBRB) == (D("4.161297"), D("41.65"))  # 41.6546
+    assert rebased(D("150"), "BYN", "PLN", NBRB) == (D("1.342354"), D("201.35"))
+
+
+def test_an_amount_kept_in_the_old_base_is_converted_and_rounded_once():
+    assert converted(D("100"), "PLN", "BYN", NBRB) == D("74.50")  # 74.496
+    assert converted(D("300"), "BYN", "PLN", NBRB) == D("402.71")  # 402.7062
+    # Not through a rate rounded to six places first (that would give 1 657 227.15).
+    assert converted(D("1234567.89"), "BYN", "PLN", NBRB) == D("1657227.09")
+    assert converted(D("100"), "PLN", "EUR", NBRB) == D("21.91")  # 100 × 0.74496 / 3.4
+    assert converted(D("55.55"), "EUR", "EUR", NBRB) == D("55.55")

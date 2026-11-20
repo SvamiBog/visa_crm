@@ -423,10 +423,12 @@ async def test_the_price_can_be_named_in_another_accepted_currency(
 async def test_without_a_tax_rate_the_case_says_so_instead_of_zero(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
-    # Pilot fix 5: a workspace whose admin has not set the tax rate yet.
+    # Pilot fix 5: a workspace whose tax rate is not set yet (NULL, pilot T8).
     tenant_id = await as_specialist(client, make_user, owner_engine)
     async with owner_engine.begin() as conn:
-        await conn.execute(text("UPDATE tenants SET tax_rate = 0 WHERE id = :t"), {"t": tenant_id})
+        await conn.execute(
+            text("UPDATE tenants SET tax_rate = NULL WHERE id = :t"), {"t": tenant_id}
+        )
     case = await open_case(client)
     for day in ("2025-04-07", "2025-05-08"):
         finance = (
