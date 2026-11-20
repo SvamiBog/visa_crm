@@ -81,6 +81,8 @@ class ReminderOut(BaseModel):
     # The day it came up, and the day of the event (submission, deadline, birthday…).
     occurs_on: date | None
     due_on: date | None
+    # None: no deadline to count down to (a result not entered — the CRM's guess, owner's
+    # answer 2026-11-20), so it is never «просрочено» and comes after the dated ones.
     days_left: int | None
     # Thinking clients and a follow-up: the day of the consultation; an unsigned contract:
     # the day the case was opened; a balance once in the queue: the day queued; a result
@@ -163,6 +165,8 @@ class _Collector:
         subject: uuid.UUID | None,
         occurs_on: date | None,
         due_on: date | None,
+        *,
+        deadline: bool = True,
         **fields: Any,
     ) -> None:
         self.items.append(
@@ -171,7 +175,7 @@ class _Collector:
                 kind=kind,
                 occurs_on=occurs_on,
                 due_on=due_on,
-                days_left=(due_on - self.today).days if due_on else None,
+                days_left=(due_on - self.today).days if due_on and deadline else None,
                 **fields,
             )
         )
@@ -230,29 +234,16 @@ async def _thinking(
 async def _consultations(
     session: AsyncSession, out: _Collector, s: rules.Settings, contact_id: uuid.UUID | None
 ) -> None:
-    """A consultation ahead, not held yet (no decision); held, the client's latest and
-    still without a decision, for a month after it — unless a day to hear the decision
-    was agreed, which has its own reminder (CRM audit 2026-11-18); and the day agreed at
-    the latest consultation to hear the decision, while there is none or the client
-    still thinks."""
-    later = aliased(Consultation)
+    """A consultation ahead, not held yet (no decision), and the day agreed at the latest
+    consultation to hear the decision, while there is none or the client still thinks.
+    A held consultation without such a day asks for nothing (pilot fix 3, 2026-11-19)."""
     query = (
         select(Consultation, Contact.full_name)
         .join(Contact, Contact.id == Consultation.contact_id)
         .where(
             Consultation.decision.is_(None),
             Consultation.held_on.between(
-                add_months(out.today, -1), out.today + timedelta(days=s.consultation_days)
-            ),
-            or_(
-                Consultation.held_on >= out.today,
-                and_(
-                    Consultation.follow_up_on.is_(None),
-                    ~exists().where(
-                        later.contact_id == Consultation.contact_id,
-                        later.held_on > Consultation.held_on,
-                    ),
-                ),
+                out.today, out.today + timedelta(days=s.consultation_days)
             ),
         )
     )
@@ -268,6 +259,7 @@ async def _consultations(
                 contact_name=name,
             )
 
+    later = aliased(Consultation)
     query = (
         select(Consultation, Contact.full_name)
         .join(Contact, Contact.id == Consultation.contact_id)
@@ -611,7 +603,8 @@ async def _results(
 ) -> None:
     """The submission long past and no result entered (CRM audit 2026-11-18): until the
     result is in. The stage does not matter: a case closed without a result before the
-    rule is caught too."""
+    rule is caught too. The 15 days are a guess, not a deadline: never overdue (owner's
+    answer 2026-11-20)."""
     query = (
         select(VisaCase, Contact.full_name)
         .join(Contact, Contact.id == VisaCase.contact_id)
@@ -629,6 +622,7 @@ async def _results(
                 case.id,
                 day,
                 day,
+                deadline=False,
                 since=case.submission_on,
                 **_case_fields(case, name),
             )

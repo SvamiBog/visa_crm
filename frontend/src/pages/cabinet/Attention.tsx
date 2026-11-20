@@ -185,17 +185,7 @@ function ReminderText({ item: r }: { item: Reminder }) {
     case "result":
       return <>{t("attention.kind.result", { date: date(r.since) })}</>;
     case "consultation":
-      // Held and still without a decision: it asks for one (CRM audit 2026-11-18).
-      return (
-        <>
-          {t(
-            (r.days_left ?? 0) < 0
-              ? "attention.kind.consultation_undecided"
-              : "attention.kind.consultation",
-            { date: date(r.due_on) },
-          )}
-        </>
-      );
+      return <>{t("attention.kind.consultation", { date: date(r.due_on) })}</>;
     case "registrar_advance":
       return (
         <>

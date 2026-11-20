@@ -111,14 +111,13 @@ def test_a_consultation_the_day_before_and_on_the_day():
     assert r.consultation(days(2), TODAY, S) is None  # not yet
 
 
-def test_a_consultation_held_without_a_decision_asks_for_it_for_a_month():
-    """CRM audit 2026-11-18: the reminder no longer goes at the end of the day. From the
-    next day it asks for the decision — a new occurrence, so «Готово» on the day itself
-    does not hide it — and stays a month, like a thinking client."""
-    assert r.consultation(days(-1), TODAY, S) == TODAY
-    assert r.consultation(days(-10), TODAY, S) == days(-9)
-    assert r.consultation(date(2026, 9, 16), TODAY, S) == date(2026, 9, 17)  # a month: still
-    assert r.consultation(date(2026, 9, 15), TODAY, S) is None  # longer ago: gone
+def test_a_held_consultation_brings_no_reminder_of_its_own():
+    """Pilot fix 3 (owner's decision 2026-11-19, cancels part of the CRM audit of
+    2026-11-18): once the day is over the consultation reminder goes. Only a day to hear
+    the decision that the specialist set herself («Связаться») asks for it later."""
+    assert r.consultation(days(-1), TODAY, S) is None
+    assert r.consultation(days(-10), TODAY, S) is None
+    assert r.consultation(date(2026, 9, 16), TODAY, S) is None
 
 
 def test_a_result_not_entered_long_after_the_submission():
