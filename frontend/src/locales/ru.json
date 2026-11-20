@@ -1065,6 +1065,7 @@
   "finance.priceCurrencyHint": "В ней же предоплата, зачёт консультации и остаток. Налог и прибыль — в {{base}}.",
   "finance.taxNotSet": "Налог: ставка не задана",
   "finance.taxNotSetHint": "Ставку налога задаёт администратор платформы. Напишите ему, какая у вас ставка, например НПД 10%.",
+  "finance.paidIn": "{{amount}} {{currency}}",
   "finance.addPayment": "+ Платёж",
   "finance.addExpense": "+ Расход",
   "finance.empty": "Стоимость и платежи ещё не внесены.",

@@ -1062,6 +1062,7 @@
   "finance.priceCurrencyHint": "The prepayment, consultation credit and balance are in it too. Tax and profit are in {{base}}.",
   "finance.taxNotSet": "Tax: no rate set",
   "finance.taxNotSetHint": "The platform admin sets the tax rate. Tell them yours, for example 10% professional income tax.",
+  "finance.paidIn": "{{amount}} {{currency}}",
   "finance.addPayment": "+ Payment",
   "finance.addExpense": "+ Expense",
   "finance.empty": "No price or payments yet.",

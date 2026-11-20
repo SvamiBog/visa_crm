@@ -110,6 +110,12 @@ for (const [lang, width] of [
       await expect(priceRow.locator("td.money-cell")).toHaveText(new RegExp(`800\\s${other}$`));
       const saved = (await (await page.request.get(url)).json()) as Finance;
       expect(saved.currency).toBe(other);
+
+      // A payment in the base currency against a price in another one shows its amount,
+      // not a rate of 1 (the rate is to the base currency).
+      const atOne = t("finance.atRate", { amount: "150", currency: base, rate: "1" });
+      await expect(section.getByRole("row").filter({ hasText: `150 ${base}` }).first()).toBeVisible();
+      await expect(section.getByRole("row").filter({ hasText: atOne })).toHaveCount(0);
     } finally {
       await page.request.delete(`/api/payments/${payment.id}`);
       await page.request.patch(url, {

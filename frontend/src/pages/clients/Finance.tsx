@@ -255,7 +255,7 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                 key={p.id}
                 label={
                   <>
-                    <PaymentLabel payment={p} base={cur} />
+                    <PaymentLabel payment={p} currency={cur} base={base} />
                     <ItemActions
                       onEdit={() => {
                         setPayment(p);
@@ -396,23 +396,33 @@ function MoneyRow({
   );
 }
 
-/** `base`: the currency the row's value is in (the case's); a payment in another one shows
- * its amount and rate. */
-function PaymentLabel({ payment: p, base }: { payment: Payment; base: string }) {
+/** A payment in another currency than the case's (the row's value) shows its own amount;
+ * its rate only when it is not in the base currency, the rate being to the base one. */
+function PaymentLabel({
+  payment: p,
+  currency,
+  base,
+}: {
+  payment: Payment;
+  currency: string;
+  base: string;
+}) {
   const { t, i18n } = useTranslation();
   const money = useMoney();
   const rateText = useRateText();
   return (
     <>
       {t("finance.payment", { date: formatDate(p.paid_on, i18n.language) })}
-      {p.currency !== base && (
+      {p.currency !== currency && (
         <span className="muted">
           {" · "}
-          {t("finance.atRate", {
-            amount: money(p.amount),
-            currency: p.currency,
-            rate: rateText(p.rate),
-          })}
+          {p.currency === base
+            ? t("finance.paidIn", { amount: money(p.amount), currency: p.currency })
+            : t("finance.atRate", {
+                amount: money(p.amount),
+                currency: p.currency,
+                rate: rateText(p.rate),
+              })}
         </span>
       )}
       {p.official && <span className="chip st-green finance-chip">{t("finance.official")}</span>}
