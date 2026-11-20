@@ -163,6 +163,9 @@ async def test_a_family_members_consultation_is_covered_by_the_group_case(
     one group. His consultation is covered: no «Создать кейс», archive after the result."""
     await as_specialist(client, make_user)
     nikita = await contact(client, "Никита", last_name="Кулик")
+    # An older consultation of his ended with «no»: the case is not that one's.
+    older = (workspace_today() - timedelta(days=60)).isoformat()
+    refused = await consult(client, nikita, decision="no", held_on=older)
     nikitas = await consult(client, nikita, decision="yes")
     sofia = await contact(client, "София", last_name="Якусь")
     response = await case_from(
@@ -176,9 +179,10 @@ async def test_a_family_members_consultation_is_covered_by_the_group_case(
     cases = {c["contact_id"]: c for c in response.json()}
 
     card = (await client.get(f"{CONTACTS}/{nikita}")).json()
-    [shown] = card["consultations"]
-    assert shown["id"] == nikitas["id"]
-    assert [c["id"] for c in shown["cases"]] == [cases[nikita]["id"]]
+    assert {c["id"]: [x["id"] for x in c["cases"]] for c in card["consultations"]} == {
+        nikitas["id"]: [cases[nikita]["id"]],
+        refused["id"]: [],
+    }
 
     for c in cases.values():
         r = await client.patch(f"/api/cases/{c['id']}", json={"outcome": "visa"})
@@ -206,17 +210,25 @@ async def test_an_old_case_of_ones_own_does_not_cover_a_new_consultation(
     assert {c["id"]: c["cases"] for c in card["consultations"]}[new["id"]] == []
 
 
-async def test_a_case_without_a_consultation_covers_the_one_before_it(
+async def test_a_case_without_a_consultation_covers_only_the_latest_one_before_it(
     client: AsyncClient, make_user: MakeUser
 ):
-    """«+ Кейс» without picking the consultation after a «yes»: the case is that one's."""
+    """«+ Кейс» without picking the consultation after a «yes»: the case is that one's,
+    not an older consultation's, which keeps its «think» and its «Создать кейс»; nor a
+    consultation held after the case was opened."""
     await as_specialist(client, make_user)
     anna = await contact(client, "Анна")
+    older = (workspace_today() - timedelta(days=30)).isoformat()
+    thinking = await consult(client, anna, decision="thinking", held_on=older)
     consultation = await consult(client, anna, decision="yes")
     visa_case = await open_case(client, anna)
+    later = (workspace_today() + timedelta(days=1)).isoformat()
+    next_one = await consult(client, anna, decision="yes", held_on=later)
     card = (await client.get(f"{CONTACTS}/{anna}")).json()
     assert {c["id"]: [x["id"] for x in c["cases"]] for c in card["consultations"]} == {
-        consultation["id"]: [visa_case["id"]]
+        next_one["id"]: [],
+        consultation["id"]: [visa_case["id"]],
+        thinking["id"]: [],
     }
 
 
@@ -355,3 +367,52 @@ async def test_the_day_a_case_was_opened_is_the_specialists_day(
     midnight = datetime.combine(held_on, time(0, 0), tzinfo=UTC)
     assert await opened_at(midnight - timedelta(hours=1, minutes=30)) == [[visa_case["id"]]]
     assert await opened_at(midnight - timedelta(hours=3, minutes=30)) == [[]]
+
+
+async def test_an_employee_is_not_asked_about_cases_she_does_not_see(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """The question about a case in work lists only the cases the employee sees: one not
+    given to her is neither named nor counted (by design, docs/decisions.md, T2)."""
+    tenant_id = await as_specialist(client, make_user)
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE users SET modules = '{clients,cases}' WHERE email = 'olga@example.com'")
+        )
+    client.cookies.clear()
+    await login(client, "olga@example.com")
+    pavel = await contact(client, "Павел")
+    client.cookies.clear()
+    await login(client, "anna@example.com")
+    hidden = await open_case(client, pavel, destination="IT")
+
+    client.cookies.clear()
+    await login(client, "olga@example.com")
+    codes = await countries(client)
+    body = {
+        "destination_id": codes["ES"],
+        "submission_country_id": codes["BY"],
+        "applicants": [{"contact_id": pavel}],
+    }
+    mine = await client.post(f"{CONTACTS}/{pavel}/cases", json=body)
+    assert mine.status_code == 201, mine.text
+    asked = await client.post(f"{CONTACTS}/{pavel}/cases", json=body)
+    assert asked.status_code == 409
+    assert [c["number"] for c in asked.json()["cases"]] == [mine.json()[0]["number"]]
+    assert hidden["id"] not in asked.text and codes["IT"] not in asked.text
+
+
+async def test_deleting_the_case_brings_the_daughter_back_to_consultations(
+    client: AsyncClient, make_user: MakeUser
+):
+    await as_specialist(client, make_user)
+    natalia, consultation, father_case = await daughter_and_father(client)
+    assert (await client.delete(f"/api/cases/{father_case['id']}")).status_code == 204
+
+    result = await search(client)
+    assert row_of(result, natalia)["tab"] == "consult"
+    assert row_of(result, natalia)["case"] is None
+    assert consistent(result["counts"])
+    card = (await client.get(f"{CONTACTS}/{natalia}")).json()
+    assert card["consultations"][0]["cases"] == []

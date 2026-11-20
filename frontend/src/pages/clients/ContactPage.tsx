@@ -109,8 +109,9 @@ export function ContactPage() {
     // (pilot fix 8).
     if (card.data.cases !== null) {
       const [latest] = card.data.consultations;
-      const inWork =
-        card.data.cases.some((c) => c.stage !== "result") || (latest?.cases.length ?? 0) > 0;
+      const inWork = [...card.data.cases, ...(latest?.cases ?? [])].some(
+        (c) => c.stage !== "result",
+      );
       if (!inWork) setCreatingCase(latest && latest.decision !== "no" ? latest : "blank");
     }
     const state = openedFromIndex(location.state) ? FROM_INDEX : null;

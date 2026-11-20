@@ -12,12 +12,13 @@ exactly one tab, computed in SQL so search, filters, paging and counts agree.
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
     Date,
     Select,
+    Uuid,
     and_,
     any_,
     case,
@@ -33,6 +34,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import Lateral
 
+from app.core.clock import DEFAULT_TIMEZONE
 from app.models import CaseStage, Consultation, Contact, Decision, Tenant, VisaCase
 
 # Names in the order of the alphabet whatever the database's own locale: ICU's root
@@ -69,6 +71,7 @@ def latest_consultation() -> Lateral:
             Consultation.decision,
             Consultation.held_on,
             Consultation.destination_ids,
+            Consultation.created_at,
         )
         .where(Consultation.contact_id == Contact.id)
         .order_by(Consultation.held_on.desc(), Consultation.created_at.desc())
@@ -80,7 +83,9 @@ def latest_consultation() -> Lateral:
 def of_contact(contact_id: ColumnElement[uuid.UUID]) -> ColumnElement[bool]:
     """The cases a contact goes with: their own, and those opened from their consultation
     for someone else (pilot fix 2) — unless they are an applicant of that consultation
-    themselves: then their own case stands for them, not the family's."""
+    themselves: then their own case stands for them, not the family's. The same rule is
+    applied in Python to the rows of a page (`_rows` in app/api/contacts.py): keep the two
+    in step."""
     theirs, mine = aliased(Consultation), aliased(VisaCase)
     applicant_too = (
         exists()
@@ -99,35 +104,56 @@ def of_contact(contact_id: ColumnElement[uuid.UUID]) -> ColumnElement[bool]:
     )
 
 
+def _workspace_timezone() -> ColumnElement[str]:
+    """The specialist's time zone, read once per query from the session's workspace
+    (app.tenant_id, app/core/db.py): an uncorrelated subquery Postgres runs once."""
+    workspace = cast(func.nullif(func.current_setting("app.tenant_id", True), ""), Uuid)
+    return func.coalesce(
+        select(Tenant.timezone).where(Tenant.id == workspace).scalar_subquery(),
+        DEFAULT_TIMEZONE,
+    )
+
+
 def covers(
     consultation_id: ColumnElement[uuid.UUID],
     contact_id: ColumnElement[uuid.UUID],
     held_on: ColumnElement[date],
+    created_at: ColumnElement[datetime],
 ) -> ColumnElement[bool]:
     """A case covers a consultation — «кейс открыт» — when it was opened from it, or when
-    it is the consultation's contact's own case opened on the day of the consultation or
-    later, and not from another consultation of theirs: from a family member's
-    consultation (Nikita in Sofia's group case, pilot fix 8) or without one. A returning
-    client's case of an earlier consultation of their own covers only that one."""
-    own = aliased(Consultation)
+    it is the consultation's contact's own case not from another consultation of theirs
+    (from a family member's consultation — Nikita in Sofia's group case, pilot fix 8 — or
+    without one) and this is the contact's latest consultation held on or before the day
+    the case was opened. Older consultations keep their decision and their «Создать
+    кейс»; a returning client's case of an earlier consultation of their own covers only
+    that one. The latest is by (held_on, created_at), as `latest_consultation`."""
+    own, newer = aliased(Consultation), aliased(Consultation)
     # The day the case was opened in the specialist's time zone, as the consultation's.
-    timezone = (
-        select(Tenant.timezone)
-        .where(Tenant.id == VisaCase.tenant_id)
-        .correlate_except(Tenant)
-        .scalar_subquery()
+    opened_on = cast(func.timezone(_workspace_timezone(), VisaCase.created_at), Date)
+    newer_before_case = (
+        exists()
+        .where(
+            newer.contact_id == contact_id,
+            newer.held_on <= opened_on,
+            or_(
+                newer.held_on > held_on,
+                and_(newer.held_on == held_on, newer.created_at > created_at),
+            ),
+        )
+        .correlate_except(newer)
     )
     return or_(
         VisaCase.consultation_id == consultation_id,
         and_(
             VisaCase.contact_id == contact_id,
-            cast(func.timezone(timezone, VisaCase.created_at), Date) >= held_on,
+            held_on <= opened_on,
             or_(
                 VisaCase.consultation_id.is_(None),
                 ~exists()
                 .where(own.id == VisaCase.consultation_id, own.contact_id == contact_id)
                 .correlate_except(own),
             ),
+            ~newer_before_case,
         ),
     )
 
@@ -135,7 +161,7 @@ def covers(
 def tab_of(latest: Lateral) -> ColumnElement[str]:
     in_work = exists().where(of_contact(Contact.id), VisaCase.stage != CaseStage.RESULT)
     any_case = exists().where(VisaCase.contact_id == Contact.id)
-    covered = exists().where(covers(latest.c.id, Contact.id, latest.c.held_on))
+    covered = exists().where(covers(latest.c.id, Contact.id, latest.c.held_on, latest.c.created_at))
     return case(
         (in_work, Tab.WORK.value),
         (latest.c.decision == Decision.THINKING, Tab.THINKING.value),

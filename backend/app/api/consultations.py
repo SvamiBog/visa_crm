@@ -191,7 +191,15 @@ async def consultations_of(session: AsyncSession, contact_id: uuid.UUID) -> list
     for consultation_id, case, name in await session.execute(
         select(Consultation.id, VisaCase, Contact.full_name)
         .select_from(Consultation)
-        .join(VisaCase, covers(Consultation.id, Consultation.contact_id, Consultation.held_on))
+        .join(
+            VisaCase,
+            covers(
+                Consultation.id,
+                Consultation.contact_id,
+                Consultation.held_on,
+                Consultation.created_at,
+            ),
+        )
         .join(Contact, Contact.id == VisaCase.contact_id)
         .where(Consultation.contact_id == contact_id)
         .order_by(VisaCase.number)

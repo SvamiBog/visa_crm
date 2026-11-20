@@ -827,19 +827,19 @@ function CaseCreateForm({
 
   const send = (query: string) =>
     apiPost<VisaCase[]>(`/contacts/${card.contact.id}/cases${query}`, {
-        ...placeBody(place),
-        consultation_id: consultation?.id ?? null,
-        previous_case_id: previous?.id ?? null,
-        applicants: [
-          ...people.filter((p) => chosen.has(p.id)).map((p) => ({ contact_id: p.id })),
-          ...named.map((a) => ({
-            last_name: a.last_name.trim() || null,
-            first_name: a.first_name.trim() || null,
-            middle_name: a.middle_name.trim() || null,
-            label: a.label.trim() || null,
-          })),
-        ],
-      });
+      ...placeBody(place),
+      consultation_id: consultation?.id ?? null,
+      previous_case_id: previous?.id ?? null,
+      applicants: [
+        ...people.filter((p) => chosen.has(p.id)).map((p) => ({ contact_id: p.id })),
+        ...named.map((a) => ({
+          last_name: a.last_name.trim() || null,
+          first_name: a.first_name.trim() || null,
+          middle_name: a.middle_name.trim() || null,
+          label: a.label.trim() || null,
+        })),
+      ],
+    });
   const create = useMutation({
     // An applicant with a case in work is asked about first: a second case is most often
     // a duplicate (pilot fix 8). Null when the specialist decided not to create it.
