@@ -9,6 +9,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Integer,
     LargeBinary,
     Numeric,
     String,
@@ -45,8 +46,9 @@ class Tenant(Base):
     payment_currencies: Mapped[list[str]] = mapped_column(
         ARRAY(String(3)), server_default=text("'{BYN,PLN,USD,EUR}'")
     )
-    # Tax on officially paid payments, percent (НПД in Belarus: 10).
-    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), server_default=text("0"))
+    # Tax on officially paid payments, percent (НПД in Belarus: 10). NULL — not set yet (the
+    # case finances ask for it); 0 — no tax (pilot T8). The specialist sets it herself.
+    tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     # Modules the admin turned on (keys from app/core/modules.py).
     modules: Mapped[list[str]] = mapped_column(ARRAY(String(40)), server_default=text("'{}'"))
     # The tenant's vault data key, encrypted with the master key (app/core/vault.py).
@@ -62,4 +64,7 @@ class Tenant(Base):
     )
     subscription_starts_on: Mapped[date | None] = mapped_column(Date)
     trial_until: Mapped[date | None] = mapped_column(Date)
+    # The highest number of a deleted case: numbers go on past it, so a deleted case's
+    # number is never given again (pilot fix 1, app/api/cases.py → delete_case).
+    max_deleted_case_number: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

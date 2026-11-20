@@ -363,3 +363,18 @@ async def test_analytics_follows_modules_and_workspaces(
     other = await ok(await client.get("/api/analytics", params=PERIOD))
     assert other["totals"]["consultations"] == 0 and other["centers"] == []
     assert other["channels"] == [] and other["queues"] == []
+
+
+async def test_the_profit_of_a_case_priced_in_another_currency_is_in_the_base_one(
+    client: AsyncClient, make_user: MakeUser
+):
+    # Pilot fix 4: 500 PLN at 0.80 is 400 BYN; the partner's 10% is 40 BYN.
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+    [case] = await open_cases(client, codes, await contact(client, "Анна"), "PL")
+    await patch(client, case, submission_on="2026-05-20")
+    await patch(client, case, outcome="refusal", decided_on="2026-06-03")
+    await price(client, case, "500", currency="PLN", partner_terms="percent", partner_percent="10")
+    report = await ok(await client.get("/api/analytics", params=PERIOD))
+    assert report["totals"]["profit"] == "360.00"

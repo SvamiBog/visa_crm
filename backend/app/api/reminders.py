@@ -9,7 +9,6 @@ documents not collected — «package_check»).
 """
 
 import uuid
-from collections import defaultdict
 from dataclasses import asdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -32,6 +31,7 @@ from app.api.deps import (
     require_specialist,
     workspace_today,
 )
+from app.api.finances import case_balances
 from app.api.package import package_summaries
 from app.api.registrar_ledger import ledger_summaries
 from app.core import reminders as rules
@@ -41,7 +41,6 @@ from app.core.bookings import deadline as booking_deadline_of
 from app.core.cases import appeal_until
 from app.core.consultation_checks import add_months
 from app.core.employee_limits import LimitKind, day_start
-from app.core.finance import balance
 from app.core.reminders import ReminderKind
 from app.models import (
     ApplicationAttempt,
@@ -49,8 +48,6 @@ from app.models import (
     AuditEvent,
     Booking,
     BookingKind,
-    CaseFinance,
-    CasePayment,
     CaseStage,
     Consultation,
     Contact,
@@ -290,20 +287,11 @@ async def _consultations(
 async def _balances(
     session: AsyncSession, case_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, Decimal | None]:
-    """What the client still owes on each case (app/core/finance.py)."""
-    owed: dict[uuid.UUID, Decimal | None] = {}
+    """What the client still owes on each case, in the base currency whatever currency
+    its price is in (app/api/finances.py → case_balances)."""
     if not case_ids:
-        return owed
-    paid: dict[uuid.UUID, list[Decimal]] = defaultdict(list)
-    for case_id, amount in await session.execute(
-        select(CasePayment.case_id, CasePayment.amount_base).where(
-            CasePayment.case_id.in_(case_ids)
-        )
-    ):
-        paid[case_id].append(amount)
-    for f in await session.scalars(select(CaseFinance).where(CaseFinance.case_id.in_(case_ids))):
-        owed[f.case_id] = balance(f.price, f.consultation_credit, paid[f.case_id])
-    return owed
+        return {}
+    return {b.finance.case_id: b.balance_base for b in await case_balances(session, case_ids)}
 
 
 async def _submissions(

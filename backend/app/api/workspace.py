@@ -33,7 +33,8 @@ router = APIRouter(tags=["workspace"])
 class WorkspaceOut(BaseModel):
     name: str
     base_currency: str
-    tax_rate: Decimal
+    # None: not set yet; 0: no tax.
+    tax_rate: Decimal | None
     timezone: str
     # What this user may open: the menu shows these.
     modules: list[str]

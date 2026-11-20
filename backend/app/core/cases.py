@@ -30,7 +30,7 @@ RESULT_PERIOD_MONTHS = {ResultPeriod.MONTH: 1, ResultPeriod.HALF_YEAR: 6, Result
 
 # What a submission group has in common (owner's decision 2026-11-15, docs/decisions.md →
 # «Правка группы подачи»); the result, the questionnaire received and money are each
-# one's own.
+# one's own. The result goes on only with its own mark (RESULT_FIELDS).
 GROUP_FIELDS = (
     "destination_id",
     "submission_country_id",
@@ -43,6 +43,9 @@ GROUP_FIELDS = (
 )
 # A visa center belongs to its pair of countries, so the place goes as a whole.
 PLACE_FIELDS = ("destination_id", "submission_country_id", "visa_center_id")
+# The result of a case, as «Такой же результат у всех в группе» copies it into the
+# group's cases without one (pilot fix 7, docs/decisions.md → «Пилот: правки визовика»).
+RESULT_FIELDS = ("outcome", "decided_on", *VISA_DETAILS, "after_appeal")
 
 
 def advance(stage: CaseStage, changes: Mapping[str, Any]) -> CaseStage:
@@ -71,20 +74,25 @@ def for_group_member(
     stage_before: CaseStage,
     member_stage: CaseStage,
     member_outcome: VisaOutcome | None,
+    result: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """What another member of the submission group takes from a change to one case.
 
     `changed` holds the fields the case changed, with their new values, `place` its
     place after the change, `stage_before` its stage before it. Only what was changed
-    goes on, and only to a member without a result: its case is over. The stage follows
-    as on the board, for a member that stood where the case stood, but not when a result
-    moved the case, and never into «Результат», which needs the member's own result;
-    otherwise the member moves on by the usual rule (`advance`)."""
+    goes on, and only to a member without a result: its case is over. `result` is the
+    case's whole result when the specialist asked for the same result in the group: the
+    member takes it as it is. The stage follows as on the board, for a member that stood
+    where the case stood, but not when a result moved the case, and never into
+    «Результат» without a result; otherwise the member moves on by the usual rule
+    (`advance`), so a result taken moves it to «Результат»."""
     if member_outcome is not None:
         return {}
     taken = {f: v for f, v in changed.items() if f in GROUP_FIELDS}
     if any(f in changed for f in PLACE_FIELDS):
         taken |= {f: place[f] for f in PLACE_FIELDS}
+    if result is not None and result.get("outcome") is not None:
+        taken |= {f: result[f] for f in RESULT_FIELDS}
     if (
         "stage" in changed
         and changed["stage"] != CaseStage.RESULT

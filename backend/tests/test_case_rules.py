@@ -153,3 +153,37 @@ def test_the_submission_date_ends_the_wait_of_each_member():
     assert for_group_member(
         {"submission_on": DATE}, PLACE, CaseStage.DOCUMENTS, CaseStage.WAITING, None
     ) == {"submission_on": DATE, "stage": CaseStage.DOCUMENTS}
+
+
+# The result entered in one case, as «Такой же результат у всех в группе» sends it on
+# (pilot fix 7, owner's decision 2026-11-19).
+SAME_RESULT = {
+    "outcome": VisaOutcome.VISA,
+    "decided_on": DATE,
+    "visa_entries": "multiple",
+    "visa_valid_from": date(2026, 12, 5),
+    "visa_valid_to": date(2027, 12, 4),
+    "stay_days": 90,
+    "after_appeal": False,
+}
+
+
+def test_a_member_without_a_result_takes_the_same_result_and_its_stage():
+    # Only the result asked for: the member takes it whole and moves to «Результат».
+    taken = for_group_member({}, PLACE, CaseStage.REVIEW, CaseStage.DOCUMENTS, None, SAME_RESULT)
+    assert taken == {**SAME_RESULT, "stage": CaseStage.RESULT}
+    # With the shared fields of the same edit: both go on, the result decides the stage.
+    changed = {"hall": "premium", "outcome": VisaOutcome.VISA, "stage": CaseStage.RESULT}
+    taken = for_group_member(changed, PLACE, CaseStage.REVIEW, CaseStage.REVIEW, None, SAME_RESULT)
+    assert taken == {"hall": "premium", **SAME_RESULT, "stage": CaseStage.RESULT}
+    # A member closed without a result before the CRM audit takes it and stays there.
+    taken = for_group_member({}, PLACE, CaseStage.REVIEW, CaseStage.RESULT, None, SAME_RESULT)
+    assert taken == SAME_RESULT
+
+
+def test_the_same_result_leaves_a_member_with_its_own_result_alone():
+    for outcome in VisaOutcome:
+        assert (
+            for_group_member({}, PLACE, CaseStage.REVIEW, CaseStage.RESULT, outcome, SAME_RESULT)
+            == {}
+        )

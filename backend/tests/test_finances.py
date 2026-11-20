@@ -353,3 +353,92 @@ async def test_finances_need_their_module_and_stay_in_the_workspace(
     await login(client, "olga@example.com")
     denied = await client.get(finance_url(case))
     assert denied.status_code == 403 and denied.json()["detail"] == "module_disabled"
+
+
+async def test_the_price_can_be_named_in_another_accepted_currency(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Pilot fix 4: base BYN, the price in PLN, payments in BYN, PLN and USD.
+    tenant_id = await as_specialist(client, make_user, owner_engine)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE tenants SET payment_currencies = '{PLN,USD}' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+    case = await open_case(client)
+    url = finance_url(case)
+    empty = (await client.get(url)).json()
+    assert (empty["currency"], empty["rate"]) == ("BYN", "1")
+
+    saved = await client.patch(url, json={"currency": "PLN", "price": "800"})
+    assert saved.status_code == 200, saved.text
+    assert (saved.json()["currency"], saved.json()["rate"]) == ("PLN", "0.800000")
+    for amount, currency in (("150", "BYN"), ("100", "PLN"), ("20", "USD")):
+        response = await client.post(
+            f"/api/cases/{case['id']}/payments",
+            json={
+                "paid_on": "2025-04-07",
+                "amount": amount,
+                "currency": currency,
+                "official": currency == "BYN",
+            },
+        )
+        assert response.status_code == 201, response.text
+    finance = response.json()
+    # Each payment against the price, in PLN, as income: never with a minus.
+    assert [p["amount_case"] for p in finance["payments"]] == ["187.50", "100.00", "77.50"]
+    assert finance["paid"] == "365.00"  # 187.50 + 100 + 77.50 PLN
+    assert finance["balance"] == "435.00"  # PLN
+    assert finance["price_base"] == "640.00"
+    assert finance["tax"] == "15.00"  # 10% of 150 BYN
+    assert finance["profit"] == "625.00"  # BYN
+
+    # A corrected rate is kept; the base currency is always at 1.
+    corrected = (await client.patch(url, json={"rate": "0.81"})).json()
+    assert Decimal(corrected["rate"]) == Decimal("0.81") and corrected["price_base"] == "648.00"
+    kept = (await client.patch(url, json={"price": "900"})).json()
+    assert Decimal(kept["rate"]) == Decimal("0.81")
+    back = (await client.patch(url, json={"currency": "BYN", "price": "300"})).json()
+    assert (back["currency"], Decimal(back["rate"])) == ("BYN", Decimal("1"))
+    assert back["balance"] == "8.00"  # 300 − 150 − 80 − 62 BYN
+
+    # Only a currency the specialist accepts.
+    refused = await client.patch(url, json={"currency": "EUR"})
+    assert refused.status_code == 422 and refused.json()["detail"] == "currency_not_accepted"
+    assert (await client.patch(url, json={"currency": None})).json()["currency"] == "BYN"
+    # A case keeps its currency when the specialist stops accepting it.
+    await client.patch(url, json={"currency": "PLN"})
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE tenants SET payment_currencies = '{USD}' WHERE id = :t"), {"t": tenant_id}
+        )
+    still = await client.patch(url, json={"currency": "PLN", "price": "700"})
+    assert still.status_code == 200 and still.json()["currency"] == "PLN", still.text
+
+    events = (await client.get("/api/audit")).json()["events"]
+    fields = {e["details"].get("fields") for e in events if e["action"] == "finances.updated"}
+    assert "currency,price,rate" in fields
+
+
+async def test_without_a_tax_rate_the_case_says_so_instead_of_zero(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Pilot fix 5: a workspace whose tax rate is not set yet (NULL, pilot T8).
+    tenant_id = await as_specialist(client, make_user, owner_engine)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE tenants SET tax_rate = NULL WHERE id = :t"), {"t": tenant_id}
+        )
+    case = await open_case(client)
+    for day in ("2025-04-07", "2025-05-08"):
+        finance = (
+            await client.post(
+                f"/api/cases/{case['id']}/payments",
+                json={"paid_on": day, "amount": "150", "currency": "BYN", "official": True},
+            )
+        ).json()
+    # No price yet: no balance or profit, never a loss.
+    assert (finance["paid"], finance["balance"], finance["profit"]) == ("300.00", None, None)
+    assert finance["tax"] is None and finance["official"] == "300.00"
+    priced = (await client.patch(finance_url(case), json={"price": "300"})).json()
+    assert (priced["balance"], priced["tax"], priced["profit"]) == ("0.00", None, "300.00")

@@ -17,6 +17,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 
@@ -25,6 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.core.clock import DEFAULT_TIMEZONE, today_in
 from app.core.db import get_sessionmaker, scope_to_system
+from app.core.finance import converted
 from app.core.money import CURRENCIES
 from app.models import ExchangeRate
 
@@ -131,11 +133,28 @@ async def byn_rate(currency: str) -> Decimal:
     return (await latest(currency))[1]
 
 
+def cross_rate(currency: str, base: str, byn: Mapping[str, Decimal]) -> Decimal:
+    """Units of the base currency for one unit of `currency`, through BYN: `byn` holds BYN
+    for one unit of each currency but BYN itself. Six places, like the bank's."""
+    if currency == base:
+        return ONE
+    rate = ONE if currency == "BYN" else byn[currency]
+    if base != "BYN":
+        rate = rate / byn[base]
+    return rate.quantize(RATE_PLACES)
+
+
+async def convert(amount: Decimal, currency: str, into: str) -> Decimal:
+    """An amount in another currency at the site's latest rates (through BYN), rounded
+    once (finance.converted); RateUnavailable without a rate."""
+    return converted(
+        amount, currency, into, {c: await byn_rate(c) for c in {currency, into} - {"BYN"}}
+    )
+
+
 async def rate_to_base(currency: str, base: str) -> Decimal:
     """Units of the base currency for one unit of `currency` (through BYN)."""
     if currency == base:
         return ONE
-    rate = await byn_rate(currency)
-    if base != "BYN":
-        rate = rate / await byn_rate(base)
-    return rate.quantize(RATE_PLACES)
+    needed = {currency, base} - {"BYN"}
+    return cross_rate(currency, base, {c: await byn_rate(c) for c in needed})

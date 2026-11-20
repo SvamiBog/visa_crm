@@ -71,6 +71,8 @@ class AuditAction(StrEnum):
     CASE_UPDATED = "cases.updated"
     CASE_GROUPED = "cases.grouped"
     CASE_UNGROUPED = "cases.ungrouped"
+    # A case opened by mistake (pilot fix 1): details carry the contact, number and group.
+    CASE_DELETED = "cases.deleted"
     CASE_ACCESS_UPDATED = "cases.access_updated"
     CASE_QUEUED = "cases.queued"
     CASE_QUEUE_UPDATED = "cases.queue_updated"
@@ -109,6 +111,9 @@ class AuditAction(StrEnum):
     # All the workspace's data deleted by the specialist (app/core/erase.py): the number of
     # files only.
     WORKSPACE_ERASED = "workspace.erased"
+    # The base currency changed and what is kept in it counted again
+    # (app/core/base_currency.py): the two currency codes and row counts only.
+    BASE_CURRENCY_CHANGED = "workspace.base_currency_changed"
 
 
 class AuditEvent(Base):

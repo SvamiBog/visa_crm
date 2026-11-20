@@ -523,3 +523,31 @@ async def test_a_familys_reminders_name_their_group(client: AsyncClient, make_us
     assert groups[family[0]["id"]] == groups[family[1]["id"]] == family[0]["group_id"]
     assert family[0]["group_id"] is not None
     assert groups[alone["id"]] is None
+
+
+async def test_a_balance_in_another_currency_is_owed_in_the_base_one(
+    client: AsyncClient, make_user: MakeUser
+):
+    # Pilot fix 4: the price is 500 PLN (0.80 BYN each, so 400 BYN), payments in BYN.
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+    paid_up, owing = await contact(client, "Анна"), await contact(client, "Борис")
+    for person, paid in ((paid_up, "400"), (owing, "300")):
+        case = await open_case(client, codes, person, "PL")
+        await patch_case(client, case, submission_on=day(2))
+        priced = await client.patch(
+            f"/api/cases/{case['id']}/finance", json={"currency": "PLN", "price": "500"}
+        )
+        assert priced.status_code == 200, priced.text
+        payment = await client.post(
+            f"/api/cases/{case['id']}/payments",
+            json={"paid_on": day(-1), "amount": paid, "currency": "BYN"},
+        )
+        assert payment.status_code == 201, payment.text
+
+    due = [i for i in (await client.get("/api/reminders")).json() if i["kind"] == "balance_due"]
+    # Paid in full in BYN: nothing is owed; the other one owes 100 BYN (125 PLN).
+    assert [(i["contact_name"], i["amount"], i["currency"]) for i in due] == [
+        ("Борис", "100.00", "BYN")
+    ]

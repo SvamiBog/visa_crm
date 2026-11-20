@@ -11,8 +11,22 @@ from datetime import date, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Date, and_, any_, cast, func, or_, select, text, true, tuple_
+from sqlalchemy import (
+    Date,
+    and_,
+    any_,
+    cast,
+    delete,
+    func,
+    or_,
+    select,
+    text,
+    true,
+    tuple_,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.appointments import AttemptOut, QueueEntryOut, appointments_of, average_waits
@@ -22,6 +36,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.cases import (
     PLACE_FIELDS,
+    RESULT_FIELDS,
     VISA_DETAILS,
     ResultPeriod,
     advance,
@@ -35,8 +50,13 @@ from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
 from app.models import (
+    ApplicationAttempt,
     AuditAction,
+    Booking,
     BookingType,
+    CaseExpense,
+    CaseFinance,
+    CasePayment,
     CaseStage,
     Consultation,
     Contact,
@@ -45,14 +65,19 @@ from app.models import (
     CountryRule,
     Decision,
     EmailOwner,
+    EmployeeCase,
+    PackageItem,
     Registrar,
     SubmissionGroup,
+    Tenant,
+    UserRole,
     VacIdentifierType,
     VisaCase,
     VisaCenter,
     VisaEntries,
     VisaOutcome,
     VisaPurpose,
+    WaitingListEntry,
 )
 from app.models.dictionaries import Hall
 
@@ -148,6 +173,9 @@ class CaseUpdate(BaseModel):
     # The same change for the rest of the group, apart from the result (owner's decision
     # 2026-11-15, app/core/cases.py → for_group_member).
     apply_to_group: bool = False
+    # The result entered or changed here goes into the group's cases without a result
+    # (pilot fix 7, owner's decision 2026-11-19); cases with a result are left alone.
+    result_to_group: bool = False
 
     @field_validator("vac_number", "application_email", mode="before")
     @classmethod
@@ -165,6 +193,18 @@ class GroupMember(BaseModel):
     full_name: str
     destination_id: uuid.UUID
     stage: CaseStage
+    # The member's own result: the case form offers the same result only to those
+    # without one (pilot fix 7).
+    outcome: VisaOutcome | None = None
+
+
+class CaseSource(BaseModel):
+    """The consultation a case was opened from and whose it was (pilot fix 2)."""
+
+    consultation_id: uuid.UUID
+    held_on: date
+    contact_id: uuid.UUID
+    full_name: str
 
 
 class CaseOut(BaseModel):
@@ -196,6 +236,8 @@ class CaseOut(BaseModel):
     created_at: datetime
     # The other cases of the submission group.
     group: list[GroupMember] = []
+    # Its consultation, when the user sees whose it was.
+    source: CaseSource | None = None
     # From the country rules: does the consulate accept appeals (None: not known), and
     # the last day to appeal a refusal.
     appeals_accepted: bool | None = None
@@ -300,9 +342,40 @@ async def _next_numbers(session: AsyncSession, tenant_id: uuid.UUID, count: int)
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"visa_cases:{tenant_id}"},
     )
-    # Counted past the employee's view: they do not see every case (migration 0031).
-    last = await session.scalar(select(func.last_case_number())) or 0
+    # Counted past the employee's view: they do not see every case (migration 0031), and
+    # past the deleted ones (migration 0038).
+    last = max(
+        await session.scalar(select(func.last_case_number())) or 0,
+        await session.scalar(select(Tenant.max_deleted_case_number).where(Tenant.id == tenant_id))
+        or 0,
+    )
     return [last + i for i in range(1, count + 1)]
+
+
+async def sources_of(session: AsyncSession, cases: list[VisaCase]) -> dict[uuid.UUID, CaseSource]:
+    """The consultation each case was opened from, with whose it was (pilot fix 2). RLS
+    hides a consultation and a card an employee does not see: then there is no source,
+    so a name never reaches them through the link."""
+    ids = {c.consultation_id for c in cases if c.consultation_id is not None}
+    if not ids:
+        return {}
+    found = {
+        consultation_id: CaseSource(
+            consultation_id=consultation_id, held_on=held_on, contact_id=contact_id, full_name=name
+        )
+        for consultation_id, held_on, contact_id, name in await session.execute(
+            select(
+                Consultation.id, Consultation.held_on, Consultation.contact_id, Contact.full_name
+            )
+            .join(Contact, Contact.id == Consultation.contact_id)
+            .where(Consultation.id.in_(ids))
+        )
+    }
+    return {
+        c.id: found[c.consultation_id]
+        for c in cases
+        if c.consultation_id is not None and c.consultation_id in found
+    }
 
 
 async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOut]:
@@ -326,6 +399,7 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
                     full_name=name,
                     destination_id=member.destination_id,
                     stage=member.stage,
+                    outcome=member.outcome,
                 )
             )
     pairs = {(c.destination_id, c.submission_country_id) for c in cases}
@@ -342,6 +416,7 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
     appointments = await appointments_of(session, cases, today) if today else {}
     bookings = await bookings_of(session, cases, today) if today else {}
     waits = await average_waits(session) if cases else {}
+    sources = await sources_of(session, cases)
 
     result = []
     for case in cases:
@@ -350,6 +425,7 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
             out.group = [m for m in members[case.group_id] if m.case_id != case.id]
         out.queue_entries, out.attempts = appointments.get(case.id, ([], []))
         out.bookings = bookings.get(case.id, [])
+        out.source = sources.get(case.id)
         wait = waits.get((case.destination_id, case.visa_center_id, case.purpose_id))
         out.average_wait_days = wait[0] if wait else None
         rule = rules.get((case.destination_id, case.submission_country_id))
@@ -428,15 +504,57 @@ async def _new_contact(
     return contact
 
 
+async def _cases_in_work(
+    session: AsyncSession, contact_ids: list[uuid.UUID]
+) -> JSONResponse | None:
+    """409 when an applicant already has a case in work: a second one is most likely a
+    duplicate (pilot fix 8), so the specialist confirms it. Only the cases the user sees."""
+    rows = (
+        await session.execute(
+            select(VisaCase.contact_id, Contact.full_name, VisaCase.number, VisaCase.destination_id)
+            .join(Contact, Contact.id == VisaCase.contact_id)
+            .where(VisaCase.contact_id.in_(contact_ids), VisaCase.stage != CaseStage.RESULT)
+            .order_by(VisaCase.number)
+        )
+    ).all()
+    if not rows:
+        return None
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "detail": "case_in_work",
+            "cases": [
+                {
+                    "contact_id": str(contact_id),
+                    "full_name": name,
+                    "number": number,
+                    "destination_id": str(destination_id),
+                }
+                for contact_id, name, number, destination_id in rows
+            ],
+        },
+    )
+
+
 # --- Endpoints -----------------------------------------------------------------------
 
 
-@router.post("/contacts/{contact_id}/cases", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/contacts/{contact_id}/cases",
+    status_code=status.HTTP_201_CREATED,
+    response_model=list[CaseOut],
+)
 async def create_cases(
-    contact_id: uuid.UUID, body: CaseCreate, user: Member, session: TenantSession
-) -> list[CaseOut]:
+    contact_id: uuid.UUID,
+    body: CaseCreate,
+    user: Member,
+    session: TenantSession,
+    allow_case_in_work: bool = False,
+) -> Any:
     """One case per applicant; two or more applicants form a submission group. From a
-    consultation the decision becomes «yes»."""
+    consultation the decision becomes «yes». An applicant who already has a case in work
+    is asked about first (409 `case_in_work` with those cases; pilot fix 8): the form
+    confirms and sends `allow_case_in_work`."""
     anchor = await session.get(Contact, contact_id)
     if anchor is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
@@ -464,6 +582,8 @@ async def create_cases(
         found = set(await session.scalars(select(Contact.id).where(Contact.id.in_(existing))))
         if set(existing) - found:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+        if not allow_case_in_work and (asked := await _cases_in_work(session, existing)):
+            return asked
 
     applicant_ids = [
         a.contact_id
@@ -518,6 +638,11 @@ async def create_cases(
 # --- Board (client index, backlog 1.5) ------------------------------------------------
 
 
+class BoardVia(BaseModel):
+    contact_id: uuid.UUID
+    full_name: str
+
+
 class BoardCase(BaseModel):
     id: uuid.UUID
     number: int
@@ -531,6 +656,8 @@ class BoardCase(BaseModel):
     outcome: VisaOutcome | None
     submission_on: date | None
     decided_on: date | None
+    # Whose consultation it came from, when that is someone else (pilot fix 2).
+    via: BoardVia | None = None
 
 
 class BoardLead(BaseModel):
@@ -595,9 +722,9 @@ async def board(
         query = query.where(VisaCase.registrar_id == registrar_id)
     # Cases in work first: however many results the period holds, they never push a case
     # in work off the board.
-    rows = await session.execute(
-        query.order_by(is_result, VisaCase.number.desc()).limit(BOARD_LIMIT)
-    )
+    rows = (
+        await session.execute(query.order_by(is_result, VisaCase.number.desc()).limit(BOARD_LIMIT))
+    ).all()
     cases = [
         BoardCase(
             id=c.id,
@@ -615,6 +742,13 @@ async def board(
         )
         for c, name in rows
     ]
+    # One card per case: the applicant's, «через …» when it came from someone else's
+    # consultation; that contact goes with the case, not to «Консультация» (pilot fix 2).
+    sources = await sources_of(session, [c for c, _ in rows])
+    for out in cases:
+        source = sources.get(out.id)
+        if source is not None and source.contact_id != out.contact_id:
+            out.via = BoardVia(contact_id=source.contact_id, full_name=source.full_name)
 
     leads: list[BoardLead] = []
     if registrar_id is None:  # leads have no registrar yet
@@ -683,7 +817,9 @@ async def update_case(
 ) -> CaseOut:
     case = await _case(session, case_id)
     await _open_card_of(session, user, case)
-    changes = body.model_dump(exclude_unset=True, exclude={"fill_group", "apply_to_group"})
+    changes = body.model_dump(
+        exclude_unset=True, exclude={"fill_group", "apply_to_group", "result_to_group"}
+    )
     for required in ("destination_id", "submission_country_id", "stage", "after_appeal"):
         if changes.get(required, ...) is None:
             changes.pop(required)  # null means «leave as is» for required fields
@@ -736,8 +872,17 @@ async def update_case(
         _audit(session, AuditAction.CASE_UPDATED, user, case, {"fields": ",".join(changed)})
     if body.fill_group and case.group_id is not None:
         await _fill_group(session, user, case)
-    if body.apply_to_group and case.group_id is not None and changed:
-        await _apply_to_group(session, user, case, {f: changes[f] for f in changed}, stage_before)
+    shared = {f: changes[f] for f in changed} if body.apply_to_group else {}
+    # Only a result entered or changed here goes on: the form sent again copies nothing.
+    result = (
+        {f: getattr(case, f) for f in RESULT_FIELDS}
+        if body.result_to_group
+        and case.outcome is not None
+        and any(f in RESULT_FIELDS for f in changed)
+        else None
+    )
+    if case.group_id is not None and (shared or result):
+        await _apply_to_group(session, user, case, shared, stage_before, result)
     await session.commit()
     return await _one_out(session, case)
 
@@ -748,16 +893,19 @@ async def _apply_to_group(
     case: VisaCase,
     changed: dict[str, Any],
     stage_before: CaseStage,
+    result: dict[str, Any] | None,
 ) -> None:
     """The family is filed together: what the case changed goes to the rest of its group,
-    apart from the result (owner's decision 2026-11-15). The place is the case's, already
-    checked, so the members need no check of their own."""
+    apart from the result (owner's decision 2026-11-15), and the result goes into the
+    cases without one when asked (pilot fix 7). The place and the result are the case's,
+    already checked, so the members need no check of their own. Only the cases the user
+    sees are read, so an employee reaches only those (`employee_scope`)."""
     place = {f: getattr(case, f) for f in PLACE_FIELDS}
     members = await session.scalars(
         select(VisaCase).where(VisaCase.group_id == case.group_id, VisaCase.id != case.id)
     )
     for member in members:
-        taken = for_group_member(changed, place, stage_before, member.stage, member.outcome)
+        taken = for_group_member(changed, place, stage_before, member.stage, member.outcome, result)
         fields = sorted(f for f, v in taken.items() if getattr(member, f) != v)
         for field in fields:
             setattr(member, field, taken[field])
@@ -811,6 +959,7 @@ async def group_candidates(case_id: uuid.UUID, session: TenantSession) -> list[G
             full_name=name,
             destination_id=c.destination_id,
             stage=c.stage,
+            outcome=c.outcome,
         )
         for c, name in rows
     ]
@@ -845,12 +994,8 @@ async def join_group(
     return await _one_out(session, case)
 
 
-@router.delete("/cases/{case_id}/group", status_code=status.HTTP_204_NO_CONTENT)
-async def leave_group(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
+async def _leave(session: AsyncSession, user: CurrentUser, case: VisaCase) -> None:
     """The case leaves its group; a group left with one case is dissolved."""
-    case = await _case(session, case_id)
-    if case.group_id is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
     group_id = case.group_id
     case.group_id = None
     _audit(session, AuditAction.CASE_UNGROUPED, user, case, {"group": str(group_id)})
@@ -864,5 +1009,123 @@ async def leave_group(case_id: uuid.UUID, user: Member, session: TenantSession) 
         group = await session.get(SubmissionGroup, group_id)
         if group is not None:
             await session.delete(group)
+
+
+@router.delete("/cases/{case_id}/group", status_code=status.HTTP_204_NO_CONTENT)
+async def leave_group(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
+    """The case leaves its group; a group left with one case is dissolved."""
+    case = await _case(session, case_id)
+    if case.group_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    await _leave(session, user, case)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Deleting a case -----------------------------------------------------------------
+
+
+class CaseDeletion(BaseModel):
+    """What goes with the case, for the confirmation; a case with money stays."""
+
+    has_money: bool
+    payments: int
+    expenses: int
+    registrar_fee: bool
+    # A partner payout marked as paid is money too (owner's answer 2026-11-20).
+    partner_paid: bool
+    attempts: int
+    queue_entries: int
+    package_items: int
+    bookings: int
+    outcome: bool
+    employees: int
+    # The other cases of its submission group: they stay, the case leaves the group.
+    group_members: int
+
+
+async def _deletable(session: AsyncSession, user: CurrentUser, case_id: uuid.UUID) -> VisaCase:
+    """Another workspace's case is not found; an employee may not delete one."""
+    case = await _case(session, case_id)
+    if user.role != UserRole.SPECIALIST:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+    return case
+
+
+async def _what_goes(session: AsyncSession, case: VisaCase) -> CaseDeletion:
+    async def count(model: Any) -> int:
+        return await session.scalar(select(func.count()).where(model.case_id == case.id)) or 0
+
+    payments, expenses = await count(CasePayment), await count(CaseExpense)
+    fee, partner_paid_on = (
+        await session.execute(
+            select(CaseFinance.registrar_fee_amount, CaseFinance.partner_paid_on).where(
+                CaseFinance.case_id == case.id
+            )
+        )
+    ).one_or_none() or (None, None)
+    registrar_fee, partner_paid = fee is not None, partner_paid_on is not None
+    group_members = 0
+    if case.group_id is not None:
+        group_members = (
+            await session.scalar(
+                select(func.count()).where(
+                    VisaCase.group_id == case.group_id, VisaCase.id != case.id
+                )
+            )
+            or 0
+        )
+    return CaseDeletion(
+        has_money=bool(payments or expenses or registrar_fee or partner_paid),
+        payments=payments,
+        expenses=expenses,
+        registrar_fee=registrar_fee,
+        partner_paid=partner_paid,
+        attempts=await count(ApplicationAttempt),
+        queue_entries=await count(WaitingListEntry),
+        package_items=await count(PackageItem),
+        bookings=await count(Booking),
+        outcome=case.outcome is not None,
+        employees=await count(EmployeeCase),
+        group_members=group_members,
+    )
+
+
+@router.get("/cases/{case_id}/deletion")
+async def case_deletion(case_id: uuid.UUID, user: Member, session: TenantSession) -> CaseDeletion:
+    """What the confirmation lists before a case is deleted."""
+    case = await _deletable(session, user, case_id)
+    return await _what_goes(session, case)
+
+
+@router.delete("/cases/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_case(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
+    """A case opened by mistake — a duplicate (pilot fix 1, docs/decisions.md). The
+    specialist only. A case with money (payments, expenses, a talon, a partner payout
+    marked as paid) stays until they are deleted or unmarked: the money must not vanish
+    from the books unnoticed. The rest of the case —
+    attempts, the queue, package marks, bookings, the result, employees' grants — goes with
+    it by the foreign keys (ON DELETE CASCADE); vault accounts and templates given to the
+    client stay with the client. None of them holds a stored file. The number is not given
+    again (migration 0038), and a group the case was in is rebuilt without it."""
+    case = await _deletable(session, user, case_id)
+    if (await _what_goes(session, case)).has_money:
+        raise HTTPException(status.HTTP_409_CONFLICT, "case_has_money")
+    group_id = case.group_id
+    if group_id is not None:
+        await _leave(session, user, case)
+    _audit(
+        session,
+        AuditAction.CASE_DELETED,
+        user,
+        case,
+        {"number": case.number} | ({"group": str(group_id)} if group_id else {}),
+    )
+    await session.execute(
+        update(Tenant)
+        .where(Tenant.id == case.tenant_id)
+        .values(max_deleted_case_number=func.greatest(Tenant.max_deleted_case_number, case.number))
+    )
+    await session.execute(delete(VisaCase).where(VisaCase.id == case.id))
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

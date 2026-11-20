@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../api";
 import { ME_KEY, useMe, type Me } from "../auth";
 import { Field, useFieldErrors } from "../components/Field";
+import { useConfirm } from "../components/ConfirmDialog";
 import { PasswordField } from "../components/PasswordField";
 import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
 import { formatDate } from "../contacts";
@@ -32,7 +33,12 @@ export function SettingsPage() {
   // down when it arrives.
   const specialist = me.data?.role === "specialist";
   const own = useOwnSubscription(specialist);
-  const loading = me.isPending || (specialist && own.isPending);
+  const money = useQuery({
+    queryKey: MONEY_KEY,
+    queryFn: () => apiGet<Money>("/dictionaries/money"),
+    enabled: specialist,
+  });
+  const loading = me.isPending || (specialist && (own.isPending || money.isPending));
 
   const header = (
     <header className="page-header">
@@ -56,6 +62,8 @@ export function SettingsPage() {
       {header}
 
       <OwnSubscription />
+      {specialist && money.data && <Accounting money={money.data} />}
+      {specialist && money.isError && <ErrorAlert error={money.error} />}
       <EmailChange />
       <TwoFactor />
       {me.data?.role === "specialist" && <EraseData />}
@@ -145,6 +153,120 @@ function OwnSubscription() {
       <h3 className="h3">{t("subscription.payments")}</h3>
       <PaymentsTable payments={s.payments} />
     </section>
+  );
+}
+
+type Money = { base_currency: string; payment_currencies: string[]; tax_rate: string | null };
+const MONEY_KEY = ["dictionaries", "money"] as const;
+
+/** The accounting currency and the tax rate of the workspace: the specialist sets both
+ * herself (pilot T8). A new accounting currency counts again what is kept in it
+ * (backend/app/core/base_currency.py); the card says what will happen before she saves. */
+function Accounting({ money }: { money: Money }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const confirm = useConfirm();
+  const taxText = (rate: string | null) => (rate === null ? "" : String(Number(rate)));
+  const [base, setBase] = useState(money.base_currency);
+  const [tax, setTax] = useState(taxText(money.tax_rate));
+  // The values on the server changed (saved here, by the admin, on another device).
+  useEffect(() => setBase(money.base_currency), [money.base_currency]);
+  useEffect(() => setTax(taxText(money.tax_rate)), [money.tax_rate]);
+  const rebasing = base !== money.base_currency;
+  const warning = t("settings.rebaseWarning", { from: money.base_currency, to: base });
+  const save = useMutation({
+    mutationFn: (rebase: boolean) =>
+      apiPatch<Money>("/dictionaries/money", {
+        // Empty: not set yet; 0: no tax.
+        tax_rate: tax.trim() ? tax.trim().replace(",", ".") : null,
+        ...(rebase ? { base_currency: base } : {}),
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(MONEY_KEY, data);
+      // Amounts, taxes and profits on every screen are counted anew.
+      void queryClient.invalidateQueries();
+    },
+  });
+  const errors = useFieldErrors(save.error, {
+    codes: { currency_not_accepted: "base_currency", base_rate_unavailable: "base_currency" },
+    fields: ["base_currency", "tax_rate"],
+    invalid: { tax_rate: "tax_rate_invalid" },
+  });
+
+  return (
+    <form
+      ref={errors.form}
+      className="card form-card"
+      onSubmit={async (e: FormEvent) => {
+        e.preventDefault();
+        // Every amount kept in the base currency is counted again and corrected rates go:
+        // asked once more, with «Cancel» in focus.
+        const rebase = rebasing;
+        if (
+          rebase &&
+          !(await confirm({
+            message: warning,
+            action: t("settings.rebase", { currency: base }),
+          }))
+        ) {
+          return;
+        }
+        save.mutate(rebase);
+      }}
+    >
+      <h2 className="h2">{t("settings.money")}</h2>
+      <p className="muted small">{t("settings.moneyHint")}</p>
+      <div className="form-grid">
+        <Field
+          label={t("cabinet.baseCurrency")}
+          hint={t("settings.baseCurrencyHint")}
+          error={errors.at("base_currency")}
+        >
+          {(control) => (
+            <select {...control} value={base} onChange={(e) => setBase(e.target.value)}>
+              {money.payment_currencies.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field
+          label={t("settings.taxRate")}
+          hint={t("settings.taxRateHint")}
+          error={errors.at("tax_rate")}
+        >
+          {(control) => (
+            <input
+              {...control}
+              inputMode="decimal"
+              autoComplete="off"
+              value={tax}
+              onChange={(e) => setTax(e.target.value)}
+            />
+          )}
+        </Field>
+      </div>
+      {rebasing && (
+        <div className="alert alert-warn" role="status">
+          {warning}
+        </div>
+      )}
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
+      {save.isSuccess && !rebasing && (
+        <div className="alert alert-ok" role="status">
+          {save.variables
+            ? t("settings.rebased", { currency: money.base_currency })
+            : t("dict.saved")}
+        </div>
+      )}
+      <div className="form-actions">
+        <button type="submit" className="btn btn-p" disabled={save.isPending}>
+          {rebasing ? t("settings.rebase", { currency: base }) : t("common.save")}
+        </button>
+      </div>
+    </form>
   );
 }
 

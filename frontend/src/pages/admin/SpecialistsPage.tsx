@@ -16,7 +16,8 @@ type Specialist = {
   name: string;
   email: string;
   base_currency: string;
-  tax_rate: string;
+  /** Null: not set yet (the specialist sets it in her settings); "0.00": no tax. */
+  tax_rate: string | null;
   modules: string[];
   is_active: boolean;
   must_change_password: boolean;
@@ -26,8 +27,17 @@ type Specialist = {
 
 const CURRENCIES = ["BYN", "PLN", "USD", "EUR"] as const;
 type Currency = (typeof CURRENCIES)[number];
-// НПД in Belarus; the admin changes it per specialist.
-const DEFAULT_TAX_RATE = "10";
+
+/** The tax rate as the form shows it: empty while not set. */
+function taxText(rate: string | null): string {
+  return rate === null ? "" : String(Number(rate));
+}
+
+/** Empty is «not set»; the specialist may set it herself (pilot T8). */
+function taxValue(text: string): string | null {
+  return text.trim() ? text.trim().replace(",", ".") : null;
+}
+
 const KEY = ["admin", "specialists"] as const;
 
 export function SpecialistsPage() {
@@ -145,7 +155,8 @@ export function SpecialistsPage() {
                     <td>{s.name}</td>
                     <td>{s.email}</td>
                     <td className="nowrap">
-                      {s.base_currency} · {Number(s.tax_rate)}%
+                      {s.base_currency} ·{" "}
+                      {s.tax_rate === null ? t("settings.taxNotSet") : `${Number(s.tax_rate)}%`}
                     </td>
                     <td className="nowrap">
                       {t("admin.modulesCount", {
@@ -275,7 +286,7 @@ function NewSpecialistForm({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [currency, setCurrency] = useState<Currency>("BYN");
-  const [taxRate, setTaxRate] = useState(DEFAULT_TAX_RATE);
+  const [taxRate, setTaxRate] = useState("");
 
   const create = useMutation({
     mutationFn: () =>
@@ -283,7 +294,7 @@ function NewSpecialistForm({
         name,
         email,
         base_currency: currency,
-        tax_rate: taxRate || "0",
+        tax_rate: taxValue(taxRate),
       }),
     onSuccess: (result) => onCreated(result.specialist.email, result.temporary_password),
   });
@@ -371,7 +382,7 @@ function TaxField({
 }) {
   const { t } = useTranslation();
   return (
-    <Field label={t("admin.taxRate")} error={error}>
+    <Field label={t("admin.taxRate")} hint={t("admin.taxRateHint")} error={error}>
       {(control) => (
         <input
           {...control}
@@ -401,7 +412,7 @@ function SpecialistSettings({
   const { t } = useTranslation();
   const [name, setName] = useState(specialist.name);
   const [currency, setCurrency] = useState(specialist.base_currency as Currency);
-  const [taxRate, setTaxRate] = useState(String(Number(specialist.tax_rate)));
+  const [taxRate, setTaxRate] = useState(taxText(specialist.tax_rate));
   const [modules, setModules] = useState(specialist.modules);
 
   const save = useMutation({
@@ -409,7 +420,7 @@ function SpecialistSettings({
       apiPatch<Specialist>(`/admin/specialists/${specialist.tenant_id}`, {
         name,
         base_currency: currency,
-        tax_rate: taxRate || "0",
+        tax_rate: taxValue(taxRate),
         modules,
       }),
     onSuccess: onSaved,
@@ -430,10 +441,21 @@ function SpecialistSettings({
             <input {...control} required value={name} onChange={(e) => setName(e.target.value)} />
           )}
         </Field>
-        <label className="field">
-          <span>{t("admin.colCurrency")}</span>
-          <CurrencySelect value={currency} onChange={setCurrency} />
-        </label>
+        <Field label={t("admin.colCurrency")} hint={t("admin.currencyHint")}>
+          {(control) => (
+            <select
+              {...control}
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value as Currency)}
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
         <TaxField value={taxRate} onChange={setTaxRate} error={errors.at("tax_rate")} />
       </div>
       <h3 className="h3">{t("admin.modulesTitle")}</h3>

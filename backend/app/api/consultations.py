@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.client_status import covers
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.consultation_checks import Destination, check
@@ -21,6 +22,7 @@ from app.core.money import Amount, Currency
 from app.core.questionnaire import Questionnaire, Refusal
 from app.models import (
     AuditAction,
+    CaseStage,
     Consultation,
     Contact,
     Country,
@@ -76,6 +78,19 @@ class ConsultationUpdate(BaseModel):
     notes: Annotated[str, Field(max_length=5000)] | None = None
 
 
+class OpenedCase(BaseModel):
+    """A case a consultation led to, with its applicant: maybe someone else."""
+
+    id: uuid.UUID
+    number: int
+    contact_id: uuid.UUID
+    full_name: str
+    destination_id: uuid.UUID
+    purpose_id: uuid.UUID | None
+    stage: CaseStage
+    outcome: VisaOutcome | None
+
+
 class ConsultationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -94,6 +109,8 @@ class ConsultationOut(BaseModel):
     fee_paid_on: date | None
     notes: str | None
     created_at: datetime
+    # The cases this consultation led to (pilot fixes 2 and 8, client_status.covers).
+    cases: list[OpenedCase] = []
 
     @computed_field
     @property
@@ -167,7 +184,41 @@ async def consultations_of(session: AsyncSession, contact_id: uuid.UUID) -> list
         .where(Consultation.contact_id == contact_id)
         .order_by(Consultation.held_on.desc(), Consultation.created_at.desc())
     )
-    return [ConsultationOut.model_validate(c) for c in rows]
+    result = [ConsultationOut.model_validate(c) for c in rows]
+    # The cases each one led to, with their applicants (client_status.covers). RLS hides
+    # the cases and cards an employee does not see, so their names never show here.
+    opened: dict[uuid.UUID, list[OpenedCase]] = {}
+    for consultation_id, case, name in await session.execute(
+        select(Consultation.id, VisaCase, Contact.full_name)
+        .select_from(Consultation)
+        .join(
+            VisaCase,
+            covers(
+                Consultation.id,
+                Consultation.contact_id,
+                Consultation.held_on,
+                Consultation.created_at,
+            ),
+        )
+        .join(Contact, Contact.id == VisaCase.contact_id)
+        .where(Consultation.contact_id == contact_id)
+        .order_by(VisaCase.number)
+    ):
+        opened.setdefault(consultation_id, []).append(
+            OpenedCase(
+                id=case.id,
+                number=case.number,
+                contact_id=case.contact_id,
+                full_name=name,
+                destination_id=case.destination_id,
+                purpose_id=case.purpose_id,
+                stage=case.stage,
+                outcome=case.outcome,
+            )
+        )
+    for out in result:
+        out.cases = opened.get(out.id, [])
+    return result
 
 
 async def hints_for(session: AsyncSession, contact: Contact) -> list[HintOut]:

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
+from app.api.base_currency import change_base
 from app.api.deps import CurrentUser, SystemSession, require_admin
 from app.core.audit import record
 from app.core.dictionaries import add_default_dictionaries
@@ -25,12 +26,14 @@ class SpecialistIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     base_currency: Currency = "BYN"
-    tax_rate: TaxRate = Decimal("0")
+    # Not set unless the admin types one: the specialist sets it in «Настройки» (pilot T8).
+    tax_rate: TaxRate | None = None
     modules: ModuleList = list(DEFAULT_MODULES)
 
 
 class SpecialistUpdate(BaseModel):
-    """Only the fields sent are changed."""
+    """Only the fields sent are changed; a null tax rate is «not set». A new base currency
+    counts the workspace's amounts in it again (app/core/base_currency.py)."""
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     base_currency: Currency | None = None
@@ -43,7 +46,8 @@ class SpecialistOut(BaseModel):
     name: str
     email: str
     base_currency: str
-    tax_rate: Decimal
+    # None: not set yet; 0: no tax.
+    tax_rate: Decimal | None
     modules: list[str]
     is_active: bool
     must_change_password: bool
@@ -175,12 +179,29 @@ async def update_specialist(
 ) -> SpecialistOut:
     tenant, owner = await _get_specialist(session, tenant_id)
     changes = body.model_dump(exclude_unset=True, exclude_none=True)
-    details: dict[str, Any] = {"changed": sorted(changes)}
+    if "tax_rate" in body.model_fields_set:
+        changes["tax_rate"] = body.tax_rate  # null: not set
+    # A new base currency has an event of its own (with what it counted again).
+    details: dict[str, Any] = {"changed": sorted(changes.keys() - {"base_currency"})}
     if "modules" in changes:
         details["modules_on"] = [m for m in body.modules or [] if m not in tenant.modules]
         details["modules_off"] = [m for m in tenant.modules if m not in (body.modules or [])]
     if "name" in changes:
         changes["name"] = changes["name"].strip()
+    new_base = changes.pop("base_currency", None)
+    if new_base is not None:
+        # As in her settings: one change at a time (app/api/dictionaries.py, update_money).
+        await session.refresh(tenant, with_for_update={"key_share": True})
+        if new_base != tenant.base_currency:
+            old = tenant.base_currency
+            recounted = await change_base(session, tenant, new_base)
+            _record_on_tenant(
+                session,
+                AuditAction.BASE_CURRENCY_CHANGED,
+                admin,
+                tenant_id,
+                recounted.details(old, new_base),
+            )
     for field, value in changes.items():
         setattr(tenant, field, value)
     if changes:

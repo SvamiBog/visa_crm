@@ -42,7 +42,11 @@ async def open_case(client: AsyncClient, contact_id: str, destination="PL", **fi
         "applicants": [{"contact_id": contact_id}],
         **fields,
     }
-    return await client.post(f"{CONTACTS}/{contact_id}/cases", json=body)
+    # A second case for a client with one in work is confirmed (pilot fix 8): tests of
+    # other rules confirm it up front; the question itself is in test_consultation_cases.
+    return await client.post(
+        f"{CONTACTS}/{contact_id}/cases", params={"allow_case_in_work": "true"}, json=body
+    )
 
 
 async def card(client: AsyncClient, contact_id: str) -> dict:
@@ -265,7 +269,9 @@ async def test_a_family_does_not_follow_a_case_into_the_result(
     client: AsyncClient, make_user: MakeUser
 ):
     """A case with its result goes to «Результат» again by hand; a member without one
-    stays where it stood, and the board refuses a family with any case without one."""
+    stays where it stood, and the board refuses a family with any case without one. The
+    result itself goes on only with its own mark (pilot fix 7,
+    test_the_same_result_goes_to_the_family_without_one)."""
     await as_specialist(client, make_user)
     anna, sergey, _ = await family_of_three(client)
     await client.patch(
@@ -518,6 +524,69 @@ async def test_editing_one_case_changes_the_whole_family(client: AsyncClient, ma
 
     events = (await client.get("/api/audit")).json()["events"]
     assert any(e["action"] == "cases.updated" and e["target_id"] == sergey["id"] for e in events)
+
+
+async def test_the_same_result_goes_to_the_family_without_one(
+    client: AsyncClient, make_user: MakeUser
+):
+    """Pilot fix 7 (owner's decision 2026-11-19): a couple got the same visas, and the
+    result entered in one case with «Такой же результат у всех в группе» goes into the
+    group's cases without a result, which move to «Результат» with it. A case with its own
+    result is left as it is."""
+    await as_specialist(client, make_user)
+    anna, sergey, maria = await family_of_three(client)
+    await client.patch(
+        f"/api/cases/{anna['id']}", json={"submission_on": "2026-08-24", "apply_to_group": True}
+    )
+    await client.patch(
+        f"/api/cases/{maria['id']}", json={"outcome": "refusal", "decided_on": "2026-09-01"}
+    )
+    visa = {
+        "outcome": "visa",
+        "decided_on": "2026-09-10",
+        "visa_entries": "multiple",
+        "visa_valid_from": "2026-09-15",
+        "visa_valid_to": "2027-09-14",
+        "stay_days": 90,
+    }
+
+    response = await client.patch(
+        f"/api/cases/{anna['id']}", json={**visa, "result_to_group": True}
+    )
+    assert response.status_code == 200, response.text
+    husband = (await client.get(f"/api/cases/{sergey['id']}")).json()
+    assert {f: husband[f] for f in visa} == visa
+    assert (husband["after_appeal"], husband["stage"]) == (False, "result")
+    daughter = (await client.get(f"/api/cases/{maria['id']}")).json()
+    assert (daughter["outcome"], daughter["decided_on"]) == ("refusal", "2026-09-01")
+    assert daughter["visa_entries"] is None
+    # The form names only those who take the result: the group shows each one's result.
+    assert {m["case_id"]: m["outcome"] for m in response.json()["group"]} == {
+        sergey["id"]: "visa",
+        maria["id"]: "refusal",
+    }
+    # Logged like the result entered in his own case, with field names only.
+    events = (await client.get("/api/audit")).json()["events"]
+    [copied] = [
+        e
+        for e in events
+        if e["action"] == "cases.updated"
+        and e["target_id"] == sergey["id"]
+        and "outcome" in e["details"]["fields"]
+    ]
+    assert "2026-09-10" not in str(copied["details"])
+
+    # Only a result entered or changed goes on: saving the form again copies nothing,
+    # and without the mark a changed result stays in its own case.
+    await client.patch(f"/api/cases/{sergey['id']}", json={"outcome": None})
+    resaved = await client.patch(
+        f"/api/cases/{anna['id']}", json={**visa, "hall": "premium", "result_to_group": True}
+    )
+    assert resaved.status_code == 200, resaved.text
+    changed = await client.patch(f"/api/cases/{anna['id']}", json={"decided_on": "2026-09-11"})
+    assert changed.status_code == 200, changed.text
+    husband = (await client.get(f"/api/cases/{sergey['id']}")).json()
+    assert (husband["outcome"], husband["stage"]) == (None, "review")
 
 
 async def test_without_the_mark_only_this_case_changes(client: AsyncClient, make_user: MakeUser):

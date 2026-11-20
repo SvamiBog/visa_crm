@@ -282,3 +282,48 @@ async def test_an_employee_cannot_give_themselves_a_case(
             assert "row-level security" in str(error.orig)
         else:
             raise AssertionError("an employee wrote a grant")
+
+
+async def test_the_same_result_reaches_only_the_family_cases_the_employee_sees(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Pilot fix 7: like the fields a family shares, the result goes on only to the
+    group's cases the employee sees. Given a case of a family, she sees and files the
+    whole family; a case she made herself, which the specialist grouped with one of hers,
+    does not reach the specialist's case."""
+    await with_employee(client, make_user, owner_engine)
+    visa = {"outcome": "visa", "decided_on": "2026-09-10", "result_to_group": True}
+    mother = await new_contact(client, last_name="Ковалёва")
+    son = await new_contact(client, last_name="Ковалёв", first_name="Пётр")
+    family = await open_case(
+        client,
+        mother["id"],
+        applicants=[{"contact_id": mother["id"]}, {"contact_id": son["id"]}],
+    )
+    assert family.status_code == 201, family.text
+    mothers_case, sons_case = family.json()
+    await give_cases(owner_engine, EMPLOYEE, mothers_case["id"])
+    stranger = await new_contact(client, last_name="Петров", first_name="Иван")
+    [strangers_case] = (await open_case(client, stranger["id"])).json()
+
+    await switch_to(client, EMPLOYEE)
+    own = await new_contact(client, last_name="Новикова", first_name="Мария")
+    [own_case] = (await open_case(client, own["id"])).json()
+    await switch_to(client, "anna@example.com")
+    joined = await client.post(
+        f"/api/cases/{strangers_case['id']}/group", json={"case_id": own_case["id"]}
+    )
+    assert joined.status_code == 200, joined.text
+
+    await switch_to(client, EMPLOYEE)
+    response = await client.patch(f"/api/cases/{mothers_case['id']}", json=visa)
+    assert response.status_code == 200, response.text
+    response = await client.patch(f"/api/cases/{own_case['id']}", json=visa)
+    assert response.status_code == 200, response.text
+    assert response.json()["group"] == []
+
+    await switch_to(client, "anna@example.com")
+    sons = (await client.get(f"/api/cases/{sons_case['id']}")).json()
+    assert (sons["outcome"], sons["stage"]) == ("visa", "result")
+    strangers = (await client.get(f"/api/cases/{strangers_case['id']}")).json()
+    assert (strangers["outcome"], strangers["stage"]) == (None, "waiting")
