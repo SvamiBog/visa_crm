@@ -925,6 +925,9 @@ def _finance(
     finance = CaseFinance(
         case_id=case.id,
         tenant_id=case.tenant_id,
+        # Demo workspaces keep accounts in BYN, the default base currency.
+        currency="BYN",
+        rate=Decimal("1"),
         price=price,
         prepayment=Decimal("150"),
         consultation_credit=consultation_credit or Decimal("0"),

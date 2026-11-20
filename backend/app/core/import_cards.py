@@ -23,7 +23,7 @@ from sqlalchemy import select
 
 from app.core.data_format import SHEETS, Column, Sheet, ValueType
 from app.core.data_import import PASSPORT
-from app.core.finance import balance, money
+from app.core.finance import Paid, money, summarize, to_base
 from app.models import (
     ApplicationAttempt,
     Booking,
@@ -320,16 +320,21 @@ class _Builder:
         return Record("cases", self.change(case.id), values, tuple(children))
 
     def _money(self, case: VisaCase, payments: list[CasePayment]) -> dict[str, Any]:
-        """The case's finances; «Оплачено» and «Остаток» as the case counts them."""
+        """The case's finances; «Оплачено» and «Остаток» as the case counts them. The format
+        has the price in the base currency: a case priced in another one is converted."""
         f = self.finances.get(case.id)
-        paid = [p.amount_base for p in payments]
+        paid = [Paid(p.amount, p.currency, p.amount_base) for p in payments]
         values: dict[str, Any] = {}
+
+        def in_base(value: Decimal | None) -> Decimal | None:
+            return None if value is None or f is None else to_base(value, f.rate)
+
         if f is not None:
             talon = f.registrar_fee_amount is not None
             values = {
-                "price": f.price,
-                "prepayment": f.prepayment,
-                "consultation_credit": f.consultation_credit or None,
+                "price": in_base(f.price),
+                "prepayment": in_base(f.prepayment),
+                "consultation_credit": in_base(f.consultation_credit) or None,
                 "registrar_fee": f.registrar_fee_amount,
                 "registrar_fee_currency": f.registrar_fee_currency if talon else None,
                 "registrar_fee_rate": f.registrar_fee_rate
@@ -344,10 +349,20 @@ class _Builder:
                 "partner_paid_on": f.partner_paid_on,
             }
         if f is not None or paid:
-            values["paid"] = money(sum(paid, Decimal(0)))
-            values["balance"] = balance(
-                f.price if f else None, f.consultation_credit if f else Decimal(0), paid
-            )
+            values["paid"] = money(sum((p.amount_base for p in paid), Decimal(0)))
+            values["balance"] = summarize(
+                price=f.price if f else None,
+                currency=f.currency if f else self.base,
+                rate=f.rate if f else Decimal(1),
+                consultation_credit=f.consultation_credit if f else Decimal(0),
+                payments=paid,
+                registrar_fee=None,
+                partner_terms=None,
+                partner_percent=None,
+                partner_fixed=None,
+                tax_rate=None,
+                expenses=[],
+            ).balance_base
         return values
 
     def _payment(self, p: CasePayment) -> Record:

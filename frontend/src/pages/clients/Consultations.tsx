@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { PURPOSE_KINDS } from "../../checklists";
 import { Field, invalidProps, RowError, useFieldErrors } from "../../components/Field";
@@ -221,9 +222,12 @@ export function Consultations({
                   .join(" · ")}
               </div>
               {c.notes && <p className="note-body">{c.notes}</p>}
+              <OpenedCases consultation={c} contactId={card.contact.id} />
             </div>
             <div className="actions">
-              {onCreateCase && c.decision !== "no" && (
+              {/* A consultation with a case already opened (maybe in the family's group) does
+                  not offer another one here: «+ Кейс» in the cases block does (pilot fix 8). */}
+              {onCreateCase && c.decision !== "no" && c.cases.length === 0 && (
                 <button type="button" className="btn btn-sm" onClick={() => onCreateCase(c)}>
                   {t("cases.createFromHere")}
                 </button>
@@ -236,6 +240,38 @@ export function Consultations({
         ))}
       </ul>
     </section>
+  );
+}
+
+/** The cases a consultation led to, someone else's with a link to their card (pilot
+ * fixes 2 and 8): «Открыт кейс №3 — NAUMIK MIKALAI, Польша · Ожидание записи». */
+function OpenedCases({ consultation, contactId }: { consultation: Consultation; contactId: string }) {
+  const { t } = useTranslation();
+  const name = useLocalName();
+  const countries = useCountries();
+  const countryById = useMemo(() => byId(countries.data), [countries.data]);
+  if (consultation.cases.length === 0) return null;
+  return (
+    <ul className="plain-list opened-cases">
+      {consultation.cases.map((c) => (
+        <li key={c.id} className="small">
+          {t("cases.openedCase", { number: c.number })}
+          {c.contact_id !== contactId && (
+            <>
+              {" — "}
+              <Link to={`/app/clients/${c.contact_id}`}>{c.full_name}</Link>
+            </>
+          )}
+          {", "}
+          {[
+            name.country(countryById.get(c.destination_id)),
+            c.outcome ? t(`cases.outcome.${c.outcome}`) : t(`cases.stage.${c.stage}`),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -347,7 +383,11 @@ function ConsultationForm({
             ))}
           </select>
         </label>
-        <Field label={t("contacts.followUpOn")} error={errors.at("follow_up_on")}>
+        <Field
+          label={t("contacts.followUpOn")}
+          hint={t("contacts.followUpHint")}
+          error={errors.at("follow_up_on")}
+        >
           {(control) => (
             <input
               {...control}

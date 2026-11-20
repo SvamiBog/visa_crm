@@ -178,15 +178,16 @@ export function BoardView({ filters, query }: { filters: Filters; query: string 
     },
   });
 
-  // A family's card stays whole when the name of any of its members matches.
+  // A family's card stays whole when the name of any of its members matches; a case
+  // opened through someone else's consultation is found by that name too.
   const columns = useMemo(() => {
     const cases = board.data?.cases ?? [];
     if (!term) return cardsByStage(cases);
-    const found = cases.filter((c) => matches(c.full_name, term));
+    const hit = (c: BoardCase) =>
+      matches(c.full_name, term) || (c.via !== null && matches(c.via.full_name, term));
+    const found = cases.filter(hit);
     const groups = new Set(found.map((c) => c.group_id).filter(Boolean));
-    return cardsByStage(
-      cases.filter((c) => matches(c.full_name, term) || (c.group_id && groups.has(c.group_id))),
-    );
+    return cardsByStage(cases.filter((c) => hit(c) || (c.group_id && groups.has(c.group_id))));
   }, [board.data, term]);
   const leads = (board.data?.leads ?? []).filter((lead) => !term || matches(lead.full_name, term));
 
@@ -359,6 +360,8 @@ function CaseCard({ card }: { card: Card }) {
   const [first] = card.cases;
   const purpose = lists.purposes.find((p) => p.id === first.purpose_id)?.name;
   const others = card.cases.length - 1;
+  // Opened from someone else's consultation (pilot fix 2): «через Наумик Наталья».
+  const via = card.cases.find((c) => c.via !== null)?.via;
 
   return (
     <article
@@ -387,6 +390,14 @@ function CaseCard({ card }: { card: Card }) {
             {" "}
             +{others}
           </span>
+        )}
+        {via && (
+          <div className="muted small">
+            {t("index.through")}{" "}
+            <Link to={`/app/clients/${via.contact_id}`} state={FROM_INDEX} draggable={false}>
+              {via.full_name}
+            </Link>
+          </div>
         )}
       </div>
       <div className="muted small">

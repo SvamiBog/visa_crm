@@ -107,12 +107,11 @@ def appeal(decided_on: date, appeal_until: date, today: date, s: Settings) -> da
 
 
 def consultation(held_on: date, today: date, s: Settings) -> date | None:
-    """A consultation ahead: the call is not to be forgotten. Held and still without a
-    decision, it asks for one from the next day (CRM audit 2026-11-18) — its own
-    occurrence, so «Готово» on the day does not hide it — and, like a thinking client,
-    stays a month."""
-    triggers = (held_on - timedelta(days=s.consultation_days), held_on, held_on + timedelta(1))
-    return occurrence(triggers, today, until=add_months(held_on, 1))
+    """A consultation ahead: the call is not to be forgotten — the day before and on the
+    day. Once held it goes: the client's decision is asked for only on the day to hear it
+    that the specialist set herself (`follow_up`, pilot fix 3, 2026-11-19)."""
+    triggers = (held_on - timedelta(days=s.consultation_days), held_on)
+    return occurrence(triggers, today, until=held_on)
 
 
 def follow_up(follow_up_on: date, today: date) -> date | None:

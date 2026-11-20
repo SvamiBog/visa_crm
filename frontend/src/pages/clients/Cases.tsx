@@ -10,7 +10,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { useMe } from "../../auth";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { Field, useFieldErrors, type FieldErrors } from "../../components/Field";
 import {
@@ -19,6 +20,7 @@ import {
   HALLS,
   OUTCOMES,
   VISA_ENTRIES,
+  contactKey,
   formatDate,
   useCaseLists,
   type CaseStage,
@@ -44,6 +46,7 @@ import { CaseAccess } from "./CaseAccess";
 import { CaseBookings } from "./Bookings";
 import { CaseFinance } from "./Finance";
 import { CasePackage } from "./Package";
+import { useCaseName } from "./ui";
 import { useHasModule } from "../../workspace";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
@@ -112,6 +115,19 @@ function useRefreshCards() {
   };
 }
 
+/** Puts a saved case into its client's card at once, before the card is fetched again: a
+ * form opened in between starts from what was saved, not from the case before the save,
+ * and saving that form again would undo the change (a result wiped, pilot T4 review). */
+function usePutCase() {
+  const queryClient = useQueryClient();
+  return (saved: VisaCase) =>
+    queryClient.setQueryData<ContactCard>(contactKey(saved.contact_id), (card) =>
+      card?.cases
+        ? { ...card, cases: card.cases.map((c) => (c.id === saved.id ? saved : c)) }
+        : card,
+    );
+}
+
 const OUTCOME_CHIP: Record<Outcome, string> = {
   visa: "chip st-green",
   refusal: "chip st-red",
@@ -151,6 +167,11 @@ export function Cases({
   // «Подать повторно»: a new case filled in from the one it repeats.
   const [repeating, setRepeating] = useState<VisaCase | null>(null);
   const numbers = useMemo(() => new Map(cases.map((c) => [c.id, c.number])), [cases]);
+  // Two cases or more: a list of them at the top, and a case with a result folded, so that
+  // a payment does not go into the case above the one meant (pilot fix 9).
+  const several = cases.length > 1;
+  // A case picked in the list: it unfolds and comes into view; each pick counts again.
+  const [picked, setPicked] = useState<{ id: string; times: number } | null>(null);
 
   useEffect(() => {
     if (creating !== null || repeating !== null) {
@@ -189,11 +210,19 @@ export function Cases({
       {cases.length === 0 && creating === null && (
         <p className="muted small">{t("cases.empty")}</p>
       )}
+      {several && (
+        <CaseList
+          cases={cases}
+          onPick={(id) => setPicked((last) => ({ id, times: (last?.times ?? 0) + 1 }))}
+        />
+      )}
       <div className="cases">
         {cases.map((c) => (
           <CasePanel
             key={c.id}
             visaCase={c}
+            foldable={several}
+            picked={picked?.id === c.id ? picked.times : 0}
             askResult={c.id === resultCaseId}
             previousNumber={c.previous_case_id ? numbers.get(c.previous_case_id) : undefined}
             onFileAgain={() => {
@@ -207,18 +236,167 @@ export function Cases({
   );
 }
 
+/** The client's cases at the top of the block, each leading to its own (pilot fix 9). */
+function CaseList({ cases, onPick }: { cases: VisaCase[]; onPick: (id: string) => void }) {
+  const { t } = useTranslation();
+  const caseName = useCaseName();
+  return (
+    <nav className="case-list" aria-label={t("caseBlocks.list")}>
+      <ol>
+        {cases.map((c) => (
+          <li key={c.id}>
+            {/* A link to the block, opened by the page itself: no «#» in the address, so
+                «back» still leaves the card. */}
+            <a
+              href={`#case-${c.id}`}
+              onClick={(e) => {
+                e.preventDefault();
+                onPick(c.id);
+              }}
+            >
+              {caseName(c)}
+            </a>
+            <CaseChip stage={c.stage} outcome={c.outcome} />
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
 function CasePanel({
   visaCase: c,
+  foldable,
+  picked,
   askResult,
   previousNumber,
   onFileAgain,
 }: {
   visaCase: VisaCase;
+  // One of several cases: it can be folded, and one with a result starts folded.
+  foldable: boolean;
+  // Above zero: the case was picked in the list of cases, each pick a new number.
+  picked: number;
   // Open the form at the result: the case was dropped on «Результат» of the board.
   askResult: boolean;
   // The number of the case this one was filed again after.
   previousNumber?: number;
   onFileAgain: () => void;
+}) {
+  const { t } = useTranslation();
+  const caseName = useCaseName();
+  const lists = useCaseLists();
+  const bodyId = useId();
+  const ref = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // Folded once, when the card opens: a result entered now does not fold the case away.
+  const [open, setOpen] = useState(() => !foldable || c.outcome === null || askResult);
+  const [editing, setEditing] = useState(false);
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  // «Результат» needs the result (CRM audit 2026-11-18): asking for that stage opens
+  // the form at the result instead; each ask brings the form to it again.
+  const [resultAsked, setResultAsked] = useState(0);
+  const askForResult = () => {
+    setOpen(true);
+    setEditing(true);
+    setResultAsked((n) => n + 1);
+  };
+  useEffect(() => {
+    if (askResult) askForResult();
+  }, [askResult]);
+  // Picked in the list: unfolded, brought to the top of the screen, and the focus on its
+  // heading, so the keyboard goes on from the case.
+  useEffect(() => {
+    if (picked === 0) return;
+    setOpen(true);
+    const frame = requestAnimationFrame(() => {
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      ref.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      headingRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [picked]);
+  const purpose = lists.purposes.find((p) => p.id === c.purpose_id);
+
+  return (
+    <article
+      ref={ref}
+      id={`case-${c.id}`}
+      className={open ? "case-panel" : "case-panel folded"}
+    >
+      <div className="case-head">
+        <div className="case-name">
+          {/* «№9 · Испания · Туризм»: which case this is, before anything is entered in it. */}
+          <h3 className="h3 case-title" ref={headingRef} tabIndex={-1}>
+            {[caseName(c), purpose?.name].filter(Boolean).join(" · ")}
+          </h3>
+          <CaseChip stage={c.stage} outcome={c.outcome} />
+        </div>
+        <div className="head-actions">
+          {open && !editing && (
+            <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
+              {t("reference.edit")}
+            </button>
+          )}
+          {open && !editing && c.outcome !== null && (
+            <button type="button" className="btn btn-sm" onClick={onFileAgain}>
+              {t("cases.fileAgain")}
+            </button>
+          )}
+          {open && !editing && <DeleteCase visaCase={c} onError={setDeleteError} />}
+          {/* Not while the case's form is open: folding would drop what is typed in it. */}
+          {foldable && !editing && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              aria-expanded={open}
+              aria-controls={bodyId}
+              onClick={() => setOpen((value) => !value)}
+            >
+              {open ? t("caseBlocks.collapse") : t("caseBlocks.expand")}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="case-body" id={bodyId} hidden={!open}>
+        {open && (
+          <CaseBody
+            visaCase={c}
+            editing={editing}
+            onFormDone={() => {
+              setEditing(false);
+              setResultAsked(0);
+            }}
+            resultAsked={resultAsked}
+            askForResult={askForResult}
+            deleteError={deleteError}
+            previousNumber={previousNumber}
+          />
+        )}
+      </div>
+    </article>
+  );
+}
+
+/** The unfolded case: the stage, its details or its form, and its blocks. Not drawn while
+ * the case is folded, so a folded case asks the API for nothing. */
+function CaseBody({
+  visaCase: c,
+  editing,
+  onFormDone,
+  resultAsked,
+  askForResult,
+  deleteError,
+  previousNumber,
+}: {
+  visaCase: VisaCase;
+  // The case's form is open instead of its details («Изменить» in the head).
+  editing: boolean;
+  onFormDone: () => void;
+  resultAsked: number;
+  askForResult: () => void;
+  deleteError: unknown;
+  previousNumber?: number;
 }) {
   const { t, i18n } = useTranslation();
   const name = useLocalName();
@@ -229,17 +407,6 @@ function CasePanel({
   const refresh = useRefreshCards();
   const finances = useHasModule("finances");
   const packageCheck = useHasModule("package_check");
-  const [editing, setEditing] = useState(false);
-  // «Результат» needs the result (CRM audit 2026-11-18): asking for that stage opens
-  // the form at the result instead; each ask brings the form to it again.
-  const [resultAsked, setResultAsked] = useState(0);
-  const askForResult = () => {
-    setEditing(true);
-    setResultAsked((n) => n + 1);
-  };
-  useEffect(() => {
-    if (askResult) askForResult();
-  }, [askResult]);
   // As on the board, the family standing at this stage moves with the case.
   const moveTo = useMutation({
     mutationFn: (stage: CaseStage) =>
@@ -256,25 +423,22 @@ function CasePanel({
   const current = CASE_STAGES.indexOf(c.stage);
 
   return (
-    <article className="case-panel">
-      <div className="card-head">
-        <h3 className="h3">
-          {t("cases.number", { number: c.number })} · {name.country(countryById.get(c.destination_id))}
-        </h3>
-        <div className="head-actions">
-          <CaseChip stage={c.stage} outcome={c.outcome} />
-          {!editing && (
-            <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
-              {t("reference.edit")}
-            </button>
-          )}
-          {!editing && c.outcome !== null && (
-            <button type="button" className="btn btn-sm" onClick={onFileAgain}>
-              {t("cases.fileAgain")}
-            </button>
-          )}
+    <>
+      {typeof deleteError === "string" ? (
+        <div className="alert alert-error" role="alert">
+          {deleteError}
         </div>
-      </div>
+      ) : (
+        deleteError !== null && <ErrorAlert error={deleteError} />
+      )}
+      {c.source && c.source.contact_id !== c.contact_id && (
+        // Opened from someone else's consultation: the daughter came, the case is the
+        // father's (pilot fix 2).
+        <Row label={t("cases.source")}>
+          {t("cases.fromConsultationOn", { date: date(c.source.held_on) })}{" — "}
+          <Link to={`/app/clients/${c.source.contact_id}`}>{c.source.full_name}</Link>
+        </Row>
+      )}
       {previousNumber !== undefined && (
         <Row label={t("cases.previousCase")}>
           {t("cases.afterCase", { number: previousNumber })}
@@ -303,10 +467,7 @@ function CasePanel({
         <CaseEditForm
           visaCase={c}
           resultAsked={resultAsked}
-          onDone={() => {
-            setEditing(false);
-            setResultAsked(0);
-          }}
+          onDone={onFormDone}
         />
       ) : (
         <>
@@ -336,7 +497,100 @@ function CasePanel({
       {packageCheck && <CasePackage visaCase={c} />}
       <CaseBookings visaCase={c} />
       {finances && <CaseFinance visaCase={c} />}
-    </article>
+    </>
+  );
+}
+
+/** What goes with a case (GET /cases/{id}/deletion); a case with money stays. */
+type CaseDeletion = {
+  has_money: boolean;
+  payments: number;
+  expenses: number;
+  registrar_fee: boolean;
+  partner_paid: boolean;
+  attempts: number;
+  queue_entries: number;
+  package_items: number;
+  bookings: number;
+  outcome: boolean;
+  employees: number;
+  group_members: number;
+};
+
+const DELETED_WITH_CASE = [
+  "attempts",
+  "queue_entries",
+  "package_items",
+  "bookings",
+  "employees",
+] as const;
+
+/** «Удалить кейс»: a case opened by mistake, a duplicate (pilot fix 1). The specialist
+ * only; the question lists what goes with the case, and a case with money is refused
+ * before it is asked, naming the money that holds it (the API refuses it too). The
+ * refusal reaches `onError` as a ready message. */
+function DeleteCase({
+  visaCase: c,
+  onError,
+}: {
+  visaCase: VisaCase;
+  onError: (error: unknown) => void;
+}) {
+  const { t } = useTranslation();
+  const me = useMe();
+  const confirm = useConfirm();
+  const queryClient = useQueryClient();
+  const refresh = useRefreshCards();
+  const remove = useMutation({
+    mutationFn: async () => {
+      const what = await apiGet<CaseDeletion>(`/cases/${c.id}/deletion`);
+      // Refused before the question, as the API would refuse it after.
+      if (what.has_money) {
+        const money = [
+          ...(["payments", "expenses"] as const)
+            .filter((key) => what[key] > 0)
+            .map((key) => t(`cases.keptBy.${key}`, { n: what[key] })),
+          ...(["registrar_fee", "partner_paid"] as const)
+            .filter((key) => what[key])
+            .map((key) => t(`cases.keptBy.${key}`)),
+        ];
+        onError(t("cases.keptByMoney", { number: c.number, items: money.join(", ") }));
+        return false;
+      }
+      const items = [
+        ...DELETED_WITH_CASE.filter((key) => what[key] > 0).map((key) =>
+          t(`cases.deletedWith.${key}`, { n: what[key] }),
+        ),
+        ...(what.outcome ? [t("cases.deletedWith.outcome")] : []),
+      ];
+      const message = [
+        items.length > 0
+          ? t("cases.confirmDeleteWith", { number: c.number, items: items.join(", ") })
+          : t("cases.confirmDelete", { number: c.number }),
+        ...(what.group_members > 0 ? [t("cases.deleteLeavesGroup")] : []),
+      ].join(" ");
+      if (!(await confirm({ message, action: t("cases.delete") }))) return false;
+      await apiDelete<void>(`/cases/${c.id}`);
+      return true;
+    },
+    onMutate: () => onError(null),
+    onSuccess: (deleted) => {
+      if (!deleted) return;
+      void queryClient.invalidateQueries({ queryKey: ["cases", "board"] });
+      refresh();
+    },
+    onError,
+  });
+  if (me.data?.role !== "specialist") return null;
+  return (
+    <button
+      type="button"
+      className="btn btn-sm btn-danger"
+      disabled={remove.isPending}
+      onClick={() => remove.mutate()}
+    >
+      {t("cases.delete")}
+    </button>
   );
 }
 
@@ -668,6 +922,9 @@ const PART_LABELS = {
   middle_name: "contacts.middleName",
 } as const;
 
+/** An applicant's case in work, in the API's 409 `case_in_work`. */
+type CaseInWork = { contact_id: string; full_name: string; number: number; destination_id: string };
+
 function CaseCreateForm({
   card,
   consultation,
@@ -681,7 +938,10 @@ function CaseCreateForm({
   onDone: () => void;
 }) {
   const { t } = useTranslation();
+  const name = useLocalName();
+  const confirm = useConfirm();
   const countries = useCountries();
+  const countryById = useMemo(() => byId(countries.data), [countries.data]);
   const refresh = useRefreshCards();
   const belarus = countries.data?.find((c) => c.code === DEFAULT_SUBMISSION_CODE)?.id ?? "";
   const suggested = consultation?.destination_ids ?? [];
@@ -730,23 +990,46 @@ function CaseCreateForm({
   const named = added.filter((a) => a.last_name.trim() || a.first_name.trim());
   const count = chosen.size + named.length;
 
+  const send = (query: string) =>
+    apiPost<VisaCase[]>(`/contacts/${card.contact.id}/cases${query}`, {
+      ...placeBody(place),
+      consultation_id: consultation?.id ?? null,
+      previous_case_id: previous?.id ?? null,
+      applicants: [
+        ...people.filter((p) => chosen.has(p.id)).map((p) => ({ contact_id: p.id })),
+        ...named.map((a) => ({
+          last_name: a.last_name.trim() || null,
+          first_name: a.first_name.trim() || null,
+          middle_name: a.middle_name.trim() || null,
+          label: a.label.trim() || null,
+        })),
+      ],
+    });
   const create = useMutation({
-    mutationFn: () =>
-      apiPost<VisaCase[]>(`/contacts/${card.contact.id}/cases`, {
-        ...placeBody(place),
-        consultation_id: consultation?.id ?? null,
-        previous_case_id: previous?.id ?? null,
-        applicants: [
-          ...people.filter((p) => chosen.has(p.id)).map((p) => ({ contact_id: p.id })),
-          ...named.map((a) => ({
-            last_name: a.last_name.trim() || null,
-            first_name: a.first_name.trim() || null,
-            middle_name: a.middle_name.trim() || null,
-            label: a.label.trim() || null,
-          })),
-        ],
-      }),
-    onSuccess: () => {
+    // An applicant with a case in work is asked about first: a second case is most often
+    // a duplicate (pilot fix 8). Null when the specialist decided not to create it.
+    mutationFn: async (): Promise<VisaCase[] | null> => {
+      try {
+        return await send("");
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.code !== "case_in_work") throw error;
+        const inWork = (error.data.cases ?? []) as CaseInWork[];
+        const message = [
+          ...inWork.map((c) =>
+            t("cases.caseInWork", {
+              name: c.full_name,
+              number: c.number,
+              country: name.country(countryById.get(c.destination_id)),
+            }),
+          ),
+          t("cases.createAnother"),
+        ].join(" ");
+        if (!(await confirm({ message, action: t("cases.createAnyway") }))) return null;
+        return await send("?allow_case_in_work=true");
+      }
+    },
+    onSuccess: (created) => {
+      if (created === null) return;
       void refresh();
       onDone();
     },
@@ -770,7 +1053,9 @@ function CaseCreateForm({
       className="form-card consultation-form"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
-        create.mutate();
+        // One press opens the cases once: a second submit while the first is on its way
+        // would open them twice (pilot fix 1).
+        if (!create.isPending) create.mutate();
       }}
     >
       <h3 className="h3">
@@ -839,6 +1124,7 @@ function CaseCreateForm({
         >
           {t("cases.addApplicant")}
         </button>
+        {consultation && <p className="muted small">{t("cases.applicantsNotTheVisitor")}</p>}
       </fieldset>
       {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
@@ -869,6 +1155,9 @@ function CaseEditForm({
 }) {
   const { t } = useTranslation();
   const refresh = useRefreshCards();
+  const putCase = usePutCase();
+  const caseName = useCaseName();
+  const titleId = useId();
   const resultRef = useRef<HTMLFieldSetElement>(null);
   const outcomeRef = useRef<HTMLSelectElement>(null);
   useEffect(() => {
@@ -901,6 +1190,10 @@ function CaseEditForm({
   // A family is filed together: the edit goes to the whole group, apart from the result.
   const [applyToGroup, setApplyToGroup] = useState(c.group.length > 0);
   const groupHint = useId();
+  // A family usually gets the same result: it goes into the cases still without one.
+  const [resultToGroup, setResultToGroup] = useState(true);
+  const resultGroupHint = useId();
+  const withoutResult = c.group.filter((m) => m.outcome === null);
   const [questionnaireDue, setQuestionnaireDue] = useState(c.questionnaire_due_on ?? "");
   const [questionnaireReceived, setQuestionnaireReceived] = useState(
     c.questionnaire_received_on ?? "",
@@ -908,27 +1201,37 @@ function CaseEditForm({
   const numberLabel = useNumberLabel();
   const isVisa = outcome === "visa";
   const decided = outcome === "visa" || outcome === "refusal";
+  const result = {
+    outcome: outcome || null,
+    decided_on: outcome ? decidedOn || null : null,
+    visa_entries: isVisa ? entries || null : null,
+    visa_valid_from: isVisa ? validFrom || null : null,
+    visa_valid_to: isVisa ? validTo || null : null,
+    stay_days: isVisa && stayDays ? Number(stayDays) : null,
+    after_appeal: decided ? afterAppeal : false,
+  };
+  // Offered while a result is being entered or changed: the API copies only that.
+  const resultEdited = (Object.keys(result) as (keyof typeof result)[]).some(
+    (field) => result[field] !== c[field],
+  );
+  const offerResultToGroup = outcome !== "" && resultEdited && withoutResult.length > 0;
 
   const save = useMutation({
     mutationFn: () =>
       apiPatch<VisaCase>(`/cases/${c.id}`, {
         ...placeBody(place),
-        outcome: outcome || null,
-        decided_on: outcome ? decidedOn || null : null,
-        visa_entries: isVisa ? entries || null : null,
-        visa_valid_from: isVisa ? validFrom || null : null,
-        visa_valid_to: isVisa ? validTo || null : null,
-        stay_days: isVisa && stayDays ? Number(stayDays) : null,
-        after_appeal: decided ? afterAppeal : false,
+        ...result,
         vac_number: vacNumber.trim() || null,
         application_email: email.trim() || null,
         application_email_owner: email.trim() ? emailOwner || null : null,
         fill_group: c.group.length > 0 && fillGroup,
         apply_to_group: c.group.length > 0 && applyToGroup,
+        result_to_group: offerResultToGroup && resultToGroup,
         questionnaire_due_on: questionnaireDue || null,
         questionnaire_received_on: questionnaireReceived || null,
       }),
-    onSuccess: () => {
+    onSuccess: (saved) => {
+      putCase(saved);
       void refresh();
       onDone();
     },
@@ -939,11 +1242,16 @@ function CaseEditForm({
     <form
       ref={errors.form}
       className="form-card"
+      aria-labelledby={titleId}
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         save.mutate();
       }}
     >
+      {/* Which case the change goes to (pilot fix 9). */}
+      <h4 className="form-title" id={titleId}>
+        {t("caseBlocks.caseEdit", { case: caseName(c) })}
+      </h4>
       <PlaceFields place={place} onChange={setPlace} errors={errors} />
       <fieldset className="module-block">
         <legend>{t("queues.numberAndEmail")}</legend>
@@ -1113,6 +1421,26 @@ function CaseEditForm({
             />
             <span>{t("cases.afterAppealLabel")}</span>
           </label>
+        )}
+        {offerResultToGroup && (
+          <div>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                aria-describedby={resultGroupHint}
+                checked={resultToGroup}
+                onChange={(e) => setResultToGroup(e.target.checked)}
+              />
+              <span>
+                {t("cases.resultToGroup", {
+                  names: withoutResult.map((m) => m.full_name).join(", "),
+                })}
+              </span>
+            </label>
+            <p id={resultGroupHint} className="muted small">
+              {t("cases.resultToGroupHint")}
+            </p>
+          </div>
         )}
       </fieldset>
       {c.group.length > 0 && (

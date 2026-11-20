@@ -1,7 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { errorCode } from "../../api";
-import { useCountries, useLocalName, type Country } from "../../reference";
+import type { VisaCase } from "../../contacts";
+import { byId, useCountries, useLocalName, type Country } from "../../reference";
 
 // Small pieces shared by the client card's blocks.
 
@@ -39,4 +40,15 @@ export function useSortedCountries(): Country[] {
       [...(countries.data ?? [])].sort((a, b) => name.country(a).localeCompare(name.country(b))),
     [countries.data, name],
   );
+}
+
+/** «№9 · Испания»: the case's number and country, said wherever an entry goes into a case
+ * so that it does not go into the client's other one (pilot fix 9). */
+export function useCaseName(): (c: VisaCase) => string {
+  const { t } = useTranslation();
+  const name = useLocalName();
+  const countries = useCountries();
+  const countryById = useMemo(() => byId(countries.data), [countries.data]);
+  return (c) =>
+    `${t("cases.number", { number: c.number })} · ${name.country(countryById.get(c.destination_id))}`;
 }

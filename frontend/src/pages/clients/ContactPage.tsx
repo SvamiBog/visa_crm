@@ -104,9 +104,15 @@ export function ContactPage() {
   // reload or «back» does not open it again.
   useEffect(() => {
     if (!card.data || !openedToCreateCase(location.state)) return;
+    // Not for a client who already has a case in work, their own or opened from their
+    // consultation (maybe for the family): the cases show instead, a new one is «+ Кейс»
+    // (pilot fix 8).
     if (card.data.cases !== null) {
       const [latest] = card.data.consultations;
-      setCreatingCase(latest && latest.decision !== "no" ? latest : "blank");
+      const inWork = [...card.data.cases, ...(latest?.cases ?? [])].some(
+        (c) => c.stage !== "result",
+      );
+      if (!inWork) setCreatingCase(latest && latest.decision !== "no" ? latest : "blank");
     }
     const state = openedFromIndex(location.state) ? FROM_INDEX : null;
     navigate(location.pathname, { replace: true, state });

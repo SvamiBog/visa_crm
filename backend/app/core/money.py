@@ -23,3 +23,9 @@ Percent = Annotated[
     Field(gt=0, le=100, max_digits=5, decimal_places=2),
     AfterValidator(lambda value: value.quantize(CENT)),
 ]
+
+
+def ordered_currencies(base: str, chosen: list[str]) -> list[str]:
+    """The currencies a specialist accepts: the base one first (payments in it are always
+    possible), then the rest in a stable order."""
+    return [base] + [c for c in CURRENCIES if c in chosen and c != base]

@@ -244,7 +244,9 @@ class RegistrarPrice(Base):
 
 
 class Prepayment(Base):
-    """Fixed prepayment for a country and visa purpose (NULL: any), in the base currency."""
+    """Fixed prepayment for a country and visa purpose (NULL: any), in the currency it was
+    entered in (pilot T8): a change of the base currency leaves it as it is, and a case
+    priced in another currency gets it converted at the bank's rate."""
 
     __tablename__ = "prepayments"
     __table_args__ = (
@@ -266,3 +268,4 @@ class Prepayment(Base):
     country_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("countries.id", ondelete="RESTRICT"))
     purpose_id: Mapped[uuid.UUID | None]
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(3))

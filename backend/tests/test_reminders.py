@@ -385,9 +385,10 @@ async def test_what_the_specialist_reminded_clients_of_by_hand(
 
 
 async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_user: MakeUser):
-    """CRM audit 2026-11-18 (owner's decisions): 15 days after the submission with no
-    result entered, «внесите результат» until it is; a consultation held without a
-    decision asks for one for a month, unless a day to hear it was agreed."""
+    """CRM audit 2026-11-18: 15 days after the submission with no result entered,
+    «внесите результат» until it is. Pilot fix 3 (owner's decision 2026-11-19): a
+    consultation held without a decision asks for it only on the day to hear it that
+    the specialist set («Связаться»), and is overdue only after that day."""
     await make_user("anna@example.com")
     await login(client, "anna@example.com")
     codes = await countries(client)
@@ -400,17 +401,25 @@ async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_use
     latvia = await open_case(client, codes, roma, "LV")
     await patch_case(client, latvia, submission_on=day(-14))
 
-    # Held three days ago, no decision entered.
-    sveta = await contact(client, "Света")
-    held = await client.post(
-        f"/api/contacts/{sveta['id']}/consultations", json={"held_on": day(-3)}
-    )
-    assert held.status_code == 201, held.text
-    # Held as well, but a day to hear the decision was agreed: that reminder covers it.
+    # Held yesterday, no decision and no day to hear it: nothing to remind of.
+    for held_on in (day(-1), day(-3)):
+        sveta = await contact(client, f"Света {held_on}")
+        held = await client.post(
+            f"/api/contacts/{sveta['id']}/consultations", json={"held_on": held_on}
+        )
+        assert held.status_code == 201, held.text
+    # Held, and the specialist set a day to hear the decision: a day ahead is quiet.
     taras = await contact(client, "Тарас")
-    agreed = await client.post(
+    ahead = await client.post(
         f"/api/contacts/{taras['id']}/consultations",
         json={"held_on": day(-3), "follow_up_on": day(4)},
+    )
+    assert ahead.status_code == 201, ahead.text
+    # The day she set has passed and the client has not decided: overdue since that day.
+    vera = await contact(client, "Вера")
+    agreed = await client.post(
+        f"/api/contacts/{vera['id']}/consultations",
+        json={"held_on": day(-5), "follow_up_on": day(-2)},
     )
     assert agreed.status_code == 201, agreed.text
     # An older consultation without a decision, then a newer one with it.
@@ -418,9 +427,16 @@ async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_use
     for body in ({"held_on": day(-20)}, {"held_on": day(-2), "decision": "no"}):
         made = await client.post(f"/api/contacts/{ulyana['id']}/consultations", json=body)
         assert made.status_code == 201, made.text
+    # A consultation tomorrow: the day before and on the day, as ever.
+    oleg = await contact(client, "Олег")
+    tomorrow = await client.post(
+        f"/api/contacts/{oleg['id']}/consultations", json={"held_on": day(1)}
+    )
+    assert tomorrow.status_code == 201, tomorrow.text
 
-    found = by_kind((await client.get("/api/reminders")).json())
-    assert set(found) == {"result", "consultation"}
+    listed = (await client.get("/api/reminders")).json()
+    assert sorted(r["kind"] for r in listed) == ["consultation", "follow_up", "result"]
+    found = by_kind(listed)
     result = found["result"]
     assert (result["contact_name"], result["since"], result["due_on"]) == (
         "Пётр",
@@ -429,16 +445,55 @@ async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_use
     )
     assert result["key"] == f"result:{poland['id']}:{day(0)}"
     consultation = found["consultation"]
-    assert (consultation["contact_name"], consultation["due_on"]) == ("Света", day(-3))
-    assert consultation["key"] == f"consultation:{held.json()['id']}:{day(-2)}"
+    assert (consultation["contact_name"], consultation["due_on"]) == ("Олег", day(1))
+    assert consultation["days_left"] == 1
+    follow_up = found["follow_up"]
+    assert (follow_up["contact_name"], follow_up["due_on"], follow_up["since"]) == (
+        "Вера",
+        day(-2),
+        day(-5),
+    )
+    assert follow_up["days_left"] == -2
 
-    # Each goes when its matter is settled.
+    # Still thinking: the reminder stays; decided: it goes.
+    thinking = await client.patch(
+        f"/api/consultations/{agreed.json()['id']}", json={"decision": "thinking"}
+    )
+    assert thinking.status_code == 200, thinking.text
+    assert "follow_up" in by_kind((await client.get("/api/reminders")).json())
     await patch_case(client, poland, outcome="visa", decided_on=day(-1))
     decided = await client.patch(
-        f"/api/consultations/{held.json()['id']}", json={"decision": "thinking"}
+        f"/api/consultations/{agreed.json()['id']}", json={"decision": "no"}
     )
     assert decided.status_code == 200, decided.text
-    assert (await client.get("/api/reminders")).json() == []
+    assert set(by_kind((await client.get("/api/reminders")).json())) == {"consultation"}
+
+
+async def test_a_result_not_entered_has_no_deadline(client: AsyncClient, make_user: MakeUser):
+    """Owner's answer 2026-11-20 (pilot): 15 days after the submission is the CRM's guess,
+    not a deadline, so «внесите результат» is never «просрочено» or «сегодня»: it has no
+    days left and comes after the reminders with a real date, overdue or not."""
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+
+    petr = await contact(client, "Пётр")
+    poland = await open_case(client, codes, petr, "PL")
+    await patch_case(client, poland, submission_on=day(-20))
+    # A day to hear the decision that the specialist set herself: overdue, and stays so.
+    vera = await contact(client, "Вера")
+    agreed = await client.post(
+        f"/api/contacts/{vera['id']}/consultations",
+        json={"held_on": day(-5), "follow_up_on": day(-2)},
+    )
+    assert agreed.status_code == 201, agreed.text
+
+    listed = (await client.get("/api/reminders")).json()
+    assert [r["kind"] for r in listed] == ["follow_up", "result"]
+    follow_up, result = listed
+    assert follow_up["days_left"] == -2
+    assert (result["since"], result["due_on"], result["days_left"]) == (day(-20), day(-5), None)
+    assert result["key"] == f"result:{poland['id']}:{day(-5)}"
 
 
 async def test_a_familys_reminders_name_their_group(client: AsyncClient, make_user: MakeUser):
@@ -468,3 +523,31 @@ async def test_a_familys_reminders_name_their_group(client: AsyncClient, make_us
     assert groups[family[0]["id"]] == groups[family[1]["id"]] == family[0]["group_id"]
     assert family[0]["group_id"] is not None
     assert groups[alone["id"]] is None
+
+
+async def test_a_balance_in_another_currency_is_owed_in_the_base_one(
+    client: AsyncClient, make_user: MakeUser
+):
+    # Pilot fix 4: the price is 500 PLN (0.80 BYN each, so 400 BYN), payments in BYN.
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+    paid_up, owing = await contact(client, "Анна"), await contact(client, "Борис")
+    for person, paid in ((paid_up, "400"), (owing, "300")):
+        case = await open_case(client, codes, person, "PL")
+        await patch_case(client, case, submission_on=day(2))
+        priced = await client.patch(
+            f"/api/cases/{case['id']}/finance", json={"currency": "PLN", "price": "500"}
+        )
+        assert priced.status_code == 200, priced.text
+        payment = await client.post(
+            f"/api/cases/{case['id']}/payments",
+            json={"paid_on": day(-1), "amount": paid, "currency": "BYN"},
+        )
+        assert payment.status_code == 201, payment.text
+
+    due = [i for i in (await client.get("/api/reminders")).json() if i["kind"] == "balance_due"]
+    # Paid in full in BYN: nothing is owed; the other one owes 100 BYN (125 PLN).
+    assert [(i["contact_name"], i["amount"], i["currency"]) for i in due] == [
+        ("Борис", "100.00", "BYN")
+    ]

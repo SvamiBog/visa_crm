@@ -47,8 +47,10 @@ async def erase_workspace(session: AsyncSession, tenant_id: uuid.UUID) -> list[s
     # The vault key goes with the secrets it sealed: copies of them left in backups or in
     # the storage no longer open with this database. The next secret gets a new key.
     await session.execute(
-        update(Tenant).where(Tenant.id == tenant_id).values(vault_key_encrypted=None)
+        update(Tenant)
+        .where(Tenant.id == tenant_id)
+        .values(vault_key_encrypted=None, max_deleted_case_number=0)
     )
-    # The workspace starts again like a new one.
+    # The workspace starts again like a new one, its cases numbered from №1.
     add_default_dictionaries(session, tenant_id)
     return keys
