@@ -96,7 +96,7 @@ for (const lang of ["ru", "en"] as const) {
       expect((await saved).ok()).toBe(true);
     };
     // «Изменить» of the case itself, in its own heading (finances and the rest have theirs).
-    const edit = panel.locator(":scope > .card-head").getByRole("button", {
+    const edit = panel.locator(":scope > .case-head").getByRole("button", {
       name: t("reference.edit"),
       exact: true,
     });
@@ -135,7 +135,7 @@ for (const lang of ["ru", "en"] as const) {
 
     await page.goto(`/app/clients/${mother.contact_id}`, { waitUntil: "networkidle" });
     const panel = page.locator("article.case-panel");
-    const edit = panel.locator(":scope > .card-head").getByRole("button", {
+    const edit = panel.locator(":scope > .case-head").getByRole("button", {
       name: t("reference.edit"),
       exact: true,
     });

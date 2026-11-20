@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent } from "react";
+import { useId, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../api";
 import { useConfirm } from "../../components/ConfirmDialog";
@@ -16,7 +16,7 @@ import { byId } from "../../reference";
 import { useOwnVault, useVaultSystems, vaultKey, type VaultEntry } from "../../vault";
 import { useHasModule, useWorkspace } from "../../workspace";
 import { Field, useFieldErrors } from "../../components/Field";
-import { ErrorAlert } from "./ui";
+import { ErrorAlert, useCaseName } from "./ui";
 
 // Bookings for the document package (backlog 1.8): hotels with their free cancellation
 // deadline and the client's flight booking with its validity.
@@ -98,6 +98,7 @@ export function useStay() {
 
 export function CaseBookings({ visaCase: c }: { visaCase: VisaCase }) {
   const { t } = useTranslation();
+  const caseName = useCaseName()(c);
   const [editing, setEditing] = useState<Booking | "new" | null>(null);
   const accounts = useBookingAccounts(c.contact_id);
   const live = c.bookings.filter((b) => b.status !== "cancelled");
@@ -130,6 +131,7 @@ export function CaseBookings({ visaCase: c }: { visaCase: VisaCase }) {
         <BookingForm
           key={editing === "new" ? "new" : editing.id}
           caseId={c.id}
+          caseName={caseName}
           booking={editing === "new" ? undefined : editing}
           accounts={accounts}
           onDone={() => setEditing(null)}
@@ -242,17 +244,21 @@ function BookingItem({
 
 function BookingForm({
   caseId,
+  caseName,
   booking,
   accounts,
   onDone,
 }: {
   caseId: string;
+  // «№9 · Испания»: the case the booking goes into (pilot fix 9).
+  caseName: string;
   booking?: Booking;
   accounts: ReturnType<typeof useBookingAccounts>;
   onDone: () => void;
 }) {
   const { t } = useTranslation();
   const refresh = useRefreshCards();
+  const titleId = useId();
   const [kind, setKind] = useState<BookingKind>(booking?.kind ?? "hotel");
   const [status, setStatus] = useState<BookingStatus>(booking?.status ?? "active");
   const [place, setPlace] = useState(booking?.place ?? "");
@@ -305,7 +311,15 @@ function BookingForm({
   };
 
   return (
-    <form ref={errors.form} className="form-card booking-form" onSubmit={submit}>
+    <form
+      ref={errors.form}
+      className="form-card booking-form"
+      aria-labelledby={titleId}
+      onSubmit={submit}
+    >
+      <h5 className="form-title" id={titleId}>
+        {t(booking ? "caseBlocks.bookingEdit" : "caseBlocks.bookingTo", { case: caseName })}
+      </h5>
       <div className="form-grid">
         <label className="field">
           <span>{t("bookings.kindLabel")}</span>

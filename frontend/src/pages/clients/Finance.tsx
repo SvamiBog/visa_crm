@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
 import { Field, useFieldErrors, type FieldErrors } from "../../components/Field";
 import { formatDate, type VisaCase } from "../../contacts";
 import { deferDelete, useDeleting } from "../../undo";
-import { ErrorAlert, todayIso } from "./ui";
+import { ErrorAlert, todayIso, useCaseName } from "./ui";
 
 // Case finances (backlog 1.9): the price and the balance in the case's own currency (pilot
 // fix 4), the talon, payout, tax, expenses and profit in the specialist's base currency;
 // payments and expenses in other currencies keep the site's National Bank rate. The API
-// counts the balance, the payout, the tax and the profit (app/core/finance.py).
+// counts the balance, the payout, the tax and the profit (app/core/finance.py). Each form
+// and each confirmation names the case, «№11 · Польша», so that a payment of one of the
+// client's cases does not go into the other (pilot fix 9).
 
 const TERMS = ["percent", "fixed", "none", "unspecified"] as const;
 type Terms = (typeof TERMS)[number];
@@ -179,9 +181,12 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
     queryKey: financeKey(c.id),
     queryFn: () => apiGet<Finance>(`/cases/${c.id}/finance`),
   });
+  const caseName = useCaseName()(c);
   const [editing, setEditing] = useState<"finance" | "payment" | "expense" | null>(null);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [expense, setExpense] = useState<Expense | null>(null);
+  // What was just saved and into which case; gone when the next form opens.
+  const [saved, setSaved] = useState<string | null>(null);
 
   if (finance.isPending) return <p className="muted small">{t("common.loading")}</p>;
   if (finance.isError) return <ErrorAlert error={finance.error} />;
@@ -193,10 +198,15 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
     value === null ? "—" : `${money(value)} ${currency}`;
   // Without a price there is no balance or profit: ask for the price, never show a loss.
   const noPrice = <span className="muted">{t("finance.setPrice")}</span>;
-  const close = () => {
+  const close = (message?: string) => {
     setEditing(null);
     setPayment(null);
     setExpense(null);
+    setSaved(message ?? null);
+  };
+  const edit = (form: "finance" | "payment" | "expense") => {
+    setSaved(null);
+    setEditing(form);
   };
 
   return (
@@ -206,22 +216,31 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
         {editing === null && (
           <span className="actions">
             {/* A payment is the frequent one; the price and terms change rarely. */}
-            <button type="button" className="btn btn-sm btn-p" onClick={() => setEditing("payment")}>
+            <button type="button" className="btn btn-sm btn-p" onClick={() => edit("payment")}>
               {t("finance.addPayment")}
             </button>
-            <button type="button" className="btn btn-sm" onClick={() => setEditing("expense")}>
+            <button type="button" className="btn btn-sm" onClick={() => edit("expense")}>
               {t("finance.addExpense")}
             </button>
-            <button type="button" className="btn btn-sm" onClick={() => setEditing("finance")}>
+            <button type="button" className="btn btn-sm" onClick={() => edit("finance")}>
               {t("reference.edit")}
             </button>
           </span>
         )}
       </div>
 
-      {editing === "finance" && <FinanceForm finance={f} onDone={close} />}
-      {editing === "payment" && <PaymentForm finance={f} payment={payment} onDone={close} />}
-      {editing === "expense" && <ExpenseForm finance={f} expense={expense} onDone={close} />}
+      {saved !== null && (
+        <p className="alert alert-ok small" role="status">
+          {saved}
+        </p>
+      )}
+      {editing === "finance" && <FinanceForm finance={f} caseName={caseName} onDone={close} />}
+      {editing === "payment" && (
+        <PaymentForm finance={f} caseName={caseName} payment={payment} onDone={close} />
+      )}
+      {editing === "expense" && (
+        <ExpenseForm finance={f} caseName={caseName} expense={expense} onDone={close} />
+      )}
 
       {f.price === null &&
       f.payments.length === 0 &&
@@ -263,9 +282,11 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                     <ItemActions
                       onEdit={() => {
                         setPayment(p);
-                        setEditing("payment");
+                        edit("payment");
                       }}
                       deleteUrl={`/payments/${p.id}`}
+                      deleted={t("caseBlocks.paymentDeleted", { case: caseName })}
+                      onDelete={() => setSaved(null)}
                       caseId={c.id}
                     />
                   </>
@@ -355,9 +376,11 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                     <ItemActions
                       onEdit={() => {
                         setExpense(e);
-                        setEditing("expense");
+                        edit("expense");
                       }}
                       deleteUrl={`/expenses/${e.id}`}
+                      deleted={t("caseBlocks.expenseDeleted", { case: caseName })}
+                      onDelete={() => setSaved(null)}
                       caseId={c.id}
                     />
                   </>
@@ -469,10 +492,16 @@ function PartnerLabel({ finance: f }: { finance: Finance }) {
 function ItemActions({
   onEdit,
   deleteUrl,
+  deleted,
+  onDelete,
   caseId,
 }: {
   onEdit: () => void;
   deleteUrl: string;
+  /** Said once it is deleted: what, and from which case. */
+  deleted: string;
+  /** A «saved» line above would now be out of date. */
+  onDelete: () => void;
   caseId: string;
 }) {
   const { t } = useTranslation();
@@ -495,13 +524,14 @@ function ItemActions({
         type="button"
         className="link-button"
         disabled={remove.isPending || waiting}
-        onClick={() =>
+        onClick={() => {
+          onDelete();
           deferDelete({
             key: deleteUrl,
-            message: t("undo.recordDeleted"),
+            message: deleted,
             commit: () => remove.mutateAsync(),
-          })
-        }
+          });
+        }}
       >
         {t("vault.delete")}
       </button>
@@ -516,17 +546,34 @@ function refreshBalances(queryClient: QueryClient) {
 }
 
 /** Saves a form; the API answers with the case's finance counted again. */
-function useSave(caseId: string, onDone: () => void, request: () => Promise<Finance>) {
+function useSave(caseId: string, onSaved: () => void, request: () => Promise<Finance>) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: request,
     onSuccess: (data: Finance) => {
       queryClient.setQueryData(financeKey(caseId), data);
       refreshBalances(queryClient);
-      onDone();
+      onSaved();
     },
   });
 }
+
+/** A form's heading, «Платёж в кейс №11 · Польша», which also names the form. */
+function FormTitle({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <h5 className="form-title" id={id}>
+      {children}
+    </h5>
+  );
+}
+
+/** Each form says which case it writes into and, once saved, says it again. */
+type FormProps = {
+  finance: Finance;
+  caseName: string;
+  /** Closes the form; after a save, with what was saved and where. */
+  onDone: (saved?: string) => void;
+};
 
 function FormButtons({ pending, onCancel }: { pending: boolean; onCancel: () => void }) {
   const { t } = useTranslation();
@@ -542,8 +589,9 @@ function FormButtons({ pending, onCancel }: { pending: boolean; onCancel: () => 
   );
 }
 
-function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => void }) {
+function FinanceForm({ finance: f, caseName, onDone }: FormProps) {
   const { t } = useTranslation();
+  const titleId = useId();
   const hints = f.suggestions;
   const base = f.base_currency;
   const currencies = usePaymentCurrencies(base);
@@ -589,7 +637,8 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
       ? { currency: f.registrar_fee_currency, rate: f.registrar_fee_rate }
       : null,
   );
-  const save = useSave(f.case_id, onDone, () =>
+  const done = t("caseBlocks.financeSaved", { case: caseName });
+  const save = useSave(f.case_id, () => onDone(done), () =>
     apiPatch<Finance>(`/cases/${f.case_id}/finance`, {
       currency,
       ...(currency !== base && priceRate ? { rate: toDecimal(priceRate) } : {}),
@@ -642,11 +691,13 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
     <form
       ref={errors.form}
       className="form-card finance-form"
+      aria-labelledby={titleId}
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         save.mutate();
       }}
     >
+      <FormTitle id={titleId}>{t("caseBlocks.financeEdit", { case: caseName })}</FormTitle>
       <div className="form-grid">
         <Field
           label={t("finance.priceCurrency")}
@@ -793,7 +844,7 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
         </div>
       </fieldset>
       {errors.general ? <ErrorAlert error={errors.general} /> : null}
-      <FormButtons pending={save.isPending} onCancel={onDone} />
+      <FormButtons pending={save.isPending} onCancel={() => onDone()} />
     </form>
   );
 }
@@ -930,14 +981,12 @@ function MoneyFields({
 
 function PaymentForm({
   finance: f,
+  caseName,
   payment,
   onDone,
-}: {
-  finance: Finance;
-  payment: Payment | null;
-  onDone: () => void;
-}) {
+}: FormProps & { payment: Payment | null }) {
   const { t } = useTranslation();
+  const titleId = useId();
   const base = f.base_currency;
   const [paidOn, setPaidOn] = useState(payment?.paid_on ?? todayIso());
   const [amount, setAmount] = useState(payment?.amount ?? "");
@@ -945,7 +994,10 @@ function PaymentForm({
   const [rate, setRate] = useState(payment && payment.currency !== base ? payment.rate : "");
   const [official, setOfficial] = useState(payment?.official ?? false);
   const [note, setNote] = useState(payment?.note ?? "");
-  const save = useSave(f.case_id, onDone, () => {
+  const done = t(payment ? "caseBlocks.paymentChanged" : "caseBlocks.paymentSaved", {
+    case: caseName,
+  });
+  const save = useSave(f.case_id, () => onDone(done), () => {
     const body = {
       paid_on: paidOn,
       amount: toDecimal(amount),
@@ -966,11 +1018,15 @@ function PaymentForm({
     <form
       ref={errors.form}
       className="form-card finance-form"
+      aria-labelledby={titleId}
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         save.mutate();
       }}
     >
+      <FormTitle id={titleId}>
+        {t(payment ? "caseBlocks.paymentEdit" : "caseBlocks.paymentTo", { case: caseName })}
+      </FormTitle>
       <div className="form-grid">
         <Field label={t("finance.paidOnField")} error={errors.at("paid_on")}>
           {(control) => (
@@ -1015,28 +1071,29 @@ function PaymentForm({
         <span>{t("finance.officialLabel")}</span>
       </label>
       {errors.general ? <SaveError error={errors.general} /> : null}
-      <FormButtons pending={save.isPending} onCancel={onDone} />
+      <FormButtons pending={save.isPending} onCancel={() => onDone()} />
     </form>
   );
 }
 
 function ExpenseForm({
   finance: f,
+  caseName,
   expense,
   onDone,
-}: {
-  finance: Finance;
-  expense: Expense | null;
-  onDone: () => void;
-}) {
+}: FormProps & { expense: Expense | null }) {
   const { t } = useTranslation();
+  const titleId = useId();
   const base = f.base_currency;
   const [spentOn, setSpentOn] = useState(expense?.spent_on ?? todayIso());
   const [description, setDescription] = useState(expense?.description ?? "");
   const [amount, setAmount] = useState(expense?.amount ?? "");
   const [currency, setCurrency] = useState(expense?.currency ?? base);
   const [rate, setRate] = useState(expense && expense.currency !== base ? expense.rate : "");
-  const save = useSave(f.case_id, onDone, () => {
+  const done = t(expense ? "caseBlocks.expenseChanged" : "caseBlocks.expenseSaved", {
+    case: caseName,
+  });
+  const save = useSave(f.case_id, () => onDone(done), () => {
     const body = {
       spent_on: spentOn,
       description: description.trim(),
@@ -1056,11 +1113,15 @@ function ExpenseForm({
     <form
       ref={errors.form}
       className="form-card finance-form"
+      aria-labelledby={titleId}
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         save.mutate();
       }}
     >
+      <FormTitle id={titleId}>
+        {t(expense ? "caseBlocks.expenseEdit" : "caseBlocks.expenseTo", { case: caseName })}
+      </FormTitle>
       <p className="muted small">{t("finance.expenseHint")}</p>
       <div className="form-grid">
         <Field label={t("finance.spentOn")} error={errors.at("spent_on")}>
@@ -1103,7 +1164,7 @@ function ExpenseForm({
         />
       </div>
       {errors.general ? <SaveError error={errors.general} /> : null}
-      <FormButtons pending={save.isPending} onCancel={onDone} />
+      <FormButtons pending={save.isPending} onCancel={() => onDone()} />
     </form>
   );
 }

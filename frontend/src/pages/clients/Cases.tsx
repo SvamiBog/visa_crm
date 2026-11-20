@@ -45,6 +45,7 @@ import { CaseAccess } from "./CaseAccess";
 import { CaseBookings } from "./Bookings";
 import { CaseFinance } from "./Finance";
 import { CasePackage } from "./Package";
+import { useCaseName } from "./ui";
 import { useHasModule } from "../../workspace";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
@@ -152,6 +153,11 @@ export function Cases({
   // «Подать повторно»: a new case filled in from the one it repeats.
   const [repeating, setRepeating] = useState<VisaCase | null>(null);
   const numbers = useMemo(() => new Map(cases.map((c) => [c.id, c.number])), [cases]);
+  // Two cases or more: a list of them at the top, and a case with a result folded, so that
+  // a payment does not go into the case above the one meant (pilot fix 9).
+  const several = cases.length > 1;
+  // A case picked in the list: it unfolds and comes into view; each pick counts again.
+  const [picked, setPicked] = useState<{ id: string; times: number } | null>(null);
 
   useEffect(() => {
     if (creating !== null || repeating !== null) {
@@ -190,11 +196,19 @@ export function Cases({
       {cases.length === 0 && creating === null && (
         <p className="muted small">{t("cases.empty")}</p>
       )}
+      {several && (
+        <CaseList
+          cases={cases}
+          onPick={(id) => setPicked((last) => ({ id, times: (last?.times ?? 0) + 1 }))}
+        />
+      )}
       <div className="cases">
         {cases.map((c) => (
           <CasePanel
             key={c.id}
             visaCase={c}
+            foldable={several}
+            picked={picked?.id === c.id ? picked.times : 0}
             askResult={c.id === resultCaseId}
             previousNumber={c.previous_case_id ? numbers.get(c.previous_case_id) : undefined}
             onFileAgain={() => {
@@ -208,18 +222,167 @@ export function Cases({
   );
 }
 
+/** The client's cases at the top of the block, each leading to its own (pilot fix 9). */
+function CaseList({ cases, onPick }: { cases: VisaCase[]; onPick: (id: string) => void }) {
+  const { t } = useTranslation();
+  const caseName = useCaseName();
+  return (
+    <nav className="case-list" aria-label={t("caseBlocks.list")}>
+      <ol>
+        {cases.map((c) => (
+          <li key={c.id}>
+            {/* A link to the block, opened by the page itself: no «#» in the address, so
+                «back» still leaves the card. */}
+            <a
+              href={`#case-${c.id}`}
+              onClick={(e) => {
+                e.preventDefault();
+                onPick(c.id);
+              }}
+            >
+              {caseName(c)}
+            </a>
+            <CaseChip stage={c.stage} outcome={c.outcome} />
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
 function CasePanel({
   visaCase: c,
+  foldable,
+  picked,
   askResult,
   previousNumber,
   onFileAgain,
 }: {
   visaCase: VisaCase;
+  // One of several cases: it can be folded, and one with a result starts folded.
+  foldable: boolean;
+  // Above zero: the case was picked in the list of cases, each pick a new number.
+  picked: number;
   // Open the form at the result: the case was dropped on «Результат» of the board.
   askResult: boolean;
   // The number of the case this one was filed again after.
   previousNumber?: number;
   onFileAgain: () => void;
+}) {
+  const { t } = useTranslation();
+  const caseName = useCaseName();
+  const lists = useCaseLists();
+  const bodyId = useId();
+  const ref = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // Folded once, when the card opens: a result entered now does not fold the case away.
+  const [open, setOpen] = useState(() => !foldable || c.outcome === null || askResult);
+  const [editing, setEditing] = useState(false);
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  // «Результат» needs the result (CRM audit 2026-11-18): asking for that stage opens
+  // the form at the result instead; each ask brings the form to it again.
+  const [resultAsked, setResultAsked] = useState(0);
+  const askForResult = () => {
+    setOpen(true);
+    setEditing(true);
+    setResultAsked((n) => n + 1);
+  };
+  useEffect(() => {
+    if (askResult) askForResult();
+  }, [askResult]);
+  // Picked in the list: unfolded, brought to the top of the screen, and the focus on its
+  // heading, so the keyboard goes on from the case.
+  useEffect(() => {
+    if (picked === 0) return;
+    setOpen(true);
+    const frame = requestAnimationFrame(() => {
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      ref.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      headingRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [picked]);
+  const purpose = lists.purposes.find((p) => p.id === c.purpose_id);
+
+  return (
+    <article
+      ref={ref}
+      id={`case-${c.id}`}
+      className={open ? "case-panel" : "case-panel folded"}
+    >
+      <div className="case-head">
+        <div className="case-name">
+          {/* «№9 · Испания · Туризм»: which case this is, before anything is entered in it. */}
+          <h3 className="h3 case-title" ref={headingRef} tabIndex={-1}>
+            {[caseName(c), purpose?.name].filter(Boolean).join(" · ")}
+          </h3>
+          <CaseChip stage={c.stage} outcome={c.outcome} />
+        </div>
+        <div className="head-actions">
+          {open && !editing && (
+            <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
+              {t("reference.edit")}
+            </button>
+          )}
+          {open && !editing && c.outcome !== null && (
+            <button type="button" className="btn btn-sm" onClick={onFileAgain}>
+              {t("cases.fileAgain")}
+            </button>
+          )}
+          {open && !editing && <DeleteCase visaCase={c} onError={setDeleteError} />}
+          {/* Not while the case's form is open: folding would drop what is typed in it. */}
+          {foldable && !editing && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              aria-expanded={open}
+              aria-controls={bodyId}
+              onClick={() => setOpen((value) => !value)}
+            >
+              {open ? t("caseBlocks.collapse") : t("caseBlocks.expand")}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="case-body" id={bodyId} hidden={!open}>
+        {open && (
+          <CaseBody
+            visaCase={c}
+            editing={editing}
+            onFormDone={() => {
+              setEditing(false);
+              setResultAsked(0);
+            }}
+            resultAsked={resultAsked}
+            askForResult={askForResult}
+            deleteError={deleteError}
+            previousNumber={previousNumber}
+          />
+        )}
+      </div>
+    </article>
+  );
+}
+
+/** The unfolded case: the stage, its details or its form, and its blocks. Not drawn while
+ * the case is folded, so a folded case asks the API for nothing. */
+function CaseBody({
+  visaCase: c,
+  editing,
+  onFormDone,
+  resultAsked,
+  askForResult,
+  deleteError,
+  previousNumber,
+}: {
+  visaCase: VisaCase;
+  // The case's form is open instead of its details («Изменить» in the head).
+  editing: boolean;
+  onFormDone: () => void;
+  resultAsked: number;
+  askForResult: () => void;
+  deleteError: unknown;
+  previousNumber?: number;
 }) {
   const { t, i18n } = useTranslation();
   const name = useLocalName();
@@ -230,18 +393,6 @@ function CasePanel({
   const refresh = useRefreshCards();
   const finances = useHasModule("finances");
   const packageCheck = useHasModule("package_check");
-  const [editing, setEditing] = useState(false);
-  const [deleteError, setDeleteError] = useState<unknown>(null);
-  // «Результат» needs the result (CRM audit 2026-11-18): asking for that stage opens
-  // the form at the result instead; each ask brings the form to it again.
-  const [resultAsked, setResultAsked] = useState(0);
-  const askForResult = () => {
-    setEditing(true);
-    setResultAsked((n) => n + 1);
-  };
-  useEffect(() => {
-    if (askResult) askForResult();
-  }, [askResult]);
   // As on the board, the family standing at this stage moves with the case.
   const moveTo = useMutation({
     mutationFn: (stage: CaseStage) =>
@@ -258,26 +409,7 @@ function CasePanel({
   const current = CASE_STAGES.indexOf(c.stage);
 
   return (
-    <article className="case-panel">
-      <div className="card-head">
-        <h3 className="h3">
-          {t("cases.number", { number: c.number })} · {name.country(countryById.get(c.destination_id))}
-        </h3>
-        <div className="head-actions">
-          <CaseChip stage={c.stage} outcome={c.outcome} />
-          {!editing && (
-            <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>
-              {t("reference.edit")}
-            </button>
-          )}
-          {!editing && c.outcome !== null && (
-            <button type="button" className="btn btn-sm" onClick={onFileAgain}>
-              {t("cases.fileAgain")}
-            </button>
-          )}
-          {!editing && <DeleteCase visaCase={c} onError={setDeleteError} />}
-        </div>
-      </div>
+    <>
       {typeof deleteError === "string" ? (
         <div className="alert alert-error" role="alert">
           {deleteError}
@@ -321,10 +453,7 @@ function CasePanel({
         <CaseEditForm
           visaCase={c}
           resultAsked={resultAsked}
-          onDone={() => {
-            setEditing(false);
-            setResultAsked(0);
-          }}
+          onDone={onFormDone}
         />
       ) : (
         <>
@@ -354,7 +483,7 @@ function CasePanel({
       {packageCheck && <CasePackage visaCase={c} />}
       <CaseBookings visaCase={c} />
       {finances && <CaseFinance visaCase={c} />}
-    </article>
+    </>
   );
 }
 
@@ -1012,6 +1141,8 @@ function CaseEditForm({
 }) {
   const { t } = useTranslation();
   const refresh = useRefreshCards();
+  const caseName = useCaseName();
+  const titleId = useId();
   const resultRef = useRef<HTMLFieldSetElement>(null);
   const outcomeRef = useRef<HTMLSelectElement>(null);
   useEffect(() => {
@@ -1095,11 +1226,16 @@ function CaseEditForm({
     <form
       ref={errors.form}
       className="form-card"
+      aria-labelledby={titleId}
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         save.mutate();
       }}
     >
+      {/* Which case the change goes to (pilot fix 9). */}
+      <h4 className="form-title" id={titleId}>
+        {t("caseBlocks.caseEdit", { case: caseName(c) })}
+      </h4>
       <PlaceFields place={place} onChange={setPlace} errors={errors} />
       <fieldset className="module-block">
         <legend>{t("queues.numberAndEmail")}</legend>
