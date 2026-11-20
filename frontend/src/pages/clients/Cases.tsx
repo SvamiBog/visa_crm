@@ -279,6 +279,14 @@ function CasePanel({
         </div>
       </div>
       {deleteError !== null && <ErrorAlert error={deleteError} />}
+      {c.source && c.source.contact_id !== c.contact_id && (
+        // Opened from someone else's consultation: the daughter came, the case is the
+        // father's (pilot fix 2).
+        <Row label={t("cases.source")}>
+          {t("cases.fromConsultationOn", { date: date(c.source.held_on) })}{" — "}
+          <Link to={`/app/clients/${c.source.contact_id}`}>{c.source.full_name}</Link>
+        </Row>
+      )}
       {previousNumber !== undefined && (
         <Row label={t("cases.previousCase")}>
           {t("cases.afterCase", { number: previousNumber })}
@@ -749,6 +757,9 @@ const PART_LABELS = {
   middle_name: "contacts.middleName",
 } as const;
 
+/** An applicant's case in work, in the API's 409 `case_in_work`. */
+type CaseInWork = { contact_id: string; full_name: string; number: number; destination_id: string };
+
 function CaseCreateForm({
   card,
   consultation,
@@ -762,7 +773,10 @@ function CaseCreateForm({
   onDone: () => void;
 }) {
   const { t } = useTranslation();
+  const name = useLocalName();
+  const confirm = useConfirm();
   const countries = useCountries();
+  const countryById = useMemo(() => byId(countries.data), [countries.data]);
   const refresh = useRefreshCards();
   const belarus = countries.data?.find((c) => c.code === DEFAULT_SUBMISSION_CODE)?.id ?? "";
   const suggested = consultation?.destination_ids ?? [];
@@ -811,9 +825,8 @@ function CaseCreateForm({
   const named = added.filter((a) => a.last_name.trim() || a.first_name.trim());
   const count = chosen.size + named.length;
 
-  const create = useMutation({
-    mutationFn: () =>
-      apiPost<VisaCase[]>(`/contacts/${card.contact.id}/cases`, {
+  const send = (query: string) =>
+    apiPost<VisaCase[]>(`/contacts/${card.contact.id}/cases${query}`, {
         ...placeBody(place),
         consultation_id: consultation?.id ?? null,
         previous_case_id: previous?.id ?? null,
@@ -826,8 +839,32 @@ function CaseCreateForm({
             label: a.label.trim() || null,
           })),
         ],
-      }),
-    onSuccess: () => {
+      });
+  const create = useMutation({
+    // An applicant with a case in work is asked about first: a second case is most often
+    // a duplicate (pilot fix 8). Null when the specialist decided not to create it.
+    mutationFn: async (): Promise<VisaCase[] | null> => {
+      try {
+        return await send("");
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.code !== "case_in_work") throw error;
+        const inWork = (error.data.cases ?? []) as CaseInWork[];
+        const message = [
+          ...inWork.map((c) =>
+            t("cases.caseInWork", {
+              name: c.full_name,
+              number: c.number,
+              country: name.country(countryById.get(c.destination_id)),
+            }),
+          ),
+          t("cases.createAnother"),
+        ].join(" ");
+        if (!(await confirm({ message, action: t("cases.createAnyway") }))) return null;
+        return await send("?allow_case_in_work=true");
+      }
+    },
+    onSuccess: (created) => {
+      if (created === null) return;
       void refresh();
       onDone();
     },
@@ -922,6 +959,7 @@ function CaseCreateForm({
         >
           {t("cases.addApplicant")}
         </button>
+        {consultation && <p className="muted small">{t("cases.applicantsNotTheVisitor")}</p>}
       </fieldset>
       {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">

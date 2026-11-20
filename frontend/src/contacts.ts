@@ -71,7 +71,32 @@ export type Consultation = {
   fee_paid_on: string | null;
   notes: string | null;
   created_at: string;
+  /** The cases it led to, maybe someone else's (pilot fixes 2 and 8). */
+  cases: OpenedCase[];
 };
+
+/** A case a consultation led to, with its applicant. */
+export type OpenedCase = {
+  id: string;
+  number: number;
+  contact_id: string;
+  full_name: string;
+  destination_id: string;
+  purpose_id: string | null;
+  stage: CaseStage;
+  outcome: Outcome | null;
+};
+
+/** The consultation a case was opened from and whose it was. */
+export type CaseSource = {
+  consultation_id: string;
+  held_on: string;
+  contact_id: string;
+  full_name: string;
+};
+
+/** Someone else's card a case or a row is linked through. */
+export type PersonLink = { contact_id: string; full_name: string };
 
 export const VISA_KINDS = ["schengen", "national", "uk", "usa", "asia", "other"] as const;
 export type VisaRecord = {
@@ -205,6 +230,8 @@ export type VisaCase = {
   after_appeal: boolean;
   created_at: string;
   group: GroupMember[];
+  /** Its consultation, when the user sees whose it was. */
+  source: CaseSource | null;
   appeals_accepted: boolean | null;
   appeal_until: string | null;
   vac_number: string | null;
@@ -314,6 +341,8 @@ export type CaseBrief = {
   outcome: Outcome | null;
   submission_on: string | null;
   group_size: number;
+  /** Whose case it is when it came from this contact's consultation for someone else. */
+  applicant: PersonLink | null;
 };
 
 export type ContactRow = ContactListItem & {
@@ -338,6 +367,8 @@ export type BoardCase = {
   outcome: Outcome | null;
   submission_on: string | null;
   decided_on: string | null;
+  /** The contact whose consultation it came from, when that is someone else. */
+  via: PersonLink | null;
 };
 
 export type BoardLead = {

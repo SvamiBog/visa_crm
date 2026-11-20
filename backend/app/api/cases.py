@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import (
     Date,
@@ -190,6 +191,15 @@ class GroupMember(BaseModel):
     stage: CaseStage
 
 
+class CaseSource(BaseModel):
+    """The consultation a case was opened from and whose it was (pilot fix 2)."""
+
+    consultation_id: uuid.UUID
+    held_on: date
+    contact_id: uuid.UUID
+    full_name: str
+
+
 class CaseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -219,6 +229,8 @@ class CaseOut(BaseModel):
     created_at: datetime
     # The other cases of the submission group.
     group: list[GroupMember] = []
+    # Its consultation, when the user sees whose it was.
+    source: CaseSource | None = None
     # From the country rules: does the consulate accept appeals (None: not known), and
     # the last day to appeal a refusal.
     appeals_accepted: bool | None = None
@@ -333,6 +345,32 @@ async def _next_numbers(session: AsyncSession, tenant_id: uuid.UUID, count: int)
     return [last + i for i in range(1, count + 1)]
 
 
+async def sources_of(session: AsyncSession, cases: list[VisaCase]) -> dict[uuid.UUID, CaseSource]:
+    """The consultation each case was opened from, with whose it was (pilot fix 2). RLS
+    hides a consultation and a card an employee does not see: then there is no source,
+    so a name never reaches them through the link."""
+    ids = {c.consultation_id for c in cases if c.consultation_id is not None}
+    if not ids:
+        return {}
+    found = {
+        consultation_id: CaseSource(
+            consultation_id=consultation_id, held_on=held_on, contact_id=contact_id, full_name=name
+        )
+        for consultation_id, held_on, contact_id, name in await session.execute(
+            select(
+                Consultation.id, Consultation.held_on, Consultation.contact_id, Contact.full_name
+            )
+            .join(Contact, Contact.id == Consultation.contact_id)
+            .where(Consultation.id.in_(ids))
+        )
+    }
+    return {
+        c.id: found[c.consultation_id]
+        for c in cases
+        if c.consultation_id is not None and c.consultation_id in found
+    }
+
+
 async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOut]:
     """Cases with their group members and the appeal rules of their country pair."""
     group_ids = {c.group_id for c in cases if c.group_id is not None}
@@ -370,6 +408,7 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
     appointments = await appointments_of(session, cases, today) if today else {}
     bookings = await bookings_of(session, cases, today) if today else {}
     waits = await average_waits(session) if cases else {}
+    sources = await sources_of(session, cases)
 
     result = []
     for case in cases:
@@ -378,6 +417,7 @@ async def cases_out(session: AsyncSession, cases: list[VisaCase]) -> list[CaseOu
             out.group = [m for m in members[case.group_id] if m.case_id != case.id]
         out.queue_entries, out.attempts = appointments.get(case.id, ([], []))
         out.bookings = bookings.get(case.id, [])
+        out.source = sources.get(case.id)
         wait = waits.get((case.destination_id, case.visa_center_id, case.purpose_id))
         out.average_wait_days = wait[0] if wait else None
         rule = rules.get((case.destination_id, case.submission_country_id))
@@ -456,15 +496,57 @@ async def _new_contact(
     return contact
 
 
+async def _cases_in_work(
+    session: AsyncSession, contact_ids: list[uuid.UUID]
+) -> JSONResponse | None:
+    """409 when an applicant already has a case in work: a second one is most likely a
+    duplicate (pilot fix 8), so the specialist confirms it. Only the cases the user sees."""
+    rows = (
+        await session.execute(
+            select(VisaCase.contact_id, Contact.full_name, VisaCase.number, VisaCase.destination_id)
+            .join(Contact, Contact.id == VisaCase.contact_id)
+            .where(VisaCase.contact_id.in_(contact_ids), VisaCase.stage != CaseStage.RESULT)
+            .order_by(VisaCase.number)
+        )
+    ).all()
+    if not rows:
+        return None
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "detail": "case_in_work",
+            "cases": [
+                {
+                    "contact_id": str(contact_id),
+                    "full_name": name,
+                    "number": number,
+                    "destination_id": str(destination_id),
+                }
+                for contact_id, name, number, destination_id in rows
+            ],
+        },
+    )
+
+
 # --- Endpoints -----------------------------------------------------------------------
 
 
-@router.post("/contacts/{contact_id}/cases", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/contacts/{contact_id}/cases",
+    status_code=status.HTTP_201_CREATED,
+    response_model=list[CaseOut],
+)
 async def create_cases(
-    contact_id: uuid.UUID, body: CaseCreate, user: Member, session: TenantSession
-) -> list[CaseOut]:
+    contact_id: uuid.UUID,
+    body: CaseCreate,
+    user: Member,
+    session: TenantSession,
+    allow_case_in_work: bool = False,
+) -> Any:
     """One case per applicant; two or more applicants form a submission group. From a
-    consultation the decision becomes «yes»."""
+    consultation the decision becomes «yes». An applicant who already has a case in work
+    is asked about first (409 `case_in_work` with those cases; pilot fix 8): the form
+    confirms and sends `allow_case_in_work`."""
     anchor = await session.get(Contact, contact_id)
     if anchor is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
@@ -492,6 +574,8 @@ async def create_cases(
         found = set(await session.scalars(select(Contact.id).where(Contact.id.in_(existing))))
         if set(existing) - found:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+        if not allow_case_in_work and (asked := await _cases_in_work(session, existing)):
+            return asked
 
     applicant_ids = [
         a.contact_id
@@ -546,6 +630,11 @@ async def create_cases(
 # --- Board (client index, backlog 1.5) ------------------------------------------------
 
 
+class BoardVia(BaseModel):
+    contact_id: uuid.UUID
+    full_name: str
+
+
 class BoardCase(BaseModel):
     id: uuid.UUID
     number: int
@@ -559,6 +648,8 @@ class BoardCase(BaseModel):
     outcome: VisaOutcome | None
     submission_on: date | None
     decided_on: date | None
+    # Whose consultation it came from, when that is someone else (pilot fix 2).
+    via: BoardVia | None = None
 
 
 class BoardLead(BaseModel):
@@ -623,9 +714,9 @@ async def board(
         query = query.where(VisaCase.registrar_id == registrar_id)
     # Cases in work first: however many results the period holds, they never push a case
     # in work off the board.
-    rows = await session.execute(
-        query.order_by(is_result, VisaCase.number.desc()).limit(BOARD_LIMIT)
-    )
+    rows = (
+        await session.execute(query.order_by(is_result, VisaCase.number.desc()).limit(BOARD_LIMIT))
+    ).all()
     cases = [
         BoardCase(
             id=c.id,
@@ -643,6 +734,13 @@ async def board(
         )
         for c, name in rows
     ]
+    # One card per case: the applicant's, «через …» when it came from someone else's
+    # consultation; that contact goes with the case, not to «Консультация» (pilot fix 2).
+    sources = await sources_of(session, [c for c, _ in rows])
+    for out in cases:
+        source = sources.get(out.id)
+        if source is not None and source.contact_id != out.contact_id:
+            out.via = BoardVia(contact_id=source.contact_id, full_name=source.full_name)
 
     leads: list[BoardLead] = []
     if registrar_id is None:  # leads have no registrar yet

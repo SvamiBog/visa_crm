@@ -29,8 +29,11 @@ async def open_cases(
     client: AsyncClient, contact_id: str, destination="PL", applicants=None
 ) -> list[dict]:
     codes = await countries(client)
+    # A second case for a client with one in work is confirmed (pilot fix 8): tests of
+    # other rules confirm it up front; the question itself is in test_consultation_cases.
     response = await client.post(
         f"{CONTACTS}/{contact_id}/cases",
+        params={"allow_case_in_work": "true"},
         json={
             "destination_id": codes[destination],
             "submission_country_id": codes["BY"],

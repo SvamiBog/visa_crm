@@ -42,7 +42,11 @@ async def open_case(client: AsyncClient, contact_id: str, destination="PL", **fi
         "applicants": [{"contact_id": contact_id}],
         **fields,
     }
-    return await client.post(f"{CONTACTS}/{contact_id}/cases", json=body)
+    # A second case for a client with one in work is confirmed (pilot fix 8): tests of
+    # other rules confirm it up front; the question itself is in test_consultation_cases.
+    return await client.post(
+        f"{CONTACTS}/{contact_id}/cases", params={"allow_case_in_work": "true"}, json=body
+    )
 
 
 async def card(client: AsyncClient, contact_id: str) -> dict:

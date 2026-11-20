@@ -191,6 +191,7 @@ async def test_a_deleted_case_leaves_its_group(client: AsyncClient, make_user: M
     async def family(*names: str) -> list[dict]:
         response = await client.post(
             f"{CONTACTS}/{anna['id']}/cases",
+            params={"allow_case_in_work": "true"},  # her own case is in work already
             json={
                 "destination_id": codes["PL"],
                 "submission_country_id": codes["BY"],

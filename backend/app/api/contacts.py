@@ -186,6 +186,11 @@ class SearchIn(BaseModel):
     sort: Sort = Sort.NEWEST
 
 
+class CaseApplicant(BaseModel):
+    contact_id: uuid.UUID
+    full_name: str
+
+
 class CaseBrief(BaseModel):
     """The case a row shows: the latest one in work, otherwise the latest one."""
 
@@ -198,6 +203,9 @@ class CaseBrief(BaseModel):
     submission_on: date | None
     # Cases of the submission group, this one included (1 without a group).
     group_size: int
+    # Whose case it is when it is not this contact's own: a case opened from this
+    # contact's consultation for someone else (pilot fix 2).
+    applicant: CaseApplicant | None = None
 
 
 class ConsultationBrief(BaseModel):
@@ -504,11 +512,29 @@ async def _rows(
     }
     cases: dict[uuid.UUID, list[VisaCase]] = {}
     group_sizes: dict[uuid.UUID, int] = {}
+    # Cases opened from a row's consultations for someone else, and whose they are
+    # (client_status.of_contact, pilot fix 2). RLS hides what an employee does not see.
+    applicants: dict[uuid.UUID, str] = {}
     if with_cases:
         for visa_case in await session.scalars(
             select(VisaCase).where(VisaCase.contact_id.in_(ids)).order_by(VisaCase.number.desc())
         ):
             cases.setdefault(visa_case.contact_id, []).append(visa_case)
+        for visa_case, owner, name in await session.execute(
+            select(VisaCase, Consultation.contact_id, Contact.full_name)
+            .join(Consultation, Consultation.id == VisaCase.consultation_id)
+            .join(Contact, Contact.id == VisaCase.contact_id)
+            .where(Consultation.contact_id.in_(ids), VisaCase.contact_id != Consultation.contact_id)
+            .order_by(VisaCase.number.desc())
+        ):
+            # Not when the row's contact is an applicant of that consultation too.
+            if not any(
+                c.consultation_id == visa_case.consultation_id
+                for c in cases.get(owner, [])
+                if c.contact_id == owner
+            ):
+                cases.setdefault(owner, []).append(visa_case)
+                applicants[visa_case.contact_id] = name
         groups = {c.group_id for cs in cases.values() for c in cs if c.group_id is not None}
         if groups:
             group_sizes = dict(
@@ -530,11 +556,15 @@ async def _rows(
                 decision=consultation.decision,
                 destination_ids=consultation.destination_ids,
             )
-        own = cases.get(contact.id, [])
+        # As client_status.shown_case: in work first, the contact's own first, newest first.
+        own = sorted(
+            cases.get(contact.id, []),
+            key=lambda c: (c.stage == CaseStage.RESULT, c.contact_id != contact.id, -c.number),
+        )
         in_work = [c for c in own if c.stage != CaseStage.RESULT]
         row.cases_in_work = len(in_work)
-        if shown := (in_work or own)[:1]:
-            c = shown[0]
+        if own:
+            c = own[0]
             row.case = CaseBrief(
                 id=c.id,
                 number=c.number,
@@ -544,6 +574,11 @@ async def _rows(
                 outcome=c.outcome,
                 submission_on=c.submission_on,
                 group_size=group_sizes.get(c.group_id, 1) if c.group_id else 1,
+                applicant=(
+                    CaseApplicant(contact_id=c.contact_id, full_name=applicants[c.contact_id])
+                    if c.contact_id != contact.id
+                    else None
+                ),
             )
         result.append(row)
     return result

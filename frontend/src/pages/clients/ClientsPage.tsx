@@ -481,13 +481,23 @@ function ListView({
   );
 }
 
-/** The case's stage or result; without a case, where the consultation ended. */
+/** The case's stage or result — also of a case opened from the client's consultation for
+ * someone else; without a case, where the consultation ended. */
 function RowStage({ row }: { row: ContactRow }) {
   const { t } = useTranslation();
   if (row.case) {
     return (
       <span className="stage-cell">
         <CaseChip stage={row.case.stage} outcome={row.case.outcome} />
+        {row.case.applicant && (
+          // Opened from this client's consultation for someone else (pilot fix 2).
+          <span className="small">
+            {t("index.caseOpenedFor")}{" "}
+            <Link to={`/app/clients/${row.case.applicant.contact_id}`} state={FROM_INDEX}>
+              {row.case.applicant.full_name}
+            </Link>
+          </span>
+        )}
         {row.case.group_size > 1 && (
           <span className="muted small">{t("index.groupSize", { count: row.case.group_size })}</span>
         )}
