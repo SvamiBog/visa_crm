@@ -10,7 +10,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../../api";
+import { useMe } from "../../auth";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { Field, useFieldErrors, type FieldErrors } from "../../components/Field";
 import {
@@ -230,6 +231,7 @@ function CasePanel({
   const finances = useHasModule("finances");
   const packageCheck = useHasModule("package_check");
   const [editing, setEditing] = useState(false);
+  const [deleteError, setDeleteError] = useState<unknown>(null);
   // «Результат» needs the result (CRM audit 2026-11-18): asking for that stage opens
   // the form at the result instead; each ask brings the form to it again.
   const [resultAsked, setResultAsked] = useState(0);
@@ -273,8 +275,10 @@ function CasePanel({
               {t("cases.fileAgain")}
             </button>
           )}
+          {!editing && <DeleteCase visaCase={c} onError={setDeleteError} />}
         </div>
       </div>
+      {deleteError !== null && <ErrorAlert error={deleteError} />}
       {previousNumber !== undefined && (
         <Row label={t("cases.previousCase")}>
           {t("cases.afterCase", { number: previousNumber })}
@@ -337,6 +341,83 @@ function CasePanel({
       <CaseBookings visaCase={c} />
       {finances && <CaseFinance visaCase={c} />}
     </article>
+  );
+}
+
+/** What goes with a case (GET /cases/{id}/deletion); a case with money stays. */
+type CaseDeletion = {
+  has_money: boolean;
+  attempts: number;
+  queue_entries: number;
+  package_items: number;
+  bookings: number;
+  outcome: boolean;
+  employees: number;
+  group_members: number;
+};
+
+const DELETED_WITH_CASE = [
+  "attempts",
+  "queue_entries",
+  "package_items",
+  "bookings",
+  "employees",
+] as const;
+
+/** «Удалить кейс»: a case opened by mistake, a duplicate (pilot fix 1). The specialist
+ * only; the question lists what goes with the case, and a case with money is refused
+ * before it is asked (the API refuses it too). */
+function DeleteCase({
+  visaCase: c,
+  onError,
+}: {
+  visaCase: VisaCase;
+  onError: (error: unknown) => void;
+}) {
+  const { t } = useTranslation();
+  const me = useMe();
+  const confirm = useConfirm();
+  const queryClient = useQueryClient();
+  const refresh = useRefreshCards();
+  const remove = useMutation({
+    mutationFn: async () => {
+      const what = await apiGet<CaseDeletion>(`/cases/${c.id}/deletion`);
+      // Refused before the question, as the API would refuse it after.
+      if (what.has_money) throw new ApiError(409, "case_has_money");
+      const items = [
+        ...DELETED_WITH_CASE.filter((key) => what[key] > 0).map((key) =>
+          t(`cases.deletedWith.${key}`, { n: what[key] }),
+        ),
+        ...(what.outcome ? [t("cases.deletedWith.outcome")] : []),
+      ];
+      const message = [
+        items.length > 0
+          ? t("cases.confirmDeleteWith", { number: c.number, items: items.join(", ") })
+          : t("cases.confirmDelete", { number: c.number }),
+        ...(what.group_members > 0 ? [t("cases.deleteLeavesGroup")] : []),
+      ].join(" ");
+      if (!(await confirm({ message, action: t("cases.delete") }))) return false;
+      await apiDelete<void>(`/cases/${c.id}`);
+      return true;
+    },
+    onMutate: () => onError(null),
+    onSuccess: (deleted) => {
+      if (!deleted) return;
+      void queryClient.invalidateQueries({ queryKey: ["cases", "board"] });
+      refresh();
+    },
+    onError,
+  });
+  if (me.data?.role !== "specialist") return null;
+  return (
+    <button
+      type="button"
+      className="btn btn-sm btn-danger"
+      disabled={remove.isPending}
+      onClick={() => remove.mutate()}
+    >
+      {t("cases.delete")}
+    </button>
   );
 }
 
@@ -770,7 +851,9 @@ function CaseCreateForm({
       className="form-card consultation-form"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
-        create.mutate();
+        // One press opens the cases once: a second submit while the first is on its way
+        // would open them twice (pilot fix 1).
+        if (!create.isPending) create.mutate();
       }}
     >
       <h3 className="h3">

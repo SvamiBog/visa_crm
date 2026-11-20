@@ -396,6 +396,13 @@ class WorkbookImport:
         for c in await s.scalars(select(Consultation), execution_options=FRESH):
             self.consultations[c.id] = c
             self.consultations_of[c.contact_id].append(c)
+        # A deleted case's number is not given again (app/api/cases.py → delete_case).
+        self.max_deleted_number = (
+            await s.scalar(
+                select(Tenant.max_deleted_case_number).where(Tenant.id == self.tenant_id)
+            )
+            or 0
+        )
         self.cases: dict[uuid.UUID, VisaCase] = {}
         self.cases_of: defaultdict[uuid.UUID, list[VisaCase]] = defaultdict(list)
         for case in await s.scalars(select(VisaCase), execution_options=FRESH):
@@ -445,9 +452,12 @@ class WorkbookImport:
 
     def _index_cases(self) -> None:
         """What is worked out from the cases: the consultations that became one, and the
-        next number (the lock is held, and the owner's run sees every case)."""
+        next number (the lock is held, and the owner's run sees every case), past the
+        numbers of deleted cases."""
         self.with_case = {c.consultation_id for c in self.cases.values() if c.consultation_id}
-        self.next_number = max((c.number for c in self.cases.values()), default=0) + 1
+        self.next_number = (
+            max([self.max_deleted_number, *(c.number for c in self.cases.values())]) + 1
+        )
 
     def _index_contact(self, contact: Contact) -> None:
         self.contacts[contact.id] = contact

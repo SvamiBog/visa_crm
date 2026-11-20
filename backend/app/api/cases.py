@@ -12,7 +12,20 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Date, and_, any_, cast, func, or_, select, text, true, tuple_
+from sqlalchemy import (
+    Date,
+    and_,
+    any_,
+    cast,
+    delete,
+    func,
+    or_,
+    select,
+    text,
+    true,
+    tuple_,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.appointments import AttemptOut, QueueEntryOut, appointments_of, average_waits
@@ -35,8 +48,13 @@ from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
 from app.models import (
+    ApplicationAttempt,
     AuditAction,
+    Booking,
     BookingType,
+    CaseExpense,
+    CaseFinance,
+    CasePayment,
     CaseStage,
     Consultation,
     Contact,
@@ -45,14 +63,19 @@ from app.models import (
     CountryRule,
     Decision,
     EmailOwner,
+    EmployeeCase,
+    PackageItem,
     Registrar,
     SubmissionGroup,
+    Tenant,
+    UserRole,
     VacIdentifierType,
     VisaCase,
     VisaCenter,
     VisaEntries,
     VisaOutcome,
     VisaPurpose,
+    WaitingListEntry,
 )
 from app.models.dictionaries import Hall
 
@@ -300,8 +323,13 @@ async def _next_numbers(session: AsyncSession, tenant_id: uuid.UUID, count: int)
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"visa_cases:{tenant_id}"},
     )
-    # Counted past the employee's view: they do not see every case (migration 0031).
-    last = await session.scalar(select(func.last_case_number())) or 0
+    # Counted past the employee's view: they do not see every case (migration 0031), and
+    # past the deleted ones (migration 0038).
+    last = max(
+        await session.scalar(select(func.last_case_number())) or 0,
+        await session.scalar(select(Tenant.max_deleted_case_number).where(Tenant.id == tenant_id))
+        or 0,
+    )
     return [last + i for i in range(1, count + 1)]
 
 
@@ -845,12 +873,8 @@ async def join_group(
     return await _one_out(session, case)
 
 
-@router.delete("/cases/{case_id}/group", status_code=status.HTTP_204_NO_CONTENT)
-async def leave_group(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
+async def _leave(session: AsyncSession, user: CurrentUser, case: VisaCase) -> None:
     """The case leaves its group; a group left with one case is dissolved."""
-    case = await _case(session, case_id)
-    if case.group_id is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
     group_id = case.group_id
     case.group_id = None
     _audit(session, AuditAction.CASE_UNGROUPED, user, case, {"group": str(group_id)})
@@ -864,5 +888,117 @@ async def leave_group(case_id: uuid.UUID, user: Member, session: TenantSession) 
         group = await session.get(SubmissionGroup, group_id)
         if group is not None:
             await session.delete(group)
+
+
+@router.delete("/cases/{case_id}/group", status_code=status.HTTP_204_NO_CONTENT)
+async def leave_group(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
+    """The case leaves its group; a group left with one case is dissolved."""
+    case = await _case(session, case_id)
+    if case.group_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    await _leave(session, user, case)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Deleting a case -----------------------------------------------------------------
+
+
+class CaseDeletion(BaseModel):
+    """What goes with the case, for the confirmation; a case with money stays."""
+
+    has_money: bool
+    payments: int
+    expenses: int
+    registrar_fee: bool
+    attempts: int
+    queue_entries: int
+    package_items: int
+    bookings: int
+    outcome: bool
+    employees: int
+    # The other cases of its submission group: they stay, the case leaves the group.
+    group_members: int
+
+
+async def _deletable(session: AsyncSession, user: CurrentUser, case_id: uuid.UUID) -> VisaCase:
+    """Another workspace's case is not found; an employee may not delete one."""
+    case = await _case(session, case_id)
+    if user.role != UserRole.SPECIALIST:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+    return case
+
+
+async def _what_goes(session: AsyncSession, case: VisaCase) -> CaseDeletion:
+    async def count(model: Any) -> int:
+        return await session.scalar(select(func.count()).where(model.case_id == case.id)) or 0
+
+    payments, expenses = await count(CasePayment), await count(CaseExpense)
+    registrar_fee = (
+        await session.scalar(
+            select(CaseFinance.registrar_fee_amount).where(CaseFinance.case_id == case.id)
+        )
+        is not None
+    )
+    group_members = 0
+    if case.group_id is not None:
+        group_members = (
+            await session.scalar(
+                select(func.count()).where(
+                    VisaCase.group_id == case.group_id, VisaCase.id != case.id
+                )
+            )
+            or 0
+        )
+    return CaseDeletion(
+        has_money=bool(payments or expenses or registrar_fee),
+        payments=payments,
+        expenses=expenses,
+        registrar_fee=registrar_fee,
+        attempts=await count(ApplicationAttempt),
+        queue_entries=await count(WaitingListEntry),
+        package_items=await count(PackageItem),
+        bookings=await count(Booking),
+        outcome=case.outcome is not None,
+        employees=await count(EmployeeCase),
+        group_members=group_members,
+    )
+
+
+@router.get("/cases/{case_id}/deletion")
+async def case_deletion(case_id: uuid.UUID, user: Member, session: TenantSession) -> CaseDeletion:
+    """What the confirmation lists before a case is deleted."""
+    case = await _deletable(session, user, case_id)
+    return await _what_goes(session, case)
+
+
+@router.delete("/cases/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_case(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
+    """A case opened by mistake — a duplicate (pilot fix 1, docs/decisions.md). The
+    specialist only. A case with money (payments, expenses, a talon) stays until they are
+    deleted: the money must not vanish from the books unnoticed. The rest of the case —
+    attempts, the queue, package marks, bookings, the result, employees' grants — goes with
+    it by the foreign keys (ON DELETE CASCADE); vault accounts and templates given to the
+    client stay with the client. None of them holds a stored file. The number is not given
+    again (migration 0038), and a group the case was in is rebuilt without it."""
+    case = await _deletable(session, user, case_id)
+    if (await _what_goes(session, case)).has_money:
+        raise HTTPException(status.HTTP_409_CONFLICT, "case_has_money")
+    group_id = case.group_id
+    if group_id is not None:
+        await _leave(session, user, case)
+    _audit(
+        session,
+        AuditAction.CASE_DELETED,
+        user,
+        case,
+        {"number": case.number} | ({"group": str(group_id)} if group_id else {}),
+    )
+    await session.execute(
+        update(Tenant)
+        .where(Tenant.id == case.tenant_id)
+        .values(max_deleted_case_number=func.greatest(Tenant.max_deleted_case_number, case.number))
+    )
+    await session.execute(delete(VisaCase).where(VisaCase.id == case.id))
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

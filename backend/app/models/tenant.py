@@ -9,6 +9,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Integer,
     LargeBinary,
     Numeric,
     String,
@@ -62,4 +63,7 @@ class Tenant(Base):
     )
     subscription_starts_on: Mapped[date | None] = mapped_column(Date)
     trial_until: Mapped[date | None] = mapped_column(Date)
+    # The highest number of a deleted case: numbers go on past it, so a deleted case's
+    # number is never given again (pilot fix 1, app/api/cases.py → delete_case).
+    max_deleted_case_number: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

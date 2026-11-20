@@ -71,6 +71,8 @@ class AuditAction(StrEnum):
     CASE_UPDATED = "cases.updated"
     CASE_GROUPED = "cases.grouped"
     CASE_UNGROUPED = "cases.ungrouped"
+    # A case opened by mistake (pilot fix 1): details carry the contact, number and group.
+    CASE_DELETED = "cases.deleted"
     CASE_ACCESS_UPDATED = "cases.access_updated"
     CASE_QUEUED = "cases.queued"
     CASE_QUEUE_UPDATED = "cases.queue_updated"
