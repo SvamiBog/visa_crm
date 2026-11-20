@@ -27,17 +27,16 @@ from app.api.deps import (
     require_module,
     require_tenant_user,
 )
+from app.api.finances import case_balances
 from app.api.package import package_summaries
 from app.api.registrar_ledger import ledger_summaries
 from app.core.clock import today_in
 from app.core.consultation_checks import add_months
-from app.core.finance import ZERO, balance, money, partner_payout
+from app.core.finance import ZERO, money
 from app.core.package import Summary
 from app.core.queues import SUBMITTED_STAGES
 from app.models import (
     ApplicationAttempt,
-    CaseFinance,
-    CasePayment,
     CaseStage,
     Consultation,
     Contact,
@@ -181,26 +180,6 @@ async def _clients(session: AsyncSession, today: date, month_from: datetime) -> 
     )
 
 
-async def _balances(session: AsyncSession, case_ids: list[uuid.UUID] | None = None):
-    """(finance, contact, balance) of cases with finances; all of them, or these."""
-    paid = (
-        select(CasePayment.case_id, func.sum(CasePayment.amount_base).label("paid"))
-        .group_by(CasePayment.case_id)
-        .subquery()
-    )
-    query = (
-        select(CaseFinance, VisaCase.contact_id, func.coalesce(paid.c.paid, ZERO))
-        .join(VisaCase, VisaCase.id == CaseFinance.case_id)
-        .outerjoin(paid, paid.c.case_id == CaseFinance.case_id)
-    )
-    if case_ids is not None:
-        query = query.where(CaseFinance.case_id.in_(case_ids))
-    return [
-        (f, contact_id, balance(f.price, f.consultation_credit, [amount]))
-        for f, contact_id, amount in await session.execute(query)
-    ]
-
-
 async def _submissions(
     session: AsyncSession, today: date, money_on: bool, package_on: bool
 ) -> SubmissionsBlock:
@@ -227,7 +206,7 @@ async def _submissions(
     owed: dict[uuid.UUID, Decimal | None] = {}
     if money_on and shown:
         ids = [case.id for line in shown for case, _ in line]
-        owed = {f.case_id: left for f, _, left in await _balances(session, ids)}
+        owed = {f.case_id: left for f, _, left, _ in await case_balances(session, ids)}
     packages: dict[uuid.UUID, Summary] = {}
     if package_on and shown:
         packages = await package_summaries(
@@ -387,11 +366,10 @@ async def money_block(session: AsyncSession, user: CurrentUser, currency: str) -
     only theirs (app/api/registrar_ledger.py)."""
     debt, debtors = ZERO, set()
     partners_due, partner_cases = ZERO, 0
-    for f, contact_id, left in await _balances(session):
+    for f, contact_id, left, payout in await case_balances(session):
         if left is not None and left > 0:
             debt += left
             debtors.add(contact_id)
-        payout = partner_payout(f.partner_terms, f.price, f.partner_percent, f.partner_fixed)
         if payout and f.partner_paid_on is None:
             partners_due += payout
             partner_cases += 1

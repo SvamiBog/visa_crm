@@ -46,8 +46,9 @@ class Tenant(Base):
     payment_currencies: Mapped[list[str]] = mapped_column(
         ARRAY(String(3)), server_default=text("'{BYN,PLN,USD,EUR}'")
     )
-    # Tax on officially paid payments, percent (НПД in Belarus: 10).
-    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), server_default=text("0"))
+    # Tax on officially paid payments, percent (НПД in Belarus: 10). NULL — not set yet (the
+    # case finances ask for it); 0 — no tax (pilot T8). The specialist sets it herself.
+    tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     # Modules the admin turned on (keys from app/core/modules.py).
     modules: Mapped[list[str]] = mapped_column(ARRAY(String(40)), server_default=text("'{}'"))
     # The tenant's vault data key, encrypted with the master key (app/core/vault.py).

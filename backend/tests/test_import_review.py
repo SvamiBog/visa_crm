@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import import_uploads
 from tests.helpers import MakeUser, finished_import, import_report, login, uploaded
-from tests.test_data_import import BOOK, PAYMENTS, body, count, mail_system
+from tests.test_data_import import BOOK, PAYMENTS, body, count, mail_system, rows
 
 API = "/api/imports"
 TABLES = ("contacts", "consultations", "visa_cases", "case_payments", "vault_entries")
@@ -309,3 +309,33 @@ async def test_a_file_is_forgotten_a_day_after_its_last_use(
     assert (await ok(await client.get(f"{API}/uploads/current")))["id"] == upload["id"]  # type: ignore[index]
     now[0] += import_uploads.KEEP + 1
     assert await ok(await client.get(f"{API}/uploads/current")) is None
+
+
+async def test_a_case_priced_in_another_currency_shows_its_price_in_the_base_one(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Pilot fix 4: the file has prices in the base currency; 1000 PLN at 0.80 is the
+    # file's 800 BYN, so the card shows 800 and no change.
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    await import_report(client, body(BOOK))
+    [case_id] = [
+        row["case_id"]
+        for row in await rows(
+            owner_engine,
+            "SELECT case_id FROM case_finances WHERE tenant_id = :t AND price = 800",
+            t=tenant,
+        )
+    ]
+    await ok(
+        await client.patch(
+            f"/api/cases/{case_id}/finance", json={"currency": "PLN", "price": "1000"}
+        )
+    )
+    upload = await uploaded(client, body(BOOK))
+    await check(client, upload["id"])
+    anna = await card(client, upload["id"], 0)
+    [case] = section(anna["sections"], "Кейсы")
+    assert case["change"] is None
+    assert values(case)["Стоимость"] == "800.00"

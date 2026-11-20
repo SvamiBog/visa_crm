@@ -27,6 +27,7 @@ import {
   type ImportRunSummary,
   type ImportUpload,
 } from "../../imports";
+import { useWorkspace } from "../../workspace";
 import { ErrorAlert } from "../clients/ui";
 import { CardList, CardView, useIssueText } from "./ImportCard";
 
@@ -88,6 +89,8 @@ export function ImportPage() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const upload = useImportUpload();
+  // The file's prices are read in the base currency: said before the import (pilot T8).
+  const workspace = useWorkspace();
   const current = upload.data ?? null;
   const [fileError, setFileError] = useState<FormError | null>(null);
   const [choices, setChoices] = useState<ImportChoices>({});
@@ -286,6 +289,11 @@ export function ImportPage() {
           {current.checked && current.report && (
             <>
               <p className="muted import-note">{t("import.checkNote")}</p>
+              {workspace.data && (
+                <p className="import-note" role="note">
+                  {t("import.pricesIn", { currency: workspace.data.base_currency })}
+                </p>
+              )}
               <ReportView report={current.report} dryRun />
               <UnknownValues report={current.report} choices={choices} onChange={choose} />
               <h3 className="h3">{t("import.cardsTitle")}</h3>

@@ -33,6 +33,7 @@ from app.api.deps import (
 )
 from app.core import import_jobs, import_uploads
 from app.core.audit import record
+from app.core.base_currency import hold_base
 from app.core.data_export import Lists, template
 from app.core.data_format import CREATABLE
 from app.core.data_import import NEW, SKIP, Progress, WorkbookImport
@@ -284,8 +285,8 @@ async def _import(
 ) -> tuple[ImportRun, dict[str, Any], WorkbookImport]:
     """Run the import in the session; the caller commits it or lets it roll back."""
     assert user.tenant_id is not None
-    tenant = await session.get(Tenant, user.tenant_id)
-    assert tenant is not None
+    # Held to the end: the file's prices are read in this base currency (hold_base).
+    tenant = await hold_base(session, user.tenant_id)
     run = ImportRun(
         id=uuid.uuid4(),
         tenant_id=user.tenant_id,

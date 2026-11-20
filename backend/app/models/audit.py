@@ -111,6 +111,9 @@ class AuditAction(StrEnum):
     # All the workspace's data deleted by the specialist (app/core/erase.py): the number of
     # files only.
     WORKSPACE_ERASED = "workspace.erased"
+    # The base currency changed and what is kept in it counted again
+    # (app/core/base_currency.py): the two currency codes and row counts only.
+    BASE_CURRENCY_CHANGED = "workspace.base_currency_changed"
 
 
 class AuditEvent(Base):

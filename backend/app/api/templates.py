@@ -65,7 +65,6 @@ from app.models import (
     ContactTemplate,
     Country,
     DocumentTemplate,
-    Tenant,
     VisaCase,
     VisaPurpose,
 )
@@ -364,14 +363,12 @@ async def client_data(
     )
     if "finances" in modules:
         finance = await session.get(CaseFinance, case.id)
-        currency = await session.scalar(
-            select(Tenant.base_currency).where(Tenant.id == user.tenant_id)
-        )
-        if finance is not None and currency is not None:
+        if finance is not None:
+            # In the currency the price was named in (pilot fix 4).
             for field in ("price", "prepayment"):
                 amount = getattr(finance, field)
                 if amount is not None:
-                    data[field] = Money(amount, currency)
+                    data[field] = Money(amount, finance.currency)
     return data
 
 

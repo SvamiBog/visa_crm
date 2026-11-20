@@ -7,15 +7,18 @@ import { formatDate, type VisaCase } from "../../contacts";
 import { deferDelete, useDeleting } from "../../undo";
 import { ErrorAlert, todayIso } from "./ui";
 
-// Case finances (backlog 1.9): everything in the specialist's base currency (BYN);
-// payments and expenses in other currencies keep the National Bank's rate of their day.
-// The API counts the balance, the payout, the tax and the profit (app/core/finance.py).
+// Case finances (backlog 1.9): the price and the balance in the case's own currency (pilot
+// fix 4), the talon, payout, tax, expenses and profit in the specialist's base currency;
+// payments and expenses in other currencies keep the site's National Bank rate. The API
+// counts the balance, the payout, the tax and the profit (app/core/finance.py).
 
 const TERMS = ["percent", "fixed", "none", "unspecified"] as const;
 type Terms = (typeof TERMS)[number];
 
 // The fields of each form that show the API's validation under them.
 const FINANCE_FIELDS = [
+  "currency",
+  "rate",
   "price",
   "prepayment",
   "consultation_credit",
@@ -38,6 +41,8 @@ type Payment = {
   amount_base: string;
   official: boolean;
   note: string | null;
+  /** The payment in the case's currency, set against its price. */
+  amount_case: string;
 };
 type Expense = {
   id: string;
@@ -51,7 +56,11 @@ type Expense = {
 type Finance = {
   case_id: string;
   base_currency: string;
-  tax_rate: string;
+  /** Null while the specialist has not set her rate; "0.00" is no tax. */
+  tax_rate: string | null;
+  /** The price's currency and its rate: base units for one unit. */
+  currency: string;
+  rate: string;
   price: string | null;
   prepayment: string | null;
   consultation_credit: string;
@@ -70,12 +79,17 @@ type Finance = {
   paid: string;
   official: string;
   balance: string | null;
+  price_base: string | null;
   partner_payout: string | null;
-  tax: string;
+  /** Null while the workspace has no tax rate. */
+  tax: string | null;
   expenses_total: string;
   profit: string | null;
   suggestions: {
+    /** The list's prepayment in the case's currency. */
     prepayment: string | null;
+    /** ...and in each currency the case may be priced in (pilot T8). */
+    prepayment_in: Record<string, string>;
     registrar_fee: {
       amount: string;
       currency: string;
@@ -173,6 +187,12 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
   if (finance.isError) return <ErrorAlert error={finance.error} />;
   const f = finance.data;
   const base = f.base_currency;
+  const cur = f.currency;
+  // An amount with its currency: the price's and the base one may differ.
+  const inCur = (value: string | null, currency: string) =>
+    value === null ? "—" : `${money(value)} ${currency}`;
+  // Without a price there is no balance or profit: ask for the price, never show a loss.
+  const noPrice = <span className="muted">{t("finance.setPrice")}</span>;
   const close = () => {
     setEditing(null);
     setPayment(null);
@@ -182,7 +202,7 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
   return (
     <section className="finance">
       <div className="card-head">
-        <h4 className="h3">{t("finance.title", { currency: base })}</h4>
+        <h4 className="h3">{t("finance.heading")}</h4>
         {editing === null && (
           <span className="actions">
             {/* A payment is the frequent one; the price and terms change rarely. */}
@@ -211,11 +231,27 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
       ) : (
         <table className="tbl money-table">
           <tbody>
-            <MoneyRow label={t("finance.price")} value={money(f.price)} />
+            <MoneyRow
+              label={
+                <>
+                  {t("finance.price")}
+                  {cur !== base && f.price_base !== null && (
+                    <span className="muted">
+                      {" · "}
+                      {t("finance.priceInBase", {
+                        amount: inCur(f.price_base, base),
+                        rate: rateText(f.rate),
+                      })}
+                    </span>
+                  )}
+                </>
+              }
+              value={inCur(f.price, cur)}
+            />
             {Number(f.consultation_credit) > 0 && (
               <MoneyRow
                 label={t("finance.consultation")}
-                value={`−${money(f.consultation_credit)}`}
+                value={inCur(f.consultation_credit, cur)}
               />
             )}
             {f.payments.map((p) => (
@@ -223,7 +259,7 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                 key={p.id}
                 label={
                   <>
-                    <PaymentLabel payment={p} base={base} />
+                    <PaymentLabel payment={p} currency={cur} base={base} />
                     <ItemActions
                       onEdit={() => {
                         setPayment(p);
@@ -234,13 +270,21 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                     />
                   </>
                 }
-                value={`−${money(p.amount_base)}`}
+                value={inCur(p.amount_case, cur)}
                 deleting={deleting.has(`/payments/${p.id}`)}
               />
             ))}
-            <MoneyRow strong label={t("finance.balance")} value={money(f.balance)} />
+            <MoneyRow
+              strong
+              label={t("finance.balance")}
+              value={f.price === null ? noPrice : inCur(f.balance, cur)}
+            />
             {f.prepayment !== null && (
-              <MoneyRow muted label={t("finance.prepaymentAgreed")} value={money(f.prepayment)} />
+              <MoneyRow
+                muted
+                label={t("finance.prepaymentAgreed")}
+                value={inCur(f.prepayment, cur)}
+              />
             )}
             {f.registrar_fee_base !== null && (
               <MoneyRow
@@ -264,19 +308,39 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                     )}
                   </>
                 }
-                value={money(f.registrar_fee_base)}
+                value={inCur(f.registrar_fee_base, base)}
               />
             )}
             {f.partner_terms && f.partner_terms !== "unspecified" && (
-              <MoneyRow label={<PartnerLabel finance={f} />} value={money(f.partner_payout)} />
+              <MoneyRow
+                label={<PartnerLabel finance={f} />}
+                value={inCur(f.partner_payout, base)}
+              />
             )}
-            <MoneyRow
-              label={t("finance.tax", {
-                rate: money(f.tax_rate),
-                official: money(f.official),
-              })}
-              value={money(f.tax)}
-            />
+            {f.tax === null ? (
+              <MoneyRow
+                label={
+                  <>
+                    {t("finance.taxNotSet")}
+                    <br />
+                    <small className="muted">{t("finance.taxNotSetHint")}</small>
+                  </>
+                }
+                value="—"
+              />
+            ) : (
+              <MoneyRow
+                label={
+                  Number(f.tax_rate) === 0
+                    ? t("finance.noTax")
+                    : t("finance.tax", {
+                        rate: money(f.tax_rate),
+                        official: inCur(f.official, base),
+                      })
+                }
+                value={inCur(f.tax, base)}
+              />
+            )}
             {f.expenses.map((e) => (
               <MoneyRow
                 key={e.id}
@@ -298,11 +362,15 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
                     />
                   </>
                 }
-                value={money(e.amount_base)}
+                value={inCur(e.amount_base, base)}
                 deleting={deleting.has(`/expenses/${e.id}`)}
               />
             ))}
-            <MoneyRow strong label={t("finance.profit")} value={money(f.profit)} />
+            <MoneyRow
+              strong
+              label={t("finance.profit")}
+              value={f.price === null ? noPrice : inCur(f.profit, base)}
+            />
           </tbody>
         </table>
       )}
@@ -318,7 +386,7 @@ function MoneyRow({
   deleting = false,
 }: {
   label: ReactNode;
-  value: string;
+  value: ReactNode;
   strong?: boolean;
   muted?: boolean;
   /** Waits for its deletion: struck through until it goes. */
@@ -336,21 +404,33 @@ function MoneyRow({
   );
 }
 
-function PaymentLabel({ payment: p, base }: { payment: Payment; base: string }) {
+/** A payment in another currency than the case's (the row's value) shows its own amount;
+ * its rate only when it is not in the base currency, the rate being to the base one. */
+function PaymentLabel({
+  payment: p,
+  currency,
+  base,
+}: {
+  payment: Payment;
+  currency: string;
+  base: string;
+}) {
   const { t, i18n } = useTranslation();
   const money = useMoney();
   const rateText = useRateText();
   return (
     <>
       {t("finance.payment", { date: formatDate(p.paid_on, i18n.language) })}
-      {p.currency !== base && (
+      {p.currency !== currency && (
         <span className="muted">
           {" · "}
-          {t("finance.atRate", {
-            amount: money(p.amount),
-            currency: p.currency,
-            rate: rateText(p.rate),
-          })}
+          {p.currency === base
+            ? t("finance.paidIn", { amount: money(p.amount), currency: p.currency })
+            : t("finance.atRate", {
+                amount: money(p.amount),
+                currency: p.currency,
+                rate: rateText(p.rate),
+              })}
         </span>
       )}
       {p.official && <span className="chip st-green finance-chip">{t("finance.official")}</span>}
@@ -467,11 +547,25 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
   const hints = f.suggestions;
   const base = f.base_currency;
   const currencies = usePaymentCurrencies(base);
-  // Empty fields start from the lists and the consultation.
+  // The price's currency (pilot fix 4) and its rate to the base one.
+  const [currency, setCurrency] = useState(f.currency);
+  // The case keeps its currency even if the specialist no longer accepts it.
+  const priceCurrencies = currencies.includes(f.currency) ? currencies : [...currencies, f.currency];
+  const [priceRate, setPriceRate] = useState(f.currency !== base ? f.rate : "");
+  const priceBank = useBankRate(currency, base, setPriceRate, {
+    currency: f.currency,
+    rate: f.rate,
+  });
+  // Empty fields start from the lists and the consultation. The consultation's is in the
+  // base currency; the list's prepayment comes in every currency the case may be priced in.
+  const hinted = f.currency === base;
+  const listed = (c: string) => hints.prepayment_in[c] ?? "";
   const [price, setPrice] = useState(f.price ?? "");
-  const [prepayment, setPrepayment] = useState(f.prepayment ?? hints.prepayment ?? "");
+  const [prepayment, setPrepayment] = useState(f.prepayment ?? listed(f.currency));
   const [credit, setCredit] = useState(
-    Number(f.consultation_credit) > 0 ? f.consultation_credit : (hints.consultation_credit ?? ""),
+    Number(f.consultation_credit) > 0
+      ? f.consultation_credit
+      : ((hinted ? hints.consultation_credit : null) ?? ""),
   );
   const fee = f.registrar_fee_amount !== null ? null : hints.registrar_fee;
   const [feeAmount, setFeeAmount] = useState(f.registrar_fee_amount ?? fee?.amount ?? "");
@@ -497,6 +591,8 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
   );
   const save = useSave(f.case_id, onDone, () =>
     apiPatch<Finance>(`/cases/${f.case_id}/finance`, {
+      currency,
+      ...(currency !== base && priceRate ? { rate: toDecimal(priceRate) } : {}),
       price: price ? toDecimal(price) : null,
       prepayment: prepayment ? toDecimal(prepayment) : null,
       consultation_credit: credit ? toDecimal(credit) : null,
@@ -517,12 +613,30 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
   );
   const errors = useFieldErrors(save.error, {
     codes: {
+      currency_not_accepted: "currency",
+      ...(currency !== base ? { rate_unavailable: "rate" } : {}),
       registrar_fee_incomplete: "registrar_fee_amount",
       partner_terms_incomplete: terms === "fixed" ? "partner_fixed" : "partner_percent",
       ...(feeCurrency !== base ? { rate_unavailable: "registrar_fee_rate" } : {}),
     },
     fields: FINANCE_FIELDS,
   });
+
+  // The consultation's suggestion is in the base currency: untouched, it does not carry
+  // over to another currency.
+  const switchCurrency = (next: string) => {
+    // The list's prepayment, untouched, follows the currency (converted by the API).
+    if (f.prepayment === null && prepayment === listed(currency)) setPrepayment(listed(next));
+    if (hinted && next !== base) {
+      if (Number(f.consultation_credit) === 0 && credit === hints.consultation_credit) {
+        setCredit("");
+      }
+    }
+    setCurrency(next);
+  };
+  // What she typed or saved stays as it is in another currency: the form says so.
+  const typedPrepayment =
+    prepayment !== "" && !(f.prepayment === null && prepayment === listed(currency));
 
   return (
     <form
@@ -534,25 +648,55 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
       }}
     >
       <div className="form-grid">
+        <Field
+          label={t("finance.priceCurrency")}
+          hint={t("finance.priceCurrencyHint", { base })}
+          error={errors.at("currency")}
+        >
+          {(control) => (
+            <select {...control} value={currency} onChange={(e) => switchCurrency(e.target.value)}>
+              {priceCurrencies.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        {currency !== base && (
+          <RateField
+            value={priceRate}
+            onChange={setPriceRate}
+            missing={priceBank.isError}
+            base={base}
+            error={errors.at("rate")}
+          />
+        )}
         <MoneyField
-          label={t("finance.priceField", { currency: base })}
+          label={t("finance.priceField", { currency })}
           value={price}
           onChange={setPrice}
           error={errors.at("price")}
         />
         <MoneyField
-          label={t("finance.prepaymentField", { currency: base })}
+          label={t("finance.prepaymentField", { currency })}
           value={prepayment}
           onChange={setPrepayment}
           error={errors.at("prepayment")}
         />
         <MoneyField
-          label={t("finance.consultationField", { currency: base })}
+          label={t("finance.consultationField", { currency })}
           value={credit}
           onChange={setCredit}
           error={errors.at("consultation_credit")}
         />
       </div>
+      {/* A new price currency converts nothing already typed (pilot T8, owner's default). */}
+      {currency !== f.currency && (typedPrepayment || Number(toDecimal(credit)) > 0) ? (
+        <p className="alert alert-warn small" role="status">
+          {t("finance.currencyKeepsNumbers", { currency })}
+        </p>
+      ) : null}
       <fieldset className="module-block">
         <legend>{t("finance.talonField")}</legend>
         <div className="form-grid">

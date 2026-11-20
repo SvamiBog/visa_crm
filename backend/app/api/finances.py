@@ -1,6 +1,7 @@
 """Case finances (backlog 1.9): the price, the client's payments and balance, the talon,
-the partner payout, the tax (НПД), other expenses and the profit of a case, in the
-specialist's base currency (formulas: app/core/finance.py).
+the partner payout, the tax (НПД), other expenses and the profit of a case (formulas:
+app/core/finance.py). The price and the balance are in the case's currency (one the
+specialist accepts, pilot fix 4), the rest in her base currency.
 
 Closed by the «clients», «cases» and «finances» modules: an employee sees money only
 when the specialist gives them «Финансы кейсов». Events carry ids and field names, no
@@ -8,9 +9,10 @@ amounts.
 """
 
 import uuid
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -19,10 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
+from app.core.base_currency import hold_base
 from app.core.days import Day
-from app.core.finance import Summary, summarize, to_base
-from app.core.money import Amount, Currency, Percent
-from app.core.rates import RateUnavailable, latest, rate_to_base
+from app.core.finance import Paid, Summary, in_case_currency, money, summarize, to_base
+from app.core.money import Amount, Currency, Percent, ordered_currencies
+from app.core.rates import RateUnavailable, convert, latest, rate_to_base
 from app.models import (
     AuditAction,
     CaseExpense,
@@ -56,6 +59,8 @@ Rate = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=6)]
 Price = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)]
 Note = Annotated[str, Field(max_length=200)]
 FINANCE_FIELDS = (
+    "currency",
+    "rate",
     "price",
     "prepayment",
     "consultation_credit",
@@ -87,8 +92,12 @@ class FinanceUpdate(BaseModel):
     (amount, currency and rate) or cleared with a null amount. Its day (when it is
     charged in the settlements with the registrar) defaults to the day the client was
     queued, else today; a rate not sent is the bank's of that day. A settled talon was
-    paid to the registrar outside the settlements (before the CRM): it is not charged."""
+    paid to the registrar outside the settlements (before the CRM): it is not charged.
+    The price, the prepayment and the consultation credit are in `currency` (null: the
+    base one); a new currency without a `rate` takes the site's latest one."""
 
+    currency: Currency | None = None
+    rate: Rate | None = None
     price: Price | None = None
     prepayment: Amount | None = None
     consultation_credit: Price | None = None
@@ -157,6 +166,8 @@ class PaymentOut(BaseModel):
     amount_base: Decimal
     official: bool
     note: str | None
+    # The payment in the case's currency, to set against its price.
+    amount_case: Decimal | None = None
 
 
 class ExpenseOut(BaseModel):
@@ -183,7 +194,10 @@ class FeeSuggestion(BaseModel):
 class Suggestions(BaseModel):
     """What the lists and the consultation suggest, to fill an empty field."""
 
+    # The list's prepayment in the case's currency, and in each currency the case may be
+    # priced in (converted at the bank's rate, pilot T8).
     prepayment: Decimal | None = None
+    prepayment_in: dict[str, Decimal] = {}
     registrar_fee: FeeSuggestion | None = None
     partner_terms: PartnerTermsType | None = None
     partner_percent: Decimal | None = None
@@ -194,7 +208,11 @@ class Suggestions(BaseModel):
 class FinanceOut(BaseModel):
     case_id: uuid.UUID
     base_currency: str
-    tax_rate: Decimal
+    # None: not set yet; 0: no tax.
+    tax_rate: Decimal | None
+    # The price's currency and its rate (base units for one unit).
+    currency: str
+    rate: Decimal = Decimal("1")
     price: Decimal | None = None
     prepayment: Decimal | None = None
     consultation_credit: Decimal = Decimal("0.00")
@@ -210,12 +228,15 @@ class FinanceOut(BaseModel):
     partner_paid_on: date | None = None
     payments: list[PaymentOut] = []
     expenses: list[ExpenseOut] = []
-    # Counted: what was paid, of it officially, the balance, the payout, tax, profit.
+    # Counted: what was paid and the balance (in the case's currency), the price, the
+    # official payments, the payout, tax and profit (in the base one). The tax is null
+    # while the workspace has no tax rate.
     paid: Decimal
     official: Decimal
     balance: Decimal | None
+    price_base: Decimal | None
     partner_payout: Decimal | None
-    tax: Decimal
+    tax: Decimal | None
     expenses_total: Decimal
     profit: Decimal | None
     suggestions: Suggestions
@@ -231,6 +252,51 @@ class RateOut(BaseModel):
 # --- Helpers -------------------------------------------------------------------------
 
 
+class CaseBalance(NamedTuple):
+    finance: CaseFinance
+    contact_id: uuid.UUID
+    # What the client still owes, in the base currency; None without a price.
+    balance_base: Decimal | None
+    partner_payout: Decimal | None
+
+
+async def case_balances(
+    session: AsyncSession, case_ids: list[uuid.UUID] | None = None
+) -> list[CaseBalance]:
+    """The balance and the partner payout of cases with finances, all of them or these, in
+    the base currency whatever currency a case's price is in (the home screen's debt and
+    the reminders about an unpaid balance)."""
+    query = select(CaseFinance, VisaCase.contact_id).join(
+        VisaCase, VisaCase.id == CaseFinance.case_id
+    )
+    if case_ids is not None:
+        query = query.where(CaseFinance.case_id.in_(case_ids))
+    finances = (await session.execute(query)).all()
+    paid: dict[uuid.UUID, list[Paid]] = defaultdict(list)
+    if finances:
+        for p in await session.scalars(
+            select(CasePayment).where(CasePayment.case_id.in_([f.case_id for f, _ in finances]))
+        ):
+            paid[p.case_id].append(Paid(p.amount, p.currency, p.amount_base))
+    out = []
+    for f, contact_id in finances:
+        summary = summarize(
+            price=f.price,
+            currency=f.currency,
+            rate=f.rate,
+            consultation_credit=f.consultation_credit,
+            payments=paid[f.case_id],
+            registrar_fee=f.registrar_fee_base,
+            partner_terms=f.partner_terms,
+            partner_percent=f.partner_percent,
+            partner_fixed=f.partner_fixed,
+            tax_rate=None,
+            expenses=[],
+        )
+        out.append(CaseBalance(f, contact_id, summary.balance_base, summary.partner_payout))
+    return out
+
+
 async def _get[T](session: AsyncSession, model: type[T], item_id: Any) -> T:
     """RLS hides other workspaces' rows, so someone else's id is simply not found."""
     item = await session.get(model, item_id)
@@ -243,6 +309,13 @@ async def _tenant(session: AsyncSession, user: CurrentUser) -> Tenant:
     return await _get(session, Tenant, user.tenant_id)
 
 
+async def tenant_for_money(session: AsyncSession, user: CurrentUser) -> Tenant:
+    """The workspace for a write counted in its base currency: its row held until the
+    commit, so a change of the base currency cannot come in between (hold_base)."""
+    assert user.tenant_id is not None
+    return await hold_base(session, user.tenant_id)
+
+
 async def _rate(currency: str, base: str, given: Decimal | None) -> Decimal:
     if currency == base:
         return Decimal("1")
@@ -252,6 +325,12 @@ async def _rate(currency: str, base: str, given: Decimal | None) -> Decimal:
         return await rate_to_base(currency, base)
     except RateUnavailable as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "rate_unavailable") from error
+
+
+def _check_currency(tenant: Tenant, currency: str) -> None:
+    """A price only in a currency the specialist accepts (Lists → Currencies and tax)."""
+    if currency != tenant.base_currency and currency not in tenant.payment_currencies:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "currency_not_accepted")
 
 
 def _audit(
@@ -298,16 +377,28 @@ async def first_queued_on(session: AsyncSession, case_id: uuid.UUID) -> date | N
 
 
 async def _suggestions(
-    session: AsyncSession, case: VisaCase, tenant: Tenant, today: date
+    session: AsyncSession, case: VisaCase, tenant: Tenant, currency: str, today: date
 ) -> Suggestions:
+    """`currency`: the case's price currency."""
     out = Suggestions()
     prepayments = {
-        p.purpose_id: p.amount
+        p.purpose_id: p
         for p in await session.scalars(
             select(Prepayment).where(Prepayment.country_id == case.destination_id)
         )
     }
-    out.prepayment = prepayments.get(case.purpose_id, prepayments.get(None))
+    listed = prepayments.get(case.purpose_id, prepayments.get(None))
+    if listed is not None:
+        # In its own currency in the list: in each one the case may be priced in, at the
+        # site's latest rate, so the form can follow a change of the price's currency.
+        prepayment_in = {}
+        for c in {*ordered_currencies(tenant.base_currency, tenant.payment_currencies), currency}:
+            try:
+                prepayment_in[c] = await convert(listed.amount, listed.currency, c)
+            except RateUnavailable:
+                continue  # no rate on the site yet: no suggestion in that currency
+        out.prepayment_in = prepayment_in
+        out.prepayment = prepayment_in.get(currency)
 
     if case.registrar_id is not None:
         price = await registrar_price_for(session, case)
@@ -375,10 +466,14 @@ async def finance_out(session: AsyncSession, case: VisaCase, user: CurrentUser) 
             .order_by(CaseExpense.spent_on, CaseExpense.created_at)
         )
     )
+    currency = finance.currency if finance else tenant.base_currency
+    rate = finance.rate if finance else Decimal("1")
     summary: Summary = summarize(
         price=finance.price if finance else None,
+        currency=currency,
+        rate=rate,
         consultation_credit=finance.consultation_credit if finance else Decimal("0"),
-        payments=[(p.amount_base, p.official) for p in payments],
+        payments=[Paid(p.amount, p.currency, p.amount_base, p.official) for p in payments],
         registrar_fee=finance.registrar_fee_base if finance else None,
         partner_terms=finance.partner_terms if finance else None,
         partner_percent=finance.partner_percent if finance else None,
@@ -389,22 +484,31 @@ async def finance_out(session: AsyncSession, case: VisaCase, user: CurrentUser) 
     stored = (
         {f: getattr(finance, f) for f in (*FINANCE_FIELDS, "registrar_fee_base")} if finance else {}
     )
+    stored.setdefault("currency", tenant.base_currency)
+
+    def payment_out(p: CasePayment) -> PaymentOut:
+        out = PaymentOut.model_validate(p)
+        paid = Paid(p.amount, p.currency, p.amount_base)
+        out.amount_case = money(in_case_currency(paid, currency, rate))
+        return out
+
     return FinanceOut(
         case_id=case.id,
         base_currency=tenant.base_currency,
         tax_rate=tenant.tax_rate,
         **stored,
-        payments=[PaymentOut.model_validate(p) for p in payments],
+        payments=[payment_out(p) for p in payments],
         expenses=[ExpenseOut.model_validate(e) for e in expenses],
         paid=summary.paid,
         official=summary.official,
         balance=summary.balance,
+        price_base=summary.price_base,
         partner_payout=summary.partner_payout,
         tax=summary.tax,
         expenses_total=summary.expenses,
         profit=summary.profit,
         suggestions=await _suggestions(
-            session, case, tenant, await workspace_today(session, tenant.id)
+            session, case, tenant, currency, await workspace_today(session, tenant.id)
         ),
     )
 
@@ -461,12 +565,18 @@ async def update_finance(
     case_id: uuid.UUID, body: FinanceUpdate, user: Member, session: TenantSession
 ) -> FinanceOut:
     case = await _get(session, VisaCase, case_id)
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     finance = await session.get(CaseFinance, case.id)
     if finance is None:
-        finance = CaseFinance(case_id=case.id, tenant_id=case.tenant_id)
+        finance = CaseFinance(
+            case_id=case.id,
+            tenant_id=case.tenant_id,
+            currency=tenant.base_currency,
+            rate=Decimal("1"),
+        )
         session.add(finance)
     changes = body.model_dump(exclude_unset=True)
+    await _price_currency(changes, finance, tenant)
     if "consultation_credit" in changes and changes["consultation_credit"] is None:
         changes["consultation_credit"] = Decimal("0")
     if "registrar_fee_settled" in changes and changes["registrar_fee_settled"] is None:
@@ -509,12 +619,29 @@ async def update_finance(
     return await finance_out(session, case, user)
 
 
+async def _price_currency(changes: dict[str, Any], finance: CaseFinance, tenant: Tenant) -> None:
+    """The price's currency and rate: null is the base currency; the base currency is at 1;
+    another one takes the rate sent, else keeps its own, else the site's latest."""
+    if "rate" in changes and changes["rate"] is None:
+        del changes["rate"]  # required: null means «leave as is»
+    if "currency" in changes:
+        changes["currency"] = changes["currency"] or tenant.base_currency
+        # A case keeps its currency even if the specialist no longer accepts it.
+        if changes["currency"] != finance.currency:
+            _check_currency(tenant, changes["currency"])
+    currency = changes.get("currency", finance.currency)
+    if currency == tenant.base_currency:
+        changes["rate"] = Decimal("1")
+    elif "rate" not in changes and currency != finance.currency:
+        changes["rate"] = await _rate(currency, tenant.base_currency, None)
+
+
 @router.post("/cases/{case_id}/payments", status_code=status.HTTP_201_CREATED)
 async def add_payment(
     case_id: uuid.UUID, body: PaymentIn, user: Member, session: TenantSession
 ) -> FinanceOut:
     case = await _get(session, VisaCase, case_id)
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     rate = await _rate(body.currency, tenant.base_currency, body.rate)
     payment = CasePayment(
         tenant_id=case.tenant_id,
@@ -539,7 +666,7 @@ async def _update_money(
     day_field: str,
 ) -> list[str]:
     """Apply the changes; a new currency takes the site's latest rate unless one is given."""
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     for field in ("amount", "currency", "rate", "official", day_field):
         if field in changes and changes[field] is None:
             del changes[field]  # required: null means «leave as is»
@@ -583,7 +710,7 @@ async def add_expense(
     case_id: uuid.UUID, body: ExpenseIn, user: Member, session: TenantSession
 ) -> FinanceOut:
     case = await _get(session, VisaCase, case_id)
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     rate = await _rate(body.currency, tenant.base_currency, body.rate)
     expense = CaseExpense(
         tenant_id=case.tenant_id,

@@ -1,9 +1,10 @@
 """Case finances (docs/clients-module.md → «Финансы»): the price, the talon and the partner
 payout of a case, the client's payments and the specialist's own expenses.
 
-Accounts are kept in the specialist's base currency (BYN for now); a payment or an
-expense in another currency keeps its amount, currency, the rate and the amount in the
-base currency (the rate is the National Bank's on that day, and can be corrected).
+Accounts are kept in the specialist's base currency; a payment or an expense in another
+currency keeps its amount, currency, the rate and the amount in the base currency (the
+site's latest National Bank rate, and can be corrected). The price of a case is in the
+case's own currency, with its rate to the base one (pilot fix 4).
 """
 
 import uuid
@@ -53,7 +54,9 @@ class ExchangeRate(Base):
 
 
 class CaseFinance(Base):
-    """The money of one case in the base currency; amounts not set yet are NULL."""
+    """The money of one case; amounts not set yet are NULL. The price, the prepayment and
+    the consultation credit are in the case's currency, the talon and the partner's fixed
+    payout in the base one."""
 
     __tablename__ = "case_finances"
     __table_args__ = (
@@ -61,6 +64,7 @@ class CaseFinance(Base):
         CheckConstraint("price IS NULL OR price >= 0", name="price_not_negative"),
         CheckConstraint("prepayment IS NULL OR prepayment > 0", name="prepayment_positive"),
         CheckConstraint("consultation_credit >= 0", name="credit_not_negative"),
+        CheckConstraint("rate > 0", name="rate_positive"),
         # The talon: all four together or none.
         CheckConstraint(
             "(registrar_fee_amount IS NULL) = (registrar_fee_currency IS NULL) "
@@ -93,7 +97,11 @@ class CaseFinance(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), index=True
     )
-    # What the client was told, in the base currency.
+    # The currency the price was named in (pilot fix 4): one the specialist accepts; the
+    # base currency unless she picks another. `rate`: base units for one unit of it.
+    currency: Mapped[str] = mapped_column(String(3))
+    rate: Mapped[Decimal] = mapped_column(Numeric(14, 6), server_default=text("1"))
+    # What the client was told, in the case's currency.
     price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     # The agreed prepayment (from the prepayments list by country and purpose).
     prepayment: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
