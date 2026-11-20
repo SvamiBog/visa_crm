@@ -9,9 +9,10 @@ amounts.
 """
 
 import uuid
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -244,6 +245,51 @@ class RateOut(BaseModel):
 
 
 # --- Helpers -------------------------------------------------------------------------
+
+
+class CaseBalance(NamedTuple):
+    finance: CaseFinance
+    contact_id: uuid.UUID
+    # What the client still owes, in the base currency; None without a price.
+    balance_base: Decimal | None
+    partner_payout: Decimal | None
+
+
+async def case_balances(
+    session: AsyncSession, case_ids: list[uuid.UUID] | None = None
+) -> list[CaseBalance]:
+    """The balance and the partner payout of cases with finances, all of them or these, in
+    the base currency whatever currency a case's price is in (the home screen's debt and
+    the reminders about an unpaid balance)."""
+    query = select(CaseFinance, VisaCase.contact_id).join(
+        VisaCase, VisaCase.id == CaseFinance.case_id
+    )
+    if case_ids is not None:
+        query = query.where(CaseFinance.case_id.in_(case_ids))
+    finances = (await session.execute(query)).all()
+    paid: dict[uuid.UUID, list[Paid]] = defaultdict(list)
+    if finances:
+        for p in await session.scalars(
+            select(CasePayment).where(CasePayment.case_id.in_([f.case_id for f, _ in finances]))
+        ):
+            paid[p.case_id].append(Paid(p.amount, p.currency, p.amount_base))
+    out = []
+    for f, contact_id in finances:
+        summary = summarize(
+            price=f.price,
+            currency=f.currency,
+            rate=f.rate,
+            consultation_credit=f.consultation_credit,
+            payments=paid[f.case_id],
+            registrar_fee=f.registrar_fee_base,
+            partner_terms=f.partner_terms,
+            partner_percent=f.partner_percent,
+            partner_fixed=f.partner_fixed,
+            tax_rate=None,
+            expenses=[],
+        )
+        out.append(CaseBalance(f, contact_id, summary.balance_base, summary.partner_payout))
+    return out
 
 
 async def _get[T](session: AsyncSession, model: type[T], item_id: Any) -> T:

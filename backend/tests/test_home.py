@@ -264,3 +264,33 @@ async def test_blocks_follow_modules_and_workspaces(
     await make_user("admin@example.com", "admin")
     await login(client, "admin@example.com")
     assert (await client.get("/api/home")).status_code == 403
+
+
+async def test_the_debt_of_a_case_priced_in_another_currency_is_in_the_base_one(
+    client: AsyncClient, make_user: MakeUser
+):
+    # Pilot fix 4: 500 PLN at 0.80 is 400 BYN; 100 BYN paid leaves 300 BYN owed.
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+    [case] = await open_cases(client, codes, await contact(client, "Анна"), "PL")
+    await ok(
+        await client.patch(
+            f"/api/cases/{case['id']}/finance",
+            json={
+                "currency": "PLN",
+                "price": "500",
+                "partner_terms": "percent",
+                "partner_percent": "10",
+            },
+        )
+    )
+    await ok(
+        await client.post(
+            f"/api/cases/{case['id']}/payments",
+            json={"paid_on": day(-1), "amount": "100", "currency": "BYN"},
+        )
+    )
+    money = (await ok(await client.get("/api/home")))["money"]
+    assert (money["currency"], money["debt"], money["debtors"]) == ("BYN", "300.00", 1)
+    assert money["partners_due"] == "40.00"  # 10% of 400 BYN

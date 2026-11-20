@@ -358,3 +358,22 @@ async def test_without_storage_templates_cannot_be_uploaded(
     await as_specialist(client, make_user, owner_engine)
     response = await upload(client)
     assert (response.status_code, response.json()["detail"]) == (503, "storage_unavailable")
+
+
+async def test_the_price_is_filled_in_the_currency_of_the_case(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Pilot fix 4: a price named in PLN goes into the document in PLN.
+    await as_specialist(client, make_user, owner_engine)
+    template = (await upload(client)).json()
+    anna = await new_client(client)
+    case = await open_case(client, anna)
+    priced = await client.patch(
+        f"/api/cases/{case['id']}/finance", json={"currency": "PLN", "price": "1000"}
+    )
+    assert priced.status_code == 200, priced.text
+    url = f"/api/contacts/{anna['id']}/templates"
+    given = await client.post(url, json={"template_id": template["id"], "case_id": case["id"]})
+    filled = await client.get(f"{url}/{given.json()['id']}/file")
+    assert filled.status_code == 200, filled.text
+    assert paragraphs(filled.content)[2].startswith("Стоимость: 1 000,00 PLN.")
