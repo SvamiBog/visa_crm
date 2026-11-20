@@ -1821,6 +1821,8 @@
   "directions.copy": "Copy",
   "directions.copyFor": "Copy the direction: {{country}}",
   "directions.destination": "Visa country",
+  "directions.takenFrom": "{{country}} is already set up with submission from: {{submissions}}. Choose another submission country.",
+  "directions.takenEverywhere": "{{country}} is already set up with submission from every country. A new direction cannot be added; change one of the existing ones.",
   "directions.bookingHint.waiting_list": "The client is put in a queue; the letter with a date comes later.",
   "directions.bookingHint.windowed_application": "The application waits for a letter a set number of days, then is sent again.",
   "directions.bookingHint.direct_slot": "A slot is caught on the visa center's site when slots are released.",

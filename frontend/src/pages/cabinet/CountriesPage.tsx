@@ -297,6 +297,7 @@ function DirectionForm({
   const { t } = useTranslation();
   const name = useLocalName();
   const refresh = useRefreshRules();
+  const countryName = (id: string) => name.country(countries.find((c) => c.id === id));
   const rule = editing.mode === "new" ? undefined : editing.rule;
   const existing = editing.mode === "edit" ? editing.rule : undefined;
   const more = useDisclosure(
@@ -323,10 +324,25 @@ function DirectionForm({
       : [],
   );
 
-  const taken = new Set(
-    rules.filter((r) => r.submission_id === submission).map((r) => r.destination_id),
-  );
-  const destinationChoices = countries.filter((c) => c.id !== submission && !taken.has(c.id));
+  // Every visa country is offered: one is often booked from several countries (Spain from
+  // Belarus and from Russia, pilot fix 6). A pair is unique, so the submission countries
+  // it already has directions from are the ones left out, and named under the field.
+  const takenFrom = (id: string) =>
+    new Set(rules.filter((r) => r.destination_id === id).map((r) => r.submission_id));
+  const taken = takenFrom(destination);
+  const submissionChoices = countries.filter((c) => c.id !== destination && !taken.has(c.id));
+  const takenHint =
+    !existing && destination && taken.size > 0
+      ? submissionChoices.length === 0
+        ? t("directions.takenEverywhere", { country: countryName(destination) })
+        : t("directions.takenFrom", {
+            country: countryName(destination),
+            submissions: countries
+              .filter((c) => taken.has(c.id))
+              .map((c) => name.country(c))
+              .join(", "),
+          })
+      : undefined;
   const otherCities = citiesOf(rules, submission, existing?.id);
 
   const fields = () => ({
@@ -351,8 +367,10 @@ function DirectionForm({
             submission_id: submission,
             cities,
           }),
-    onSuccess: () => {
-      void refresh();
+    // The list is reloaded first: a direction from a new submission country opens its tab,
+    // which exists only once the list has it.
+    onSuccess: async () => {
+      await refresh();
       onClose(submission);
     },
   });
@@ -371,7 +389,6 @@ function DirectionForm({
     event.preventDefault();
     save.mutate();
   };
-  const countryName = (id: string) => name.country(countries.find((c) => c.id === id));
 
   return (
     <form ref={errors.form} className="card form-card" onSubmit={submit}>
@@ -394,10 +411,16 @@ function DirectionForm({
                 {...control}
                 required
                 value={destination}
-                onChange={(e) => setDestination(e.target.value)}
+                onChange={(e) => {
+                  const chosen = e.target.value;
+                  setDestination(chosen);
+                  // A submission country taken for it is not kept: she picks another one
+                  // instead of meeting «already exists» on saving.
+                  if (submission === chosen || takenFrom(chosen).has(submission)) setSubmission("");
+                }}
               >
                 <option value="" />
-                {destinationChoices.map((c) => (
+                {countries.map((c) => (
                   <option key={c.id} value={c.id}>
                     {name.country(c)}
                   </option>
@@ -405,19 +428,20 @@ function DirectionForm({
               </select>
             )}
           </Field>
-          <Field label={t("reference.submissionCountry")} error={errors.at("submission_id")}>
+          <Field
+            label={t("reference.submissionCountry")}
+            error={errors.at("submission_id")}
+            hint={takenHint}
+          >
             {(control) => (
               <select
                 {...control}
                 required
                 value={submission}
-                onChange={(e) => {
-                  setSubmission(e.target.value);
-                  setDestination("");
-                }}
+                onChange={(e) => setSubmission(e.target.value)}
               >
                 <option value="" />
-                {countries.map((c) => (
+                {submissionChoices.map((c) => (
                   <option key={c.id} value={c.id}>
                     {name.country(c)}
                   </option>
