@@ -81,6 +81,8 @@ class ReminderOut(BaseModel):
     # The day it came up, and the day of the event (submission, deadline, birthday…).
     occurs_on: date | None
     due_on: date | None
+    # None: no deadline to count down to (a result not entered — the CRM's guess, owner's
+    # answer 2026-11-20), so it is never «просрочено» and comes after the dated ones.
     days_left: int | None
     # Thinking clients and a follow-up: the day of the consultation; an unsigned contract:
     # the day the case was opened; a balance once in the queue: the day queued; a result
@@ -163,6 +165,8 @@ class _Collector:
         subject: uuid.UUID | None,
         occurs_on: date | None,
         due_on: date | None,
+        *,
+        deadline: bool = True,
         **fields: Any,
     ) -> None:
         self.items.append(
@@ -171,7 +175,7 @@ class _Collector:
                 kind=kind,
                 occurs_on=occurs_on,
                 due_on=due_on,
-                days_left=(due_on - self.today).days if due_on else None,
+                days_left=(due_on - self.today).days if due_on and deadline else None,
                 **fields,
             )
         )
@@ -599,7 +603,8 @@ async def _results(
 ) -> None:
     """The submission long past and no result entered (CRM audit 2026-11-18): until the
     result is in. The stage does not matter: a case closed without a result before the
-    rule is caught too."""
+    rule is caught too. The 15 days are a guess, not a deadline: never overdue (owner's
+    answer 2026-11-20)."""
     query = (
         select(VisaCase, Contact.full_name)
         .join(Contact, Contact.id == VisaCase.contact_id)
@@ -617,6 +622,7 @@ async def _results(
                 case.id,
                 day,
                 day,
+                deadline=False,
                 since=case.submission_on,
                 **_case_fields(case, name),
             )

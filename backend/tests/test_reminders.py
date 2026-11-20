@@ -469,6 +469,33 @@ async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_use
     assert set(by_kind((await client.get("/api/reminders")).json())) == {"consultation"}
 
 
+async def test_a_result_not_entered_has_no_deadline(client: AsyncClient, make_user: MakeUser):
+    """Owner's answer 2026-11-20 (pilot): 15 days after the submission is the CRM's guess,
+    not a deadline, so «внесите результат» is never «просрочено» or «сегодня»: it has no
+    days left and comes after the reminders with a real date, overdue or not."""
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = await countries(client)
+
+    petr = await contact(client, "Пётр")
+    poland = await open_case(client, codes, petr, "PL")
+    await patch_case(client, poland, submission_on=day(-20))
+    # A day to hear the decision that the specialist set herself: overdue, and stays so.
+    vera = await contact(client, "Вера")
+    agreed = await client.post(
+        f"/api/contacts/{vera['id']}/consultations",
+        json={"held_on": day(-5), "follow_up_on": day(-2)},
+    )
+    assert agreed.status_code == 201, agreed.text
+
+    listed = (await client.get("/api/reminders")).json()
+    assert [r["kind"] for r in listed] == ["follow_up", "result"]
+    follow_up, result = listed
+    assert follow_up["days_left"] == -2
+    assert (result["since"], result["due_on"], result["days_left"]) == (day(-20), day(-5), None)
+    assert result["key"] == f"result:{poland['id']}:{day(-5)}"
+
+
 async def test_a_familys_reminders_name_their_group(client: AsyncClient, make_user: MakeUser):
     """So the list can show one family as one line (specialist run, 2026-11-04): each
     case reminder carries its submission group; a case alone has none."""
