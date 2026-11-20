@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, errorCode } from "../api";
 import { ME_KEY, useMe, type Me } from "../auth";
 import { Field, useFieldErrors } from "../components/Field";
+import { useConfirm } from "../components/ConfirmDialog";
 import { PasswordField } from "../components/PasswordField";
 import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
 import { formatDate } from "../contacts";
@@ -164,9 +165,15 @@ const MONEY_KEY = ["dictionaries", "money"] as const;
 function Accounting({ money }: { money: Money }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
+  const taxText = (rate: string | null) => (rate === null ? "" : String(Number(rate)));
   const [base, setBase] = useState(money.base_currency);
-  const [tax, setTax] = useState(money.tax_rate === null ? "" : String(Number(money.tax_rate)));
+  const [tax, setTax] = useState(taxText(money.tax_rate));
+  // The values on the server changed (saved here, by the admin, on another device).
+  useEffect(() => setBase(money.base_currency), [money.base_currency]);
+  useEffect(() => setTax(taxText(money.tax_rate)), [money.tax_rate]);
   const rebasing = base !== money.base_currency;
+  const warning = t("settings.rebaseWarning", { from: money.base_currency, to: base });
   const save = useMutation({
     mutationFn: (rebase: boolean) =>
       apiPatch<Money>("/dictionaries/money", {
@@ -190,9 +197,21 @@ function Accounting({ money }: { money: Money }) {
     <form
       ref={errors.form}
       className="card form-card"
-      onSubmit={(e: FormEvent) => {
+      onSubmit={async (e: FormEvent) => {
         e.preventDefault();
-        save.mutate(rebasing);
+        // Every amount kept in the base currency is counted again and corrected rates go:
+        // asked once more, with «Cancel» in focus.
+        const rebase = rebasing;
+        if (
+          rebase &&
+          !(await confirm({
+            message: warning,
+            action: t("settings.rebase", { currency: base }),
+          }))
+        ) {
+          return;
+        }
+        save.mutate(rebase);
       }}
     >
       <h2 className="h2">{t("settings.money")}</h2>
@@ -231,7 +250,7 @@ function Accounting({ money }: { money: Money }) {
       </div>
       {rebasing && (
         <div className="alert alert-warn" role="status">
-          {t("settings.rebaseWarning", { from: money.base_currency, to: base })}
+          {warning}
         </div>
       )}
       {errors.general ? <ErrorAlert error={errors.general} /> : null}

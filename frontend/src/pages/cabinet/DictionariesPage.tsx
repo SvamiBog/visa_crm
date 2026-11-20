@@ -59,7 +59,13 @@ type Registrar = {
   low_balance: string | null;
   prices: Price[];
 };
-type Prepayment = { country_id: string; purpose_id: string | null; amount: string };
+/** In the currency it was entered in (pilot T8): a new base currency leaves it as is. */
+type Prepayment = {
+  country_id: string;
+  purpose_id: string | null;
+  amount: string;
+  currency: string;
+};
 type Money = {
   base_currency: string;
   payment_currencies: string[];
@@ -1439,12 +1445,15 @@ function Prepayments() {
   const list = useList<Prepayment[]>("prepayments");
   const purposes = useList<Entry[]>("purposes");
   const money = useList<Money>("money");
-  if (list.isPending || purposes.isPending) return <p className="muted">{t("common.loading")}</p>;
+  if (list.isPending || purposes.isPending || money.isPending) {
+    return <p className="muted">{t("common.loading")}</p>;
+  }
   return (
     <PrepaymentsForm
       initial={list.data ?? []}
       purposes={purposes.data ?? []}
-      currency={money.data?.base_currency ?? ""}
+      base={money.data?.base_currency ?? CURRENCIES[0]}
+      currencies={money.data?.payment_currencies ?? [...CURRENCIES]}
     />
   );
 }
@@ -1452,11 +1461,14 @@ function Prepayments() {
 function PrepaymentsForm({
   initial,
   purposes,
-  currency,
+  base,
+  currencies,
 }: {
   initial: Prepayment[];
   purposes: Entry[];
-  currency: string;
+  /** A new row starts in the base currency; the others are the ones she accepts. */
+  base: string;
+  currencies: string[];
 }) {
   const { t } = useTranslation();
   const refresh = useRefresh("prepayments");
@@ -1484,7 +1496,7 @@ function PrepaymentsForm({
 
   return (
     <form ref={errors.form} className="card form-card" onSubmit={submit}>
-      <p className="muted small">{t("dict.prepaymentsHint", { currency })}</p>
+      <p className="muted small">{t("dict.prepaymentsHint")}</p>
       {rows.length === 0 && <p className="muted">{t("dict.empty")}</p>}
       <div className="rows-editor">
         {rows.map((row, index) => (
@@ -1508,7 +1520,19 @@ function PrepaymentsForm({
               onChange={(e) => setRow(index, { amount: e.target.value })}
               {...invalidProps(`${rowMessage}-${index}`, errors.at(`${index}.amount`))}
             />
-            <span className="muted">{currency}</span>
+            <select
+              className="select-narrow"
+              aria-label={t("dict.currency")}
+              value={row.currency}
+              onChange={(e) => setRow(index, { currency: e.target.value })}
+            >
+              {/* A row keeps its currency even if she no longer accepts it. */}
+              {(currencies.includes(row.currency) ? currencies : [...currencies, row.currency]).map(
+                (c) => (
+                  <option key={c}>{c}</option>
+                ),
+              )}
+            </select>
             <button
               type="button"
               className="btn btn-sm"
@@ -1531,7 +1555,10 @@ function PrepaymentsForm({
           type="button"
           className="btn"
           onClick={() =>
-            setRows((list) => [...list, { country_id: "", purpose_id: null, amount: "" }])
+            setRows((list) => [
+              ...list,
+              { country_id: "", purpose_id: null, amount: "", currency: base },
+            ])
           }
         >
           {t("dict.addPrepayment")}

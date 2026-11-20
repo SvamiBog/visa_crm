@@ -432,7 +432,7 @@
   "dict.hall.standard": "Standard hall",
   "dict.hall.premium": "Premium",
   "dict.addPrice": "+ Fee",
-  "dict.prepaymentsHint": "A fixed prepayment per country and visa purpose, in {{currency}}. It is filled into a case's finances and can be changed there.",
+  "dict.prepaymentsHint": "A fixed prepayment per country and visa purpose, in the currency you name it in. It is filled into a case's finances in the case's currency at the National Bank rate and can be changed there.",
   "dict.addPrepayment": "+ Prepayment",
   "dict.saved": "Saved.",
   "dict.taxRate": "Tax",
@@ -1921,7 +1921,7 @@
   "settings.taxRate": "Tax, %",
   "settings.taxRateHint": "Taken from official payments. If you pay no tax, enter 0. An empty field means no rate is set, and cases count no tax.",
   "settings.taxNotSet": "no rate set",
-  "settings.rebaseWarning": "Amounts in the accounting currency will be recounted from {{from}} to {{to}} at the latest National Bank rate. Payments, expenses and talons keep their own amounts and currencies, and case prices keep their currency. Rates you corrected by hand will be replaced by the bank's. Fixed partner payouts and prepayments from the lists will be converted to {{to}}.",
+  "settings.rebaseWarning": "Amounts in the accounting currency will be recounted from {{from}} to {{to}} at the latest National Bank rate. Payments, expenses and talons keep their own amounts and currencies, and case prices keep their currency. Rates you corrected by hand will be replaced by the bank's. Fixed partner payouts will be converted to {{to}}; prepayments in the lists keep their own currencies.",
   "settings.rebase": "Switch to {{currency}} and recount",
   "settings.rebased": "Done: the accounting currency is {{currency}}, amounts are recounted.",
   "dict.moneySettingsHint": "The accounting currency and the tax rate are changed on the page",
@@ -1932,5 +1932,6 @@
   "errors.base_rate_unavailable": "The site has no National Bank rate yet for one of the currencies of your amounts, so the accounting currency cannot be changed. Try again in a few hours.",
   "errors.tax_rate_invalid": "Enter the rate as a number from 0 to 100, for example 10.",
   "audit.action.workspace.base_currency_changed": "Accounting currency changed, amounts recounted",
-  "audit.target.tax_rate": "tax rate"
+  "audit.target.tax_rate": "tax rate",
+  "import.pricesIn": "Prices from the file will be in {{currency}}, your accounting currency."
 }

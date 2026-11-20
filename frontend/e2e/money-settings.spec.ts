@@ -6,7 +6,9 @@ import { readFileSync } from "node:fs";
 // currency says what it will recount before she saves it. The change of the currency
 // itself is not saved here: it would recount the demo workspace other tests read at the
 // same time (backend/tests/test_base_currency.py covers it); its refusal is a stubbed
-// answer. The case's finance form warns that a new price currency converts nothing typed.
+// answer. A new currency is asked once more before it is saved. A prepayment of the lists
+// has its own currency. The case's finance form warns that a new price currency converts
+// nothing typed.
 // The test puts the tax rate back afterwards.
 
 type Lang = "ru" | "en";
@@ -119,8 +121,9 @@ for (const [lang, width] of [
         name: t("settings.rebase", { currency: other! }),
         exact: true,
       });
-      // The site has no bank rate for one of the amounts: the message stands under the
-      // currency, and nothing changes.
+      // Asked once more before every amount is counted again: «Cancel» sends nothing. Then,
+      // confirmed, the site has no bank rate for one of the amounts: the message stands
+      // under the currency, and nothing changes.
       let sent: Record<string, unknown> | null = null;
       await page.route(`**${MONEY}`, async (route) => {
         if (route.request().method() !== "PATCH") return route.continue();
@@ -132,6 +135,16 @@ for (const [lang, width] of [
         });
       });
       await rebase.click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toContainText(warning);
+      await dialog.getByRole("button", { name: t("common.cancel"), exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      expect(sent, "nothing is sent on «Cancel»").toBeNull();
+      await expect(base, "the new currency stays chosen").toHaveValue(other!);
+      await rebase.click();
+      await dialog
+        .getByRole("button", { name: t("settings.rebase", { currency: other! }), exact: true })
+        .click();
       await expect(base).toHaveAttribute("aria-invalid", "true");
       await expect(
         card.getByText(t("errors.base_rate_unavailable"), { exact: true }),
@@ -144,6 +157,16 @@ for (const [lang, width] of [
       await base.selectOption(before.base_currency);
       await expect(card.getByText(warning, { exact: true })).toHaveCount(0);
       await expect(save).toBeVisible();
+
+      // A prepayment of the lists is named in its own currency, the base one to start with.
+      // Not saved: the lists stay as they are.
+      await page.goto("/app/dictionaries");
+      await page.getByRole("tab", { name: t("dict.tab.prepayments"), exact: true }).click();
+      await page.getByRole("button", { name: t("dict.addPrepayment"), exact: true }).click();
+      await expect(page.getByText(t("dict.prepaymentsHint"), { exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("combobox", { name: t("dict.currency"), exact: true }).last(),
+      ).toHaveValue(before.base_currency);
 
       // A case's price in another currency: what was typed is not converted, the form says so.
       await page.goto(`/app/clients/${await cardWithOneCase(page)}`);

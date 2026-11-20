@@ -70,6 +70,13 @@ for (const lang of ["ru", "en"] as const) {
         await expect(page.getByRole("heading", { name: t("import.stepCheck") })).toBeVisible();
         await expect(page.getByText(t("import.nothingChanges"))).toBeVisible();
         await expect(page.getByRole("heading", { name: t("import.cardsTitle") })).toBeVisible();
+        // Before the import is confirmed: the currency the file's prices are read in.
+        const { base_currency: base } = (await (
+          await page.request.get("/api/workspace")
+        ).json()) as { base_currency: string };
+        await expect(
+          page.getByText(t("import.pricesIn").replace("{{currency}}", base), { exact: true }),
+        ).toBeVisible();
         await expect(page.getByText(t("import.card.nothingFound"))).toBeVisible();
 
         const sideways = await page.evaluate(

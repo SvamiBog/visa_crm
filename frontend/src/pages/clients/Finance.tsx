@@ -86,7 +86,10 @@ type Finance = {
   expenses_total: string;
   profit: string | null;
   suggestions: {
+    /** The list's prepayment in the case's currency. */
     prepayment: string | null;
+    /** ...and in each currency the case may be priced in (pilot T8). */
+    prepayment_in: Record<string, string>;
     registrar_fee: {
       amount: string;
       currency: string;
@@ -553,12 +556,12 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
     currency: f.currency,
     rate: f.rate,
   });
-  // Empty fields start from the lists and the consultation, which are in the base currency.
+  // Empty fields start from the lists and the consultation. The consultation's is in the
+  // base currency; the list's prepayment comes in every currency the case may be priced in.
   const hinted = f.currency === base;
+  const listed = (c: string) => hints.prepayment_in[c] ?? "";
   const [price, setPrice] = useState(f.price ?? "");
-  const [prepayment, setPrepayment] = useState(
-    f.prepayment ?? (hinted ? hints.prepayment : null) ?? "",
-  );
+  const [prepayment, setPrepayment] = useState(f.prepayment ?? listed(f.currency));
   const [credit, setCredit] = useState(
     Number(f.consultation_credit) > 0
       ? f.consultation_credit
@@ -619,17 +622,21 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
     fields: FINANCE_FIELDS,
   });
 
-  // The suggestions are in the base currency: an untouched one does not carry over to
-  // another currency.
+  // The consultation's suggestion is in the base currency: untouched, it does not carry
+  // over to another currency.
   const switchCurrency = (next: string) => {
+    // The list's prepayment, untouched, follows the currency (converted by the API).
+    if (f.prepayment === null && prepayment === listed(currency)) setPrepayment(listed(next));
     if (hinted && next !== base) {
-      if (f.prepayment === null && prepayment === hints.prepayment) setPrepayment("");
       if (Number(f.consultation_credit) === 0 && credit === hints.consultation_credit) {
         setCredit("");
       }
     }
     setCurrency(next);
   };
+  // What she typed or saved stays as it is in another currency: the form says so.
+  const typedPrepayment =
+    prepayment !== "" && !(f.prepayment === null && prepayment === listed(currency));
 
   return (
     <form
@@ -685,7 +692,7 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
         />
       </div>
       {/* A new price currency converts nothing already typed (pilot T8, owner's default). */}
-      {currency !== f.currency && (prepayment || Number(toDecimal(credit)) > 0) ? (
+      {currency !== f.currency && (typedPrepayment || Number(toDecimal(credit)) > 0) ? (
         <p className="alert alert-warn small" role="status">
           {t("finance.currencyKeepsNumbers", { currency })}
         </p>

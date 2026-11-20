@@ -7,7 +7,8 @@ import { apiGet } from "./api";
 export function useWorkspace() {
   return useQuery({
     queryKey: ["workspace"],
-    queryFn: () => apiGet<{ modules: string[]; timezone: string }>("/workspace"),
+    queryFn: () =>
+      apiGet<{ modules: string[]; timezone: string; base_currency: string }>("/workspace"),
   });
 }
 
