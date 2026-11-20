@@ -1032,6 +1032,8 @@ class CaseDeletion(BaseModel):
     payments: int
     expenses: int
     registrar_fee: bool
+    # A partner payout marked as paid is money too (owner's answer 2026-11-20).
+    partner_paid: bool
     attempts: int
     queue_entries: int
     package_items: int
@@ -1055,12 +1057,14 @@ async def _what_goes(session: AsyncSession, case: VisaCase) -> CaseDeletion:
         return await session.scalar(select(func.count()).where(model.case_id == case.id)) or 0
 
     payments, expenses = await count(CasePayment), await count(CaseExpense)
-    registrar_fee = (
-        await session.scalar(
-            select(CaseFinance.registrar_fee_amount).where(CaseFinance.case_id == case.id)
+    fee, partner_paid_on = (
+        await session.execute(
+            select(CaseFinance.registrar_fee_amount, CaseFinance.partner_paid_on).where(
+                CaseFinance.case_id == case.id
+            )
         )
-        is not None
-    )
+    ).one_or_none() or (None, None)
+    registrar_fee, partner_paid = fee is not None, partner_paid_on is not None
     group_members = 0
     if case.group_id is not None:
         group_members = (
@@ -1072,10 +1076,11 @@ async def _what_goes(session: AsyncSession, case: VisaCase) -> CaseDeletion:
             or 0
         )
     return CaseDeletion(
-        has_money=bool(payments or expenses or registrar_fee),
+        has_money=bool(payments or expenses or registrar_fee or partner_paid),
         payments=payments,
         expenses=expenses,
         registrar_fee=registrar_fee,
+        partner_paid=partner_paid,
         attempts=await count(ApplicationAttempt),
         queue_entries=await count(WaitingListEntry),
         package_items=await count(PackageItem),
@@ -1096,8 +1101,9 @@ async def case_deletion(case_id: uuid.UUID, user: Member, session: TenantSession
 @router.delete("/cases/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_case(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
     """A case opened by mistake — a duplicate (pilot fix 1, docs/decisions.md). The
-    specialist only. A case with money (payments, expenses, a talon) stays until they are
-    deleted: the money must not vanish from the books unnoticed. The rest of the case —
+    specialist only. A case with money (payments, expenses, a talon, a partner payout
+    marked as paid) stays until they are deleted or unmarked: the money must not vanish
+    from the books unnoticed. The rest of the case —
     attempts, the queue, package marks, bookings, the result, employees' grants — goes with
     it by the foreign keys (ON DELETE CASCADE); vault accounts and templates given to the
     client stay with the client. None of them holds a stored file. The number is not given

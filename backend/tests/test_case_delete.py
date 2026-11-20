@@ -168,6 +168,34 @@ async def test_a_case_with_money_is_not_deleted(
     assert (await client.delete(f"/api/cases/{paid['id']}")).status_code == 204
 
 
+async def test_a_case_whose_partner_was_paid_is_not_deleted(
+    client: AsyncClient, make_user: MakeUser
+):
+    """Owner's answer 2026-11-20: a partner payout marked as paid holds the case like a
+    payment does; agreed terms without the mark do not."""
+    await as_specialist(client, make_user)
+    anna = await new_contact(client)
+    case = await one_case(client, anna["id"])
+    url = f"/api/cases/{case['id']}"
+    terms = {"price": "500", "partner_terms": "fixed", "partner_fixed": "50"}
+    assert (await client.patch(f"{url}/finance", json=terms)).status_code == 200
+    summary = (await client.get(f"{url}/deletion")).json()
+    assert (summary["partner_paid"], summary["has_money"]) == (False, False)
+
+    paid = await client.patch(f"{url}/finance", json={"partner_paid_on": "2026-06-01"})
+    assert paid.status_code == 200, paid.text
+    summary = (await client.get(f"{url}/deletion")).json()
+    assert (summary["partner_paid"], summary["has_money"]) == (True, True)
+    refused = await client.delete(url)
+    assert refused.status_code == 409 and refused.json()["detail"] == "case_has_money"
+    assert (await client.get(url)).status_code == 200
+
+    # The mark taken off, the case goes.
+    unpaid = await client.patch(f"{url}/finance", json={"partner_paid_on": None})
+    assert unpaid.status_code == 200, unpaid.text
+    assert (await client.delete(url)).status_code == 204
+
+
 async def test_another_specialist_cannot_delete_a_case(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     anna = await new_contact(client)

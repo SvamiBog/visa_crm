@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 // A case opened by mistake, a duplicate (pilot fix 1, docs/decisions.md → «Пилот: правки
 // визовика (2026-11-19)»): «Создать кейсы» sends one request however fast it is pressed
 // and the form closes after it; «Удалить кейс» asks in the site's window, naming the
-// case, and the case goes only after the red button. Both languages.
+// case, and the case goes only after the red button. A case with money is refused before
+// the question, naming the money: here a partner payout marked as paid. Both languages.
 
 type Lang = "ru" | "en";
 
@@ -59,9 +60,52 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
     });
 
     test.afterEach(async ({ page }) => {
-      // A case left by a failed run would stay on the demo card.
-      if (made) await page.request.delete(`/api/cases/${made}`);
+      // A case left by a failed run would stay on the demo card; a payout marked as paid
+      // holds it, so the mark goes first.
+      if (made) {
+        await page.request.patch(`/api/cases/${made}/finance`, {
+          data: { partner_paid_on: null },
+        });
+        await page.request.delete(`/api/cases/${made}`);
+      }
       made = null;
+    });
+
+    test("a case whose partner payout is marked paid is not deleted", async ({ page }) => {
+      // Owner's answer 2026-11-20: the paid payout holds the case like a payment, and the
+      // refusal names it instead of asking. Other demo cards than the test above uses.
+      const contactId = await demoCard(page, 2 + index);
+      const opened = await page.request.post(
+        `/api/contacts/${contactId}/cases?allow_case_in_work=true`,
+        {
+          data: {
+            destination_id: await countryId(page, "PL"),
+            submission_country_id: await countryId(page, "BY"),
+            applicants: [{ contact_id: contactId }],
+          },
+        },
+      );
+      expect(opened.ok(), await opened.text()).toBe(true);
+      const [kept] = (await opened.json()) as { id: string; number: number }[];
+      made = kept.id;
+      const paid = await page.request.patch(`/api/cases/${kept.id}/finance`, {
+        data: {
+          price: "500",
+          partner_terms: "fixed",
+          partner_fixed: "50",
+          partner_paid_on: "2026-06-01",
+        },
+      });
+      expect(paid.ok(), await paid.text()).toBe(true);
+
+      await page.goto(`/app/clients/${contactId}`, { waitUntil: "networkidle" });
+      const panel = page.locator("article.case-panel").filter({
+        has: page.getByRole("heading", { name: t("cases.number", { number: kept.number }) }),
+      });
+      await panel.getByRole("button", { name: t("cases.delete"), exact: true }).click();
+      await expect(panel.getByRole("alert")).toContainText(t("cases.keptBy.partner_paid"));
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      expect((await page.request.get(`/api/cases/${kept.id}`)).status()).toBe(200);
     });
 
     test("a case opened twice by mistake is deleted after the question", async ({ page }) => {

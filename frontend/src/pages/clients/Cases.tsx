@@ -278,7 +278,13 @@ function CasePanel({
           {!editing && <DeleteCase visaCase={c} onError={setDeleteError} />}
         </div>
       </div>
-      {deleteError !== null && <ErrorAlert error={deleteError} />}
+      {typeof deleteError === "string" ? (
+        <div className="alert alert-error" role="alert">
+          {deleteError}
+        </div>
+      ) : (
+        deleteError !== null && <ErrorAlert error={deleteError} />
+      )}
       {c.source && c.source.contact_id !== c.contact_id && (
         // Opened from someone else's consultation: the daughter came, the case is the
         // father's (pilot fix 2).
@@ -355,6 +361,10 @@ function CasePanel({
 /** What goes with a case (GET /cases/{id}/deletion); a case with money stays. */
 type CaseDeletion = {
   has_money: boolean;
+  payments: number;
+  expenses: number;
+  registrar_fee: boolean;
+  partner_paid: boolean;
   attempts: number;
   queue_entries: number;
   package_items: number;
@@ -374,7 +384,8 @@ const DELETED_WITH_CASE = [
 
 /** «Удалить кейс»: a case opened by mistake, a duplicate (pilot fix 1). The specialist
  * only; the question lists what goes with the case, and a case with money is refused
- * before it is asked (the API refuses it too). */
+ * before it is asked, naming the money that holds it (the API refuses it too). The
+ * refusal reaches `onError` as a ready message. */
 function DeleteCase({
   visaCase: c,
   onError,
@@ -391,7 +402,18 @@ function DeleteCase({
     mutationFn: async () => {
       const what = await apiGet<CaseDeletion>(`/cases/${c.id}/deletion`);
       // Refused before the question, as the API would refuse it after.
-      if (what.has_money) throw new ApiError(409, "case_has_money");
+      if (what.has_money) {
+        const money = [
+          ...(["payments", "expenses"] as const)
+            .filter((key) => what[key] > 0)
+            .map((key) => t(`cases.keptBy.${key}`, { n: what[key] })),
+          ...(["registrar_fee", "partner_paid"] as const)
+            .filter((key) => what[key])
+            .map((key) => t(`cases.keptBy.${key}`)),
+        ];
+        onError(t("cases.keptByMoney", { number: c.number, items: money.join(", ") }));
+        return false;
+      }
       const items = [
         ...DELETED_WITH_CASE.filter((key) => what[key] > 0).map((key) =>
           t(`cases.deletedWith.${key}`, { n: what[key] }),
