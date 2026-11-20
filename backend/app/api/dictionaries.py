@@ -702,7 +702,7 @@ async def update_money(body: MoneyUpdate, user: Specialist, session: TenantSessi
     """The accepted currencies, the tax rate and the base currency. A new base currency
     counts the amounts kept in it again, in this transaction with one audit record;
     a rate the site does not have, or an import writing now, changes nothing."""
-    # Locked: two changes of the base currency at once would count the amounts twice.
+    # Locked: a second change at the same moment would convert from a stale base.
     tenant = await session.get(Tenant, user.tenant_id, with_for_update=True, populate_existing=True)
     assert tenant is not None  # the session dependency already checked the workspace
     if body.payment_currencies is not None:

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { PURPOSE_KINDS, type PurposeKind } from "../../checklists";
 import { useConfirm } from "../../components/ConfirmDialog";
@@ -63,7 +64,8 @@ type Money = {
   base_currency: string;
   payment_currencies: string[];
   rate_source: string;
-  tax_rate: string;
+  /** Null: not set yet; "0.00": no tax. */
+  tax_rate: string | null;
 };
 
 type Tab =
@@ -1572,11 +1574,17 @@ function MoneyForm({ money }: { money: Money }) {
         <dt>{t("cabinet.baseCurrency")}</dt>
         <dd>{money.base_currency}</dd>
         <dt>{t("dict.taxRate")}</dt>
-        <dd>{t("dict.taxValue", { rate: money.tax_rate })}</dd>
+        <dd>
+          {money.tax_rate === null
+            ? t("settings.taxNotSet")
+            : t("dict.taxValue", { rate: Number(money.tax_rate) })}
+        </dd>
         <dt>{t("dict.rateSource")}</dt>
         <dd>{t(`dict.source.${money.rate_source}`)}</dd>
       </dl>
-      <p className="muted small">{t("dict.moneyAdminHint")}</p>
+      <p className="muted small">
+        {t("dict.moneySettingsHint")} <Link to="/settings">{t("nav.account")}</Link>
+      </p>
       <fieldset className="module-block">
         <legend>{t("dict.paymentCurrencies")}</legend>
         {CURRENCIES.map((c) => (

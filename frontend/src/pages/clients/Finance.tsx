@@ -56,7 +56,8 @@ type Expense = {
 type Finance = {
   case_id: string;
   base_currency: string;
-  tax_rate: string;
+  /** Null while the specialist has not set her rate; "0.00" is no tax. */
+  tax_rate: string | null;
   /** The price's currency and its rate: base units for one unit. */
   currency: string;
   rate: string;
@@ -326,10 +327,14 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
               />
             ) : (
               <MoneyRow
-                label={t("finance.tax", {
-                  rate: money(f.tax_rate),
-                  official: inCur(f.official, base),
-                })}
+                label={
+                  Number(f.tax_rate) === 0
+                    ? t("finance.noTax")
+                    : t("finance.tax", {
+                        rate: money(f.tax_rate),
+                        official: inCur(f.official, base),
+                      })
+                }
                 value={inCur(f.tax, base)}
               />
             )}
@@ -679,6 +684,12 @@ function FinanceForm({ finance: f, onDone }: { finance: Finance; onDone: () => v
           error={errors.at("consultation_credit")}
         />
       </div>
+      {/* A new price currency converts nothing already typed (pilot T8, owner's default). */}
+      {currency !== f.currency && (prepayment || Number(toDecimal(credit)) > 0) ? (
+        <p className="alert alert-warn small" role="status">
+          {t("finance.currencyKeepsNumbers", { currency })}
+        </p>
+      ) : null}
       <fieldset className="module-block">
         <legend>{t("finance.talonField")}</legend>
         <div className="form-grid">
