@@ -347,7 +347,11 @@ function ConsultationForm({
             ))}
           </select>
         </label>
-        <Field label={t("contacts.followUpOn")} error={errors.at("follow_up_on")}>
+        <Field
+          label={t("contacts.followUpOn")}
+          hint={t("contacts.followUpHint")}
+          error={errors.at("follow_up_on")}
+        >
           {(control) => (
             <input
               {...control}

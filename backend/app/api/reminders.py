@@ -230,29 +230,16 @@ async def _thinking(
 async def _consultations(
     session: AsyncSession, out: _Collector, s: rules.Settings, contact_id: uuid.UUID | None
 ) -> None:
-    """A consultation ahead, not held yet (no decision); held, the client's latest and
-    still without a decision, for a month after it — unless a day to hear the decision
-    was agreed, which has its own reminder (CRM audit 2026-11-18); and the day agreed at
-    the latest consultation to hear the decision, while there is none or the client
-    still thinks."""
-    later = aliased(Consultation)
+    """A consultation ahead, not held yet (no decision), and the day agreed at the latest
+    consultation to hear the decision, while there is none or the client still thinks.
+    A held consultation without such a day asks for nothing (pilot fix 3, 2026-11-19)."""
     query = (
         select(Consultation, Contact.full_name)
         .join(Contact, Contact.id == Consultation.contact_id)
         .where(
             Consultation.decision.is_(None),
             Consultation.held_on.between(
-                add_months(out.today, -1), out.today + timedelta(days=s.consultation_days)
-            ),
-            or_(
-                Consultation.held_on >= out.today,
-                and_(
-                    Consultation.follow_up_on.is_(None),
-                    ~exists().where(
-                        later.contact_id == Consultation.contact_id,
-                        later.held_on > Consultation.held_on,
-                    ),
-                ),
+                out.today, out.today + timedelta(days=s.consultation_days)
             ),
         )
     )
@@ -268,6 +255,7 @@ async def _consultations(
                 contact_name=name,
             )
 
+    later = aliased(Consultation)
     query = (
         select(Consultation, Contact.full_name)
         .join(Contact, Contact.id == Consultation.contact_id)
