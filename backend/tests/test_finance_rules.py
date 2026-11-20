@@ -3,10 +3,11 @@ case and the edge cases around it."""
 
 from decimal import Decimal as D
 
-from app.core.base_currency import converted, rebased
+from app.core.base_currency import rebased
 from app.core.finance import (
     Paid,
     balance,
+    converted,
     in_case_currency,
     partner_payout,
     profit,
@@ -258,3 +259,24 @@ def test_an_amount_kept_in_the_old_base_is_converted_and_rounded_once():
     assert converted(D("1234567.89"), "BYN", "PLN", NBRB) == D("1657227.09")
     assert converted(D("100"), "PLN", "EUR", NBRB) == D("21.91")  # 100 × 0.74496 / 3.4
     assert converted(D("55.55"), "EUR", "EUR", NBRB) == D("55.55")
+
+
+def test_a_talon_in_a_third_currency_goes_through_byn():
+    # Base PLN → EUR; the talon is in USD: 3.1 / 3.4 BYN, six places, then the amount.
+    assert rebased(D("60"), "USD", "EUR", NBRB) == (D("0.911765"), D("54.71"))  # 54.7059
+    assert rebased(D("60"), "PLN", "EUR", NBRB) == (D("0.219106"), D("13.15"))  # 13.14636
+
+
+def test_a_hand_corrected_rate_gives_way_to_the_banks():
+    # She had typed 4.5 PLN for 1 EUR (225 PLN): the new base gets the bank's, whatever it was.
+    corrected = (D("4.500000"), D("225.00"))
+    assert rebased(D("50"), "EUR", "BYN", NBRB) == (D("3.400000"), D("170.00"))
+    assert rebased(D("50"), "EUR", "BYN", NBRB) != corrected
+
+
+def test_a_partner_payout_is_converted_half_up_once():
+    assert converted(D("333.33"), "PLN", "BYN", NBRB) == D("248.32")  # 248.3175
+    assert converted(D("1.25"), "PLN", "BYN", {"PLN": D("0.5")}) == D("0.63")  # 0.625, up
+    assert converted(D("150"), "BYN", "USD", NBRB) == D("48.39")  # 48.387
+    # A cent may come out as nothing here; the change of the base keeps it a cent.
+    assert converted(D("0.01"), "BYN", "USD", NBRB) == D("0.00")

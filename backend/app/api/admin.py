@@ -181,7 +181,8 @@ async def update_specialist(
     changes = body.model_dump(exclude_unset=True, exclude_none=True)
     if "tax_rate" in body.model_fields_set:
         changes["tax_rate"] = body.tax_rate  # null: not set
-    details: dict[str, Any] = {"changed": sorted(changes)}
+    # A new base currency has an event of its own (with what it counted again).
+    details: dict[str, Any] = {"changed": sorted(changes.keys() - {"base_currency"})}
     if "modules" in changes:
         details["modules_on"] = [m for m in body.modules or [] if m not in tenant.modules]
         details["modules_off"] = [m for m in tenant.modules if m not in (body.modules or [])]
@@ -189,8 +190,8 @@ async def update_specialist(
         changes["name"] = changes["name"].strip()
     new_base = changes.pop("base_currency", None)
     if new_base is not None:
-        # Locked: the specialist may be changing it in her settings at the same moment.
-        await session.refresh(tenant, with_for_update=True)
+        # As in her settings: one change at a time (app/api/dictionaries.py, update_money).
+        await session.refresh(tenant, with_for_update={"key_share": True})
         if new_base != tenant.base_currency:
             old = tenant.base_currency
             recounted = await change_base(session, tenant, new_base)
@@ -203,7 +204,7 @@ async def update_specialist(
             )
     for field, value in changes.items():
         setattr(tenant, field, value)
-    if changes or new_base is not None:
+    if changes:
         _record_on_tenant(session, AuditAction.SPECIALIST_UPDATED, admin, tenant_id, details)
     await session.commit()
     return _out(tenant, owner)

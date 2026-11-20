@@ -3,6 +3,7 @@
 site's latest National Bank rate (fake rates in conftest: BYN for one USD 3.1, EUR 3.4,
 PLN 0.8); everything she entered keeps its amount and currency."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -135,8 +136,9 @@ async def test_a_new_base_counts_again_only_what_is_kept_in_the_base_one(
     other = (await client.get(finance_url(second))).json()
     assert (other["currency"], other["rate"], other["price"]) == ("USD", "3.100000", "300.00")
     assert other["price_base"] == "930.00"
+    # A prepayment of the list keeps the currency it was entered in (owner, 2026-11-20).
     prepayments = (await client.get("/api/dictionaries/prepayments")).json()
-    assert [p["amount"] for p in prepayments] == ["96.00"]  # 120 PLN
+    assert [(p["amount"], p["currency"]) for p in prepayments] == [("120.00", "PLN")]
 
     # One record, codes and counts only.
     [event] = await changed_events(client)
@@ -148,7 +150,6 @@ async def test_a_new_base_counts_again_only_what_is_kept_in_the_base_one(
         "talons": 1,
         "cases": 2,
         "partner_payouts": 1,
-        "prepayments": 1,
     }
 
     # The other workspace is untouched.
@@ -319,3 +320,113 @@ async def test_a_new_workspace_has_no_tax_rate_until_one_is_set(
     )
     assert created.status_code == 201, created.text
     assert created.json()["specialist"]["tax_rate"] is None
+
+
+async def test_a_tiny_partner_payout_stays_a_cent(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await specialist(client, make_user, owner_engine)
+    case = await open_case(client)
+    await client.patch(finance_url(case), json={"partner_terms": "fixed", "partner_fixed": "0.01"})
+    # 0.01 BYN is 0.0032 USD: a payout of nothing would read as «not counted».
+    assert (await client.patch(MONEY, json={"base_currency": "USD"})).status_code == 200
+    assert (await client.get(finance_url(case))).json()["partner_fixed"] == "0.01"
+
+
+async def test_a_payment_saved_during_a_change_waits_and_takes_the_new_base(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant_id = await specialist(client, make_user, owner_engine)
+    case = await open_case(client)
+    # A change of the base currency holding the workspace's row, as PATCH /money does.
+    async with owner_engine.connect() as conn:
+        change = await conn.begin()
+        await conn.execute(
+            text("SELECT id FROM tenants WHERE id = :t FOR UPDATE"), {"t": tenant_id}
+        )
+        await conn.execute(
+            text("UPDATE tenants SET base_currency = 'PLN' WHERE id = :t"), {"t": tenant_id}
+        )
+        saving = asyncio.create_task(pay(client, case, "100", "USD"))
+        await asyncio.sleep(0.5)
+        assert not saving.done(), "the payment waits for the change"
+        await change.commit()
+    finance = await saving
+    assert rows(finance["payments"]) == [("100.00", "USD", "3.875000", "387.50")]
+
+
+async def test_a_prepayment_of_the_list_is_converted_into_the_case_currency(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Another workspace's list does not reach this one.
+    await specialist(client, make_user, owner_engine, "bella@example.com")
+    poland = (await countries(client))["PL"]
+    await client.put(
+        "/api/dictionaries/prepayments",
+        json=[{"country_id": poland, "purpose_id": None, "amount": "999", "currency": "EUR"}],
+    )
+
+    await specialist(client, make_user, owner_engine)  # base BYN
+    listed = await client.put(
+        "/api/dictionaries/prepayments",
+        json=[{"country_id": poland, "purpose_id": None, "amount": "150"}],
+    )
+    assert [(p["amount"], p["currency"]) for p in listed.json()] == [("150.00", "BYN")]
+    case = await open_case(client)
+    hints = (await client.get(finance_url(case))).json()["suggestions"]
+    assert hints["prepayment"] == "150.00"
+    # 150 BYN in each currency the case may be priced in, rounded once.
+    assert hints["prepayment_in"] == {
+        "BYN": "150.00",
+        "PLN": "187.50",
+        "USD": "48.39",
+        "EUR": "44.12",
+    }
+    priced = await client.patch(finance_url(case), json={"currency": "PLN"})
+    assert priced.json()["suggestions"]["prepayment"] == "187.50"
+
+    # A prepayment entered in USD stays in USD when the base currency changes.
+    await client.put(
+        "/api/dictionaries/prepayments",
+        json=[{"country_id": poland, "purpose_id": None, "amount": "50", "currency": "USD"}],
+    )
+    assert (await client.patch(MONEY, json={"base_currency": "PLN"})).status_code == 200
+    prepayments = (await client.get("/api/dictionaries/prepayments")).json()
+    assert [(p["amount"], p["currency"]) for p in prepayments] == [("50.00", "USD")]
+    hints = (await client.get(finance_url(case))).json()["suggestions"]
+    assert (hints["prepayment"], hints["prepayment_in"]["USD"]) == ("193.75", "50.00")
+
+
+async def test_the_admin_change_makes_the_new_base_accepted_and_logs_it_once(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant_id = await specialist(client, make_user, owner_engine)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE tenants SET payment_currencies = '{BYN,USD}' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+    client.cookies.clear()
+    await make_user("root@example.com", role="admin")
+    await login(client, "root@example.com")
+    url = f"/api/admin/specialists/{tenant_id}"
+    assert (await client.patch(url, json={"base_currency": "PLN", "name": "Anna"})).is_success
+
+    client.cookies.clear()
+    await login(client, "anna@example.com")
+    money = (await client.get(MONEY)).json()
+    assert (money["base_currency"], money["payment_currencies"]) == ("PLN", ["PLN", "BYN", "USD"])
+    async with owner_engine.connect() as conn:
+        logged = (
+            await conn.execute(
+                text(
+                    "SELECT action, details FROM audit_events WHERE tenant_id = :t "
+                    "AND (action LIKE 'admin.%' OR action = :a) ORDER BY id"
+                ),
+                {"t": tenant_id, "a": CHANGED},
+            )
+        ).all()
+    assert [(a, d.get("changed")) for a, d in logged] == [
+        (CHANGED, None),
+        ("admin.specialist_updated", ["name"]),
+    ]

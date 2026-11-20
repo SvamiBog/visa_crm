@@ -15,7 +15,7 @@ base currency, converted once when entered.
 - Profit, in the base currency = price − talon − partner payout − tax − other expenses.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TypeGuard
@@ -33,6 +33,16 @@ def money(value: Decimal) -> Decimal:
 def to_base(amount: Decimal, rate: Decimal) -> Decimal:
     """An amount in the base currency; `rate` is base units for one unit of the currency."""
     return money(amount * rate)
+
+
+def converted(amount: Decimal, currency: str, into: str, byn: Mapping[str, Decimal]) -> Decimal:
+    """An amount in `currency` in another currency, through BYN (`byn`: BYN for one unit of
+    each currency but BYN), rounded once, with no rate rounded on the way: for an amount
+    that keeps no rate of its own (pilot T8)."""
+    if currency == into:
+        return money(amount)
+    in_byn = amount if currency == "BYN" else amount * byn[currency]
+    return money(in_byn if into == "BYN" else in_byn / byn[into])
 
 
 def partner_payout(

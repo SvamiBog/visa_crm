@@ -26,6 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.core.clock import DEFAULT_TIMEZONE, today_in
 from app.core.db import get_sessionmaker, scope_to_system
+from app.core.finance import converted
 from app.core.money import CURRENCIES
 from app.models import ExchangeRate
 
@@ -141,6 +142,14 @@ def cross_rate(currency: str, base: str, byn: Mapping[str, Decimal]) -> Decimal:
     if base != "BYN":
         rate = rate / byn[base]
     return rate.quantize(RATE_PLACES)
+
+
+async def convert(amount: Decimal, currency: str, into: str) -> Decimal:
+    """An amount in another currency at the site's latest rates (through BYN), rounded
+    once (finance.converted); RateUnavailable without a rate."""
+    return converted(
+        amount, currency, into, {c: await byn_rate(c) for c in {currency, into} - {"BYN"}}
+    )
 
 
 async def rate_to_base(currency: str, base: str) -> Decimal:

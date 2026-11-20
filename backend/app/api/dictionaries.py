@@ -234,6 +234,8 @@ class PrepaymentIn(BaseModel):
     country_id: uuid.UUID
     purpose_id: uuid.UUID | None = None
     amount: Amount
+    # The currency it is named in (pilot T8); none sent: the base currency.
+    currency: Currency | None = None
 
 
 class PrepaymentOut(BaseModel):
@@ -243,6 +245,7 @@ class PrepaymentOut(BaseModel):
     country_id: uuid.UUID
     purpose_id: uuid.UUID | None
     amount: Decimal
+    currency: str
 
 
 # Special characters a site may accept: printable ASCII other than letters and digits.
@@ -662,12 +665,21 @@ async def list_prepayments(session: TenantSession) -> list[PrepaymentOut]:
 async def replace_prepayments(
     body: list[PrepaymentIn], user: Specialist, session: TenantSession
 ) -> list[PrepaymentOut]:
-    """Replace the list: one amount (in the base currency) per country and visa purpose."""
+    """Replace the list: one amount per country and visa purpose, in its own currency
+    (the base one unless another is sent)."""
     _unique_keys([(p.country_id, p.purpose_id) for p in body])
     await _check_countries(session, {p.country_id for p in body})
     await _check_purposes(session, {p.purpose_id for p in body if p.purpose_id is not None})
     await session.execute(delete(Prepayment))  # RLS: only this workspace's rows
-    rows = [Prepayment(tenant_id=user.tenant_id, **p.model_dump()) for p in body]
+    base = (await _tenant(session, user)).base_currency
+    rows = [
+        Prepayment(
+            tenant_id=user.tenant_id,
+            **p.model_dump(exclude={"currency"}),
+            currency=p.currency or base,
+        )
+        for p in body
+    ]
     session.add_all(rows)
     assert user.tenant_id is not None
     _audit(session, AuditAction.REFERENCE_UPDATED, user, "prepayments", user.tenant_id)
@@ -702,8 +714,11 @@ async def update_money(body: MoneyUpdate, user: Specialist, session: TenantSessi
     """The accepted currencies, the tax rate and the base currency. A new base currency
     counts the amounts kept in it again, in this transaction with one audit record;
     a rate the site does not have, or an import writing now, changes nothing."""
-    # Locked: a second change at the same moment would convert from a stale base.
-    tenant = await session.get(Tenant, user.tenant_id, with_for_update=True, populate_existing=True)
+    # FOR NO KEY UPDATE: one change of the settings at a time; it does not wait for the
+    # money writes, which only a change of the base currency does (FOR UPDATE, there).
+    tenant = await session.get(
+        Tenant, user.tenant_id, with_for_update={"key_share": True}, populate_existing=True
+    )
     assert tenant is not None  # the session dependency already checked the workspace
     if body.payment_currencies is not None:
         tenant.payment_currencies = ordered_currencies(

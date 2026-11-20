@@ -21,10 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
+from app.core.base_currency import hold_base
 from app.core.days import Day
 from app.core.finance import Paid, Summary, in_case_currency, money, summarize, to_base
-from app.core.money import Amount, Currency, Percent
-from app.core.rates import RateUnavailable, latest, rate_to_base
+from app.core.money import Amount, Currency, Percent, ordered_currencies
+from app.core.rates import RateUnavailable, convert, latest, rate_to_base
 from app.models import (
     AuditAction,
     CaseExpense,
@@ -193,7 +194,10 @@ class FeeSuggestion(BaseModel):
 class Suggestions(BaseModel):
     """What the lists and the consultation suggest, to fill an empty field."""
 
+    # The list's prepayment in the case's currency, and in each currency the case may be
+    # priced in (converted at the bank's rate, pilot T8).
     prepayment: Decimal | None = None
+    prepayment_in: dict[str, Decimal] = {}
     registrar_fee: FeeSuggestion | None = None
     partner_terms: PartnerTermsType | None = None
     partner_percent: Decimal | None = None
@@ -305,6 +309,13 @@ async def _tenant(session: AsyncSession, user: CurrentUser) -> Tenant:
     return await _get(session, Tenant, user.tenant_id)
 
 
+async def tenant_for_money(session: AsyncSession, user: CurrentUser) -> Tenant:
+    """The workspace for a write counted in its base currency: its row held until the
+    commit, so a change of the base currency cannot come in between (hold_base)."""
+    assert user.tenant_id is not None
+    return await hold_base(session, user.tenant_id)
+
+
 async def _rate(currency: str, base: str, given: Decimal | None) -> Decimal:
     if currency == base:
         return Decimal("1")
@@ -366,16 +377,28 @@ async def first_queued_on(session: AsyncSession, case_id: uuid.UUID) -> date | N
 
 
 async def _suggestions(
-    session: AsyncSession, case: VisaCase, tenant: Tenant, today: date
+    session: AsyncSession, case: VisaCase, tenant: Tenant, currency: str, today: date
 ) -> Suggestions:
+    """`currency`: the case's price currency."""
     out = Suggestions()
     prepayments = {
-        p.purpose_id: p.amount
+        p.purpose_id: p
         for p in await session.scalars(
             select(Prepayment).where(Prepayment.country_id == case.destination_id)
         )
     }
-    out.prepayment = prepayments.get(case.purpose_id, prepayments.get(None))
+    listed = prepayments.get(case.purpose_id, prepayments.get(None))
+    if listed is not None:
+        # In its own currency in the list: in each one the case may be priced in, at the
+        # site's latest rate, so the form can follow a change of the price's currency.
+        prepayment_in = {}
+        for c in {*ordered_currencies(tenant.base_currency, tenant.payment_currencies), currency}:
+            try:
+                prepayment_in[c] = await convert(listed.amount, listed.currency, c)
+            except RateUnavailable:
+                continue  # no rate on the site yet: no suggestion in that currency
+        out.prepayment_in = prepayment_in
+        out.prepayment = prepayment_in.get(currency)
 
     if case.registrar_id is not None:
         price = await registrar_price_for(session, case)
@@ -485,7 +508,7 @@ async def finance_out(session: AsyncSession, case: VisaCase, user: CurrentUser) 
         expenses_total=summary.expenses,
         profit=summary.profit,
         suggestions=await _suggestions(
-            session, case, tenant, await workspace_today(session, tenant.id)
+            session, case, tenant, currency, await workspace_today(session, tenant.id)
         ),
     )
 
@@ -542,7 +565,7 @@ async def update_finance(
     case_id: uuid.UUID, body: FinanceUpdate, user: Member, session: TenantSession
 ) -> FinanceOut:
     case = await _get(session, VisaCase, case_id)
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     finance = await session.get(CaseFinance, case.id)
     if finance is None:
         finance = CaseFinance(
@@ -618,7 +641,7 @@ async def add_payment(
     case_id: uuid.UUID, body: PaymentIn, user: Member, session: TenantSession
 ) -> FinanceOut:
     case = await _get(session, VisaCase, case_id)
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     rate = await _rate(body.currency, tenant.base_currency, body.rate)
     payment = CasePayment(
         tenant_id=case.tenant_id,
@@ -643,7 +666,7 @@ async def _update_money(
     day_field: str,
 ) -> list[str]:
     """Apply the changes; a new currency takes the site's latest rate unless one is given."""
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     for field in ("amount", "currency", "rate", "official", day_field):
         if field in changes and changes[field] is None:
             del changes[field]  # required: null means «leave as is»
@@ -687,7 +710,7 @@ async def add_expense(
     case_id: uuid.UUID, body: ExpenseIn, user: Member, session: TenantSession
 ) -> FinanceOut:
     case = await _get(session, VisaCase, case_id)
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     rate = await _rate(body.currency, tenant.base_currency, body.rate)
     expense = CaseExpense(
         tenant_id=case.tenant_id,

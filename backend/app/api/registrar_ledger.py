@@ -30,9 +30,9 @@ from app.api.deps import (
 from app.api.finances import (
     _get,
     _rate,
-    _tenant,
     first_queued_on,
     registrar_price_for,
+    tenant_for_money,
 )
 from app.core.audit import record
 from app.core.days import Day
@@ -426,7 +426,7 @@ async def charge_talon(
     price = await registrar_price_for(session, case)
     if price is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "no_registrar_price")
-    tenant = await _tenant(session, user)
+    tenant = await tenant_for_money(session, user)
     day = await first_queued_on(session, case.id) or await workspace_today(session, tenant.id)
     rate = await _rate(price.currency, tenant.base_currency, None)
     if finance is None:
