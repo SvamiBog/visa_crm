@@ -269,6 +269,46 @@ def _uuid(code: str | None) -> uuid.UUID | None:
         return None
 
 
+@dataclass
+class _PricedIn:
+    """The price of a case as it was before it was put in the base currency."""
+
+    finance: CaseFinance
+    values: tuple[Any, ...] | None
+
+    def restore(self) -> None:
+        if self.values is not None:
+            (
+                self.finance.currency,
+                self.finance.rate,
+                self.finance.price,
+                self.finance.prepayment,
+                self.finance.consultation_credit,
+            ) = self.values
+
+
+def _price_in_base(finance: CaseFinance, base: str) -> _PricedIn:
+    """Puts the price of a case priced in another currency in the base one, at its rate."""
+    if finance.currency == base:
+        return _PricedIn(finance, None)
+    kept = _PricedIn(
+        finance,
+        (
+            finance.currency,
+            finance.rate,
+            finance.price,
+            finance.prepayment,
+            finance.consultation_credit,
+        ),
+    )
+    for attr in ("price", "prepayment", "consultation_credit"):
+        value = getattr(finance, attr)
+        if value is not None:
+            setattr(finance, attr, to_base(value, finance.rate))
+    finance.currency, finance.rate = base, Decimal(1)
+    return kept
+
+
 class WorkbookImport:
     """One run of the import over a parsed workbook (app/core/workbook.py)."""
 
@@ -1307,7 +1347,13 @@ class WorkbookImport:
         finance = self.finances.get(case.id)
         made = finance is None
         if finance is None:
-            finance = CaseFinance(case_id=case.id, tenant_id=self.tenant_id)
+            finance = CaseFinance(
+                case_id=case.id, tenant_id=self.tenant_id, currency=self.base, rate=Decimal(1)
+            )
+        # The file has the price in the base currency (docs/data-format.md): a case priced
+        # in another one is compared in the base currency, and goes back to it only when
+        # the file changes its price.
+        priced_in = _price_in_base(finance, self.base)
         prepayment = v.get("prepayment")
         if prepayment is not None and prepayment <= 0:
             prepayment = None
@@ -1322,6 +1368,8 @@ class WorkbookImport:
         if credit is not None and finance.consultation_credit != credit:
             finance.consultation_credit = credit
             changed = True
+        if not changed:
+            priced_in.restore()
         changed |= await self._talon(r, case, finance)
         changed |= self._partner(r, finance)
         if made:

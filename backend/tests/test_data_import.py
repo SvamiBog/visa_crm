@@ -670,6 +670,34 @@ async def test_the_result_stage_without_a_result_is_left_to_the_dates(
     ]
 
 
+async def test_a_case_priced_in_another_currency_keeps_it_unless_the_file_changes_the_price(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # The file has the price in the base currency (pilot fix 4): 1000 PLN at 0.80 is the
+    # file's 800 BYN, so the same file changes nothing; another price puts it in BYN.
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    await run(client, BOOK)
+    [case] = await rows(
+        owner_engine,
+        "SELECT f.case_id FROM case_finances f WHERE f.tenant_id = :t AND f.price = 800",
+        t=tenant,
+    )
+    url = f"/api/cases/{case['case_id']}/finance"
+    await ok(await client.patch(url, json={"currency": "PLN", "price": "1000"}))
+
+    again = await run(client, BOOK)
+    assert again["updated"] == {}
+    kept = (await client.get(url)).json()
+    assert (kept["currency"], kept["price"]) == ("PLN", "1000.00")
+
+    repriced = {**BOOK, "Кейсы": [CASES[0], [*CASES[1][:13], 900, *CASES[1][14:]], *CASES[2:]]}
+    await run(client, repriced)
+    back = (await client.get(url)).json()
+    assert (back["currency"], back["price"], back["rate"]) == ("BYN", "900.00", "1.000000")
+
+
 async def test_a_row_whose_client_does_not_match_its_code_is_skipped(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):

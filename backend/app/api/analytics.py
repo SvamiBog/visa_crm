@@ -28,7 +28,7 @@ from app.api.deps import CurrentUser, TenantSession, effective_modules, require_
 from app.api.home import MoneyBlock, money_block
 from app.core import analytics as rules
 from app.core.days import Day
-from app.core.finance import ZERO, money, summarize
+from app.core.finance import ZERO, Paid, money, summarize
 from app.core.queues import SUBMITTED_STAGES
 from app.models import (
     ApplicationAttempt,
@@ -226,16 +226,12 @@ def _case_day(case: VisaCase) -> date:
 async def _profits(
     session: AsyncSession, case_ids: list[uuid.UUID], tax_rate: Decimal
 ) -> dict[uuid.UUID, Decimal]:
-    """Profit of each case that has a price (app/core/finance.py)."""
+    """Profit of each case that has a price, in the base currency (app/core/finance.py)."""
     if not case_ids:
         return {}
-    payments: dict[uuid.UUID, list[tuple[Decimal, bool]]] = defaultdict(list)
-    for case_id, amount, official in await session.execute(
-        select(CasePayment.case_id, CasePayment.amount_base, CasePayment.official).where(
-            CasePayment.case_id.in_(case_ids)
-        )
-    ):
-        payments[case_id].append((amount, official))
+    payments: dict[uuid.UUID, list[Paid]] = defaultdict(list)
+    for p in await session.scalars(select(CasePayment).where(CasePayment.case_id.in_(case_ids))):
+        payments[p.case_id].append(Paid(p.amount, p.currency, p.amount_base, p.official))
     expenses: dict[uuid.UUID, list[Decimal]] = defaultdict(list)
     for case_id, amount in await session.execute(
         select(CaseExpense.case_id, CaseExpense.amount_base).where(
@@ -247,6 +243,8 @@ async def _profits(
     for f in await session.scalars(select(CaseFinance).where(CaseFinance.case_id.in_(case_ids))):
         profit = summarize(
             price=f.price,
+            currency=f.currency,
+            rate=f.rate,
             consultation_credit=f.consultation_credit,
             payments=payments[f.case_id],
             registrar_fee=f.registrar_fee_base,
