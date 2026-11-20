@@ -27,11 +27,19 @@ async function signIn(page: Page): Promise<void> {
   expect(login.ok(), await login.text()).toBe(true);
 }
 
-/** A demo card with a single case, so its finances are the first on the page. */
+// The demo's own clients (Telegram demo_<n>_<m>): other specs make cards of their own and
+// change them while this one runs, so it borrows only the demo's.
+const DEMO = "demo_";
+// case-delete.spec.ts opens and deletes a case on the four oldest demo cards meanwhile.
+const TAKEN_BY_CASE_DELETE = 4;
+
+/** A demo card with a single case, so its finances are the only ones on the page. */
 async function cardWithOneCase(page: Page): Promise<{ contact: string; caseId: string }> {
-  const found = await page.request.post("/api/contacts/search", { data: {} });
-  expect(found.ok()).toBe(true);
-  const items = ((await found.json()).items as { id: string }[]).reverse();
+  const found = await page.request.post("/api/contacts/search", { data: { query: DEMO } });
+  expect(found.ok(), await found.text()).toBe(true);
+  const items = ((await found.json()).items as { id: string }[])
+    .reverse()
+    .slice(TAKEN_BY_CASE_DELETE);
   for (const { id } of items) {
     const card = (await (await page.request.get(`/api/contacts/${id}`)).json()) as {
       cases: { id: string }[] | null;
@@ -83,7 +91,9 @@ for (const [lang, width] of [
 
     try {
       await page.goto(`/app/clients/${contact}`);
-      const section = page.locator("section.finance").first();
+      // The card's one case, loaded, before anything is read from it.
+      await expect(page.locator("article.case-panel")).toHaveCount(1);
+      const section = page.locator("section.finance");
       await expect(section.getByRole("heading", { name: t("finance.heading") })).toBeVisible();
 
       // A payment is income: no minus in front of it.

@@ -151,6 +151,15 @@ for (const lang of ["ru", "en"] as const) {
       .selectOption("visa");
     await expect(same).toBeChecked();
     await panel.getByLabel(t("cases.decidedOn"), { exact: true }).fill("2026-09-10");
+    // The card is fetched again after the save. «Изменить» pressed before it comes back
+    // must open the saved case, not the one before the save: saving that form again would
+    // wipe the result. The fetch is held back here to make that moment certain.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(`**/api/contacts/${mother.contact_id}`, async (route) => {
+      await held;
+      await route.continue();
+    });
     const saved = page.waitForResponse(
       (r) => r.url().endsWith(`/api/cases/${mother.id}`) && r.request().method() === "PATCH",
     );
@@ -177,5 +186,7 @@ for (const lang of ["ru", "en"] as const) {
     await expect(panel.getByLabel(t("cases.decidedOn"), { exact: true })).toHaveValue(
       "2026-09-10",
     );
+    release();
+    await page.unrouteAll({ behavior: "wait" });
   });
 }
