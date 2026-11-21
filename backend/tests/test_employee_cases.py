@@ -327,3 +327,153 @@ async def test_the_same_result_reaches_only_the_family_cases_the_employee_sees(
     assert (sons["outcome"], sons["stage"]) == ("visa", "result")
     strangers = (await client.get(f"/api/cases/{strangers_case['id']}")).json()
     assert (strangers["outcome"], strangers["stage"]) == (None, "waiting")
+
+
+# --- Submission groups (security audit run-1: M1, L1) --------------------------------
+# Which cases an employee reaches follows the specialist's ticks and grouping: a given
+# case opens its whole group (employee_sees_case), so only the specialist puts cases in
+# a group or takes them out, like the ticks themselves.
+
+
+async def group_events(owner_engine: AsyncEngine) -> list[tuple[str, str | None, str | None]]:
+    async with owner_engine.connect() as conn:
+        rows = await conn.execute(
+            select(AuditEvent.action, AuditEvent.target_id, AuditEvent.actor_email)
+            .where(AuditEvent.action.in_(["cases.grouped", "cases.ungrouped"]))
+            .order_by(AuditEvent.id)
+        )
+        return [tuple(row) for row in rows.all()]
+
+
+async def group_exists(owner_engine: AsyncEngine, group_id: str) -> bool:
+    async with owner_engine.connect() as conn:
+        return (
+            await conn.execute(
+                text("SELECT EXISTS (SELECT 1 FROM submission_groups WHERE id = :g)"),
+                {"g": group_id},
+            )
+        ).scalar_one()
+
+
+async def group_of(client: AsyncClient, case_id: str) -> str | None:
+    response = await client.get(f"/api/cases/{case_id}")
+    assert response.status_code == 200, response.text
+    return response.json()["group_id"]
+
+
+async def own_case_in_a_hidden_family(client: AsyncClient) -> dict[str, dict]:
+    """Olga's own case X, which Anna put in a family's group with the cases P and Q that
+    Olga was never given; Anna logged in at the end."""
+    await switch_to(client, EMPLOYEE)
+    mine = await new_contact(client, last_name="Новикова", first_name="Мария")
+    [own] = (await open_case(client, mine["id"])).json()
+
+    await switch_to(client, "anna@example.com")
+    family = await new_contact(client, last_name="Ковалёва")
+    response = await open_case(
+        client, family["id"], applicants=[{"contact_id": family["id"]}, {"first_name": "Пётр"}]
+    )
+    assert response.status_code == 201, response.text
+    p, q = response.json()
+    joined = await client.post(f"/api/cases/{p['id']}/group", json={"case_id": own["id"]})
+    assert joined.status_code == 200, joined.text
+    return {"own": own, "p": p, "q": q, "family": family, "group": joined.json()["group_id"]}
+
+
+async def test_an_employee_cannot_move_a_given_case_into_a_group_with_hidden_cases(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await with_employee(client, make_user, owner_engine)
+    made = await own_case_in_a_hidden_family(client)
+    other = await new_contact(client, last_name="Петров", first_name="Иван")
+    [given] = (await open_case(client, other["id"])).json()
+    await give_cases(owner_engine, EMPLOYEE, given["id"])
+    hidden = (
+        f"/api/cases/{made['p']['id']}",
+        f"/api/cases/{made['q']['id']}",
+        f"{CONTACTS}/{made['family']['id']}",
+    )
+
+    await switch_to(client, EMPLOYEE)
+    for url in hidden:
+        assert (await client.get(url)).status_code == 404, url
+    for case_id, body in (
+        (made["own"]["id"], {"case_id": given["id"]}),
+        (given["id"], {"case_id": made["own"]["id"]}),
+    ):
+        response = await client.post(f"/api/cases/{case_id}/group", json=body)
+        assert response.status_code == 403, response.text
+        assert response.json()["detail"] == "forbidden"
+    for url in hidden:
+        assert (await client.get(url)).status_code == 404, url
+    assert await group_of(client, given["id"]) is None
+    assert [e for e in await group_events(owner_engine) if e[2] == EMPLOYEE] == []
+
+    # The specialist's grouping still decides: a given case she groups opens the family.
+    await switch_to(client, "anna@example.com")
+    joined = await client.post(f"/api/cases/{given['id']}/group", json={"case_id": made["p"]["id"]})
+    assert joined.status_code == 200, joined.text
+    assert joined.json()["group_id"] == made["group"]
+    await switch_to(client, EMPLOYEE)
+    for url in hidden:
+        assert (await client.get(url)).status_code == 200, url
+
+
+async def test_an_employee_leaving_a_group_keeps_the_hidden_cases_in_it(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await with_employee(client, make_user, owner_engine)
+    made = await own_case_in_a_hidden_family(client)
+    before = await group_events(owner_engine)
+
+    await switch_to(client, EMPLOYEE)
+    response = await client.delete(f"/api/cases/{made['own']['id']}/group")
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "forbidden"
+
+    await switch_to(client, "anna@example.com")
+    for case in (made["own"], made["p"], made["q"]):
+        assert await group_of(client, case["id"]) == made["group"]
+    assert await group_exists(owner_engine, made["group"])
+    assert await group_events(owner_engine) == before
+
+
+async def test_a_given_case_leaves_a_family_of_three_only_by_the_specialist(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await with_employee(client, make_user, owner_engine)
+    family = await new_contact(client, last_name="Ковалёва")
+    response = await open_case(
+        client,
+        family["id"],
+        applicants=[{"contact_id": family["id"]}, {"first_name": "Пётр"}, {"first_name": "Ева"}],
+    )
+    assert response.status_code == 201, response.text
+    r1, r2, r3 = response.json()
+    group = r1["group_id"]
+    await give_cases(owner_engine, EMPLOYEE, r1["id"])
+
+    await switch_to(client, EMPLOYEE)
+    for case in (r2, r3):
+        assert await group_of(client, case["id"]) == group
+    response = await client.delete(f"/api/cases/{r1['id']}/group")
+    assert response.status_code == 403 and response.json()["detail"] == "forbidden"
+
+    await switch_to(client, "anna@example.com")
+    for case in (r1, r2, r3):
+        assert await group_of(client, case["id"]) == group
+    assert await group_events(owner_engine) == []
+
+    # The specialist takes the given case out: the other two stay a family.
+    assert (await client.delete(f"/api/cases/{r1['id']}/group")).status_code == 204
+    assert await group_of(client, r1["id"]) is None
+    for case in (r2, r3):
+        assert await group_of(client, case["id"]) == group
+    assert await group_exists(owner_engine, group)
+    # A group of one is dissolved, and every case that leaves it is in the log.
+    assert (await client.delete(f"/api/cases/{r2['id']}/group")).status_code == 204
+    assert await group_of(client, r3["id"]) is None
+    assert not await group_exists(owner_engine, group)
+    assert await group_events(owner_engine) == [
+        ("cases.ungrouped", case["id"], "anna@example.com") for case in (r1, r2, r3)
+    ]

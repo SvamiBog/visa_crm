@@ -630,7 +630,36 @@ function Result({ visaCase: c }: { visaCase: VisaCase }) {
   );
 }
 
+/** The submission group. Only the specialist puts cases in a group or takes them out: a
+ * case given to an employee opens its whole group to them, so an employee only sees it. */
 function Group({ visaCase: c }: { visaCase: VisaCase }) {
+  const me = useMe();
+  if (me.data?.role === "specialist") return <GroupEditor visaCase={c} />;
+  if (c.group.length === 0) return null;
+  return (
+    <div className="case-group">
+      <GroupMembers visaCase={c} />
+    </div>
+  );
+}
+
+function GroupMembers({ visaCase: c }: { visaCase: VisaCase }) {
+  const { t } = useTranslation();
+  return (
+    <Row label={t("cases.group")}>
+      {c.group.length > 0 &&
+        c.group.map((m, i) => (
+          <span key={m.case_id}>
+            {i > 0 && ", "}
+            <Link to={`/app/clients/${m.contact_id}`}>{m.full_name}</Link>
+            <span className="muted"> {t("cases.number", { number: m.number })}</span>
+          </span>
+        ))}
+    </Row>
+  );
+}
+
+function GroupEditor({ visaCase: c }: { visaCase: VisaCase }) {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const refresh = useRefreshCards();
@@ -659,16 +688,7 @@ function Group({ visaCase: c }: { visaCase: VisaCase }) {
 
   return (
     <div className="case-group">
-      <Row label={t("cases.group")}>
-        {c.group.length > 0 &&
-          c.group.map((m, i) => (
-            <span key={m.case_id}>
-              {i > 0 && ", "}
-              <Link to={`/app/clients/${m.contact_id}`}>{m.full_name}</Link>
-              <span className="muted"> {t("cases.number", { number: m.number })}</span>
-            </span>
-          ))}
-      </Row>
+      <GroupMembers visaCase={c} />
       {adding ? (
         <form
           ref={joinErrors.form}
