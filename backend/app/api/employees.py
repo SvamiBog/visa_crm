@@ -1,7 +1,7 @@
 """A specialist's employees: invite, choose modules, block, new password (backlog 0.7).
 The cases an employee sees are given in the case itself (app/api/case_access.py); the
-list shows how many each has. Letting one go (Т.15): the vault passwords they revealed,
-from the audit log, and whether each was changed since.
+list shows how many each has. Letting one go (Т.15): the vault passwords they know, from
+the audit log, and whether someone else changed each since (audit 2026-11, M2).
 
 Everything runs in the specialist's own workspace scope (Row-Level Security)."""
 
@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_specialist
@@ -72,22 +72,27 @@ class EmployeeOut(BaseModel):
 
 
 class RevealedPassword(BaseModel):
-    """A vault password the employee saw: change it when they leave."""
+    """A vault password the employee knows: change it when they leave. They revealed it,
+    or added the account (and so made it on the site) or typed its password."""
 
     entry_id: uuid.UUID
     system_name: str | None
-    login: str | None  # None once the entry is deleted
+    login: str | None  # None once the entry is deleted: the log holds no login
     contact_id: uuid.UUID | None
     contact_name: str | None
-    times: int
-    last_revealed_at: datetime
-    # Changed after the employee last saw it: nothing more to do.
+    times: int  # revealed; 0 for an account they added or a password they typed
+    last_revealed_at: datetime  # the last time they saw or saved it
+    # Someone else saved a new password after the employee last saw it: nothing more to
+    # do. A password the employee saved, even the same one again, is one they know.
     changed_since: bool
+    # The entry is gone but the account on the site is not: still to change.
     deleted: bool
 
 
 # More than an employee ever reveals; bounds the answer.
 REVEALED_LIMIT = 500
+# A vault edit that saved a password (vault._audit lists the changed fields, sorted).
+_PASSWORD_SAVED = AuditEvent.details["fields"].astext.regexp_match(r"(^|,)password(,|$)")
 
 
 class EmployeeCreated(BaseModel):
@@ -281,59 +286,93 @@ async def reset_employee_password(
 async def revealed_passwords(
     employee_id: uuid.UUID, specialist: Specialist, session: TenantSession
 ) -> list[RevealedPassword]:
-    """Every vault password the employee revealed, those not changed since first."""
+    """Every vault password the employee knows, from the audit log, those still to change
+    first. Neither the time a password was saved nor a deleted entry says it was changed:
+    the employee can save the same password again or delete an account they added."""
     employee = await _get_employee(session, specialist, employee_id)
+    knows = or_(
+        AuditEvent.action.in_(
+            [AuditAction.VAULT_PASSWORD_REVEALED, AuditAction.VAULT_ENTRY_CREATED]
+        ),
+        and_(AuditEvent.action == AuditAction.VAULT_ENTRY_UPDATED, _PASSWORD_SAVED),
+    )
     last = func.max(AuditEvent.occurred_at)
-    reveals = (
+    known = (
         await session.execute(
             select(
                 AuditEvent.target_id,
-                func.count(),
+                func.count().filter(AuditEvent.action == AuditAction.VAULT_PASSWORD_REVEALED),
                 last,
                 func.max(AuditEvent.details["name"].astext),
+                func.max(AuditEvent.details["contact"].astext),
             )
-            .where(
-                AuditEvent.actor_id == employee.id,
-                AuditEvent.action == AuditAction.VAULT_PASSWORD_REVEALED,
-            )
+            .where(AuditEvent.actor_id == employee.id, AuditEvent.target_id.is_not(None), knows)
             .group_by(AuditEvent.target_id)
             .order_by(last.desc())
             .limit(REVEALED_LIMIT)
         )
     ).all()
-    ids = [uuid.UUID(target) for target, *_ in reveals if target]
-    entries = {
-        entry.id: (entry, system, name)
-        for entry, system, name in (
+    targets = [target for target, *_ in known]
+    # The last password someone else saved: a new one the employee has not seen.
+    changed = dict(
+        (
             await session.execute(
-                select(VaultEntry, VaultSystem.name, Contact.full_name)
+                select(AuditEvent.target_id, func.max(AuditEvent.occurred_at))
+                .where(
+                    AuditEvent.action == AuditAction.VAULT_ENTRY_UPDATED,
+                    AuditEvent.target_id.in_(targets),
+                    AuditEvent.actor_id.is_distinct_from(employee.id),
+                    _PASSWORD_SAVED,
+                )
+                .group_by(AuditEvent.target_id)
+            )
+        ).all()
+    )
+    entries = {
+        entry.id: (entry, system)
+        for entry, system in (
+            await session.execute(
+                select(VaultEntry, VaultSystem.name)
                 .join(VaultSystem, VaultSystem.id == VaultEntry.system_id)
-                .outerjoin(Contact, Contact.id == VaultEntry.contact_id)
-                .where(VaultEntry.id.in_(ids))
+                .where(VaultEntry.id.in_([uuid.UUID(t) for t in targets]))
             )
         )
     }
-    rows = []
-    for target, times, last_at, system_name in reveals:
-        if not target:
-            continue
+    # Whose account it is: from the entry, or from the log once it is deleted (an account
+    # never changes its owner). The log has no login, and it must not get one.
+    owners: dict[str, uuid.UUID | None] = {}
+    for target, *_, contact in known:
         found = entries.get(uuid.UUID(target))
-        entry, current_system, contact_name = found if found else (None, None, None)
+        logged = uuid.UUID(contact) if contact else None
+        owners[target] = found[0].contact_id if found else logged
+    names = dict(
+        (
+            await session.execute(
+                select(Contact.id, Contact.full_name).where(
+                    Contact.id.in_([c for c in owners.values() if c])
+                )
+            )
+        ).all()
+    )
+    rows = []
+    for target, times, last_at, logged_system, _ in known:
+        entry, system_name = entries.get(uuid.UUID(target), (None, logged_system))
+        owner = owners[target] if owners[target] in names else None
+        # Taking the password out of the vault leaves the one on the site as it was.
+        cleared = entry is not None and entry.password_encrypted is None
         rows.append(
             RevealedPassword(
                 entry_id=uuid.UUID(target),
-                system_name=current_system or system_name,
+                system_name=system_name,
                 login=entry.login if entry else None,
-                contact_id=entry.contact_id if entry else None,
-                contact_name=contact_name,
+                contact_id=owner,
+                contact_name=names.get(owner),
                 times=times,
                 last_revealed_at=last_at,
-                changed_since=bool(
-                    entry and entry.password_updated_at and entry.password_updated_at > last_at
-                ),
+                changed_since=target in changed and changed[target] > last_at and not cleared,
                 deleted=entry is None,
             )
         )
-    # Still to change first; a deleted entry has nothing left to change.
-    rows.sort(key=lambda r: r.changed_since or r.deleted)
+    # Still to change first; a deleted entry is too, the account on the site is still there.
+    rows.sort(key=lambda r: r.changed_since)
     return rows

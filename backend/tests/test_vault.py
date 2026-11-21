@@ -281,6 +281,94 @@ async def test_employee_sees_the_vault_only_when_given(
     )
 
 
+async def employee_with_vault(
+    owner_engine: AsyncEngine, make_user: MakeUser, tenant_id: uuid.UUID, email="olga@example.com"
+) -> None:
+    """An employee with the vault, given every case of the workspace."""
+    await make_user(email, "employee", tenant_id=tenant_id)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE users SET modules = '{clients,cases,vault}' WHERE email = :e"),
+            {"e": email},
+        )
+    await give_cases(owner_engine, email)
+
+
+async def test_an_employee_deletes_only_the_accounts_they_added(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant_id = await as_specialist(client, make_user)
+    vfs = await system(client)
+    anna = await contact(client)
+    assert (await open_case(client, anna)).status_code == 201
+    clients = await entry(
+        client, system_id=vfs["id"], contact_id=anna, login="a@mail.by", password="pw"
+    )
+    mailbox = await entry(client, system_id=vfs["id"], login="backup@mail.by", password="pw")
+    await employee_with_vault(owner_engine, make_user, tenant_id)
+    client.cookies.clear()
+    await login(client, "olga@example.com")
+
+    # Neither a client's account nor the workspace's own one, like files and notes.
+    for foreign in (clients, mailbox):
+        denied = await client.delete(f"{ENTRIES}/{foreign['id']}")
+        assert denied.status_code == 403, denied.text
+        assert denied.json()["detail"] == "forbidden"
+    assert [e["id"] for e in (await client.get(f"/api/contacts/{anna}/vault")).json()] == [
+        clients["id"]
+    ]
+    assert [e["id"] for e in (await client.get("/api/vault/own")).json()] == [mailbox["id"]]
+    added = await entry(client, system_id=vfs["id"], contact_id=anna, login="o@mail.by")
+    assert (await client.delete(f"{ENTRIES}/{added['id']}")).status_code == 204
+
+    # The specialist deletes any.
+    client.cookies.clear()
+    await login(client, "anna@example.com")
+    assert (await client.delete(f"{ENTRIES}/{mailbox['id']}")).status_code == 204
+    deleted = [e for e in await audit(client) if e["action"] == "vault.entry_deleted"]
+    assert [(e["target_id"], e["actor_email"]) for e in deleted] == [
+        (mailbox["id"], "anna@example.com"),
+        (added["id"], "olga@example.com"),
+    ]
+
+
+async def test_past_the_card_limit_an_employee_edits_no_account_of_another_client(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant_id = await as_specialist(client, make_user)
+    vfs = await system(client)
+    anna, boris = await contact(client), await contact(client, "Борис")
+    for person in (anna, boris):
+        assert (await open_case(client, person)).status_code == 201
+    annas = await entry(client, system_id=vfs["id"], contact_id=anna, login="a@mail.by")
+    borises = await entry(
+        client, system_id=vfs["id"], contact_id=boris, login="b@mail.by", note="old"
+    )
+    mailbox = await entry(client, system_id=vfs["id"], login="backup@mail.by")
+    await employee_with_vault(owner_engine, make_user, tenant_id)
+    async with owner_engine.begin() as conn:
+        await conn.execute(text("UPDATE users SET daily_card_limit = 1 WHERE role = 'employee'"))
+    client.cookies.clear()
+    await login(client, "olga@example.com")
+
+    # An edit answers with the account of the client's card, so it opens the card.
+    assert (await client.patch(f"{ENTRIES}/{annas['id']}", json={"note": "a"})).status_code == 200
+    paused = await client.patch(f"{ENTRIES}/{borises['id']}", json={"note": "b"})
+    assert paused.status_code == 429, paused.text
+    assert paused.json()["detail"] == "card_limit_reached"
+    # The workspace's own account is on no client's card.
+    own = await client.patch(f"{ENTRIES}/{mailbox['id']}", json={"note": "c"})
+    assert own.status_code == 200
+    async with owner_engine.connect() as conn:
+        note = await conn.scalar(
+            text("SELECT note FROM vault_entries WHERE id = :id"), {"id": borises["id"]}
+        )
+        opened = await conn.scalars(
+            text("SELECT target_id FROM audit_events WHERE action = 'contacts.viewed'")
+        )
+        assert (note, list(opened)) == ("old", [anna])
+
+
 async def test_another_workspace_cannot_reach_the_accounts(
     client: AsyncClient, make_user: MakeUser
 ):

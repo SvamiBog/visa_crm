@@ -26,6 +26,7 @@ from app.models import (
     AuditAction,
     Contact,
     EmailOwner,
+    UserRole,
     VaultEntry,
     VaultSystem,
     VisaCase,
@@ -273,6 +274,11 @@ async def update_entry(
     entry_id: uuid.UUID, body: EntryUpdate, user: Member, session: TenantSession
 ) -> EntryOut:
     entry = await _get(session, VaultEntry, entry_id)
+    if entry.contact_id is not None:
+        # The answer is an account of the client's card, so it opens the card (Т.14).
+        await watch(
+            session, user, LimitKind.CARDS, "contact", entry.contact_id, AuditAction.CONTACT_VIEWED
+        )
     changes = body.model_dump(exclude_unset=True)
     for field in ("system_id", "login", "created_manually"):
         if field in changes and changes[field] is None:
@@ -303,7 +309,12 @@ async def update_entry(
 
 @router.delete("/vault/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_entry(entry_id: uuid.UUID, user: Member, session: TenantSession) -> None:
+    """Employees delete only accounts they added, like files; the specialist deletes any.
+    The site account stays, so a password the employee saw is kept on the list to change
+    when they leave (app/api/employees.py)."""
     entry = await _get(session, VaultEntry, entry_id)
+    if user.role != UserRole.SPECIALIST and entry.created_by != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
     system = await _get(session, VaultSystem, entry.system_id)
     _audit(session, AuditAction.VAULT_ENTRY_DELETED, user, entry, name=system.name)
     await session.delete(entry)
