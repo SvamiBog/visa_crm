@@ -1,8 +1,11 @@
 """Document templates (backlog 2.1): the specialist's Word files with codes, given to a
 client and downloaded filled with the client's data, named for the client."""
 
+import asyncio
 import base64
 import uuid
+import zipfile
+from collections.abc import Callable
 from urllib.parse import unquote
 
 import pytest
@@ -10,10 +13,15 @@ from httpx import AsyncClient, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.api import templates as templates_api
 from app.core import storage
 from app.core.config import get_settings
+from app.core.docx_fill import MAX_CODES
 from tests.helpers import MakeUser, give_cases, login
-from tests.test_docx_fill import make_docx, paragraphs, runs
+from tests.test_cases import new_contact
+from tests.test_cases import open_case as open_plain_case
+from tests.test_docx_fill import declaring_too_much, make_docx, paragraphs, runs, with_part
+from tests.test_employee_cases import EMPLOYEE, switch_to, with_employee
 
 LETTER = make_docx(
     runs("Я, {{ФИО}}, ", "{{Дата ", "рождения}}, паспорт {{Номер паспорта}}.")
@@ -253,6 +261,7 @@ async def test_the_specialist_keeps_her_templates(
         (b"", 422, "file_empty"),
         (b"PK" + b"\0" * (5 * 1024 * 1024), 413, "template_too_large"),
     ],
+    ids=["pdf", "empty", "too_large"],
 )
 async def test_only_word_files_are_taken(
     client: AsyncClient,
@@ -266,6 +275,113 @@ async def test_only_word_files_are_taken(
     response = await upload(client, data)
     assert (response.status_code, response.json()["detail"]) == (status, code)
     assert storage.MEMORY == {}
+
+
+async def test_templates_past_the_limits_are_refused(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Backlog S4: what a template may cost to read is bounded (tests/test_docx_fill.py)."""
+    await as_specialist(client, make_user, owner_engine)
+    too_many_codes = make_docx(runs("{{ФИО}} " * (MAX_CODES + 1)))
+    pad = b"\0" * 1024
+    for data, expected in (
+        (with_part(LETTER, "customXml/pad.bin", pad, zipfile.ZIP_BZIP2), (422, "template_broken")),
+        (with_part(LETTER, "customXml/pad.bin", pad, zipfile.ZIP_LZMA), (422, "template_broken")),
+        (declaring_too_much(), (413, "template_too_large")),
+        (too_many_codes, (413, "template_too_large")),
+    ):
+        response = await upload(client, data)
+        assert (response.status_code, response.json().get("detail")) == expected
+    assert storage.MEMORY == {}
+
+    # A new version of the file is checked the same way; the old one stays.
+    template = (await upload(client)).json()
+    replaced = await client.put(
+        f"/api/templates/{template['id']}/file",
+        json={"source_name": "letter.docx", "content": b64(too_many_codes)},
+    )
+    assert (replaced.status_code, replaced.json()["detail"]) == (413, "template_too_large")
+    assert (await client.get(f"/api/templates/{template['id']}/file")).content == LETTER
+
+
+async def test_templates_are_read_and_filled_off_the_event_loop(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Reading and filling a file take time a large template makes long: they run in a
+    worker thread, so the requests of every workspace are answered meanwhile."""
+    on_the_loop: list[str] = []
+    off_the_loop: list[str] = []
+
+    def watched(function: Callable) -> Callable:
+        def run(*args: object) -> object:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                off_the_loop.append(function.__name__)
+            else:
+                on_the_loop.append(function.__name__)
+            return function(*args)
+
+        return run
+
+    for name in ("read_docx", "codes_in", "fill"):
+        monkeypatch.setattr(templates_api, name, watched(getattr(templates_api, name)))
+    await as_specialist(client, make_user, owner_engine)
+    template = (await upload(client)).json()
+    replaced = await client.put(
+        f"/api/templates/{template['id']}/file",
+        json={"source_name": "letter.docx", "content": b64(LETTER)},
+    )
+    assert replaced.status_code == 200, replaced.text
+    anna = await new_client(client)
+    url = f"/api/contacts/{anna['id']}/templates"
+    given = (await client.post(url, json={"template_id": template["id"]})).json()
+    assert (await client.get(f"{url}/{given['id']}/file")).status_code == 200
+
+    assert on_the_loop == []
+    # Upload and new version: read and codes; download: read and fill.
+    assert sorted(off_the_loop) == sorted(["read_docx", "codes_in"] * 2 + ["read_docx", "fill"])
+
+
+async def test_a_clients_templates_open_the_card_for_the_daily_limit(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """The list names each file for the client and tells what of the card is missing, so
+    it counts against an employee's daily limit of cards (Т.14, backlog S4)."""
+    tenant_id = await with_employee(client, make_user, owner_engine)
+    await turn_on(owner_engine, tenant_id)
+    template = (await upload(client)).json()
+    cards = []
+    for last_name in ("Первая", "Вторая"):
+        contact = await new_contact(client, last_name=last_name)
+        await open_plain_case(client, contact["id"])
+        given = await client.post(
+            f"/api/contacts/{contact['id']}/templates", json={"template_id": template["id"]}
+        )
+        assert given.status_code == 201, given.text
+        cards.append(contact["id"])
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE users SET modules = array_append(modules, 'document_templates'), "
+                "daily_card_limit = 1 WHERE email = :e"
+            ),
+            {"e": EMPLOYEE},
+        )
+    await give_cases(owner_engine, EMPLOYEE)
+
+    await switch_to(client, EMPLOYEE)
+    first, second = (f"/api/contacts/{card}/templates" for card in cards)
+    assert (await client.get(first)).status_code == 200
+    paused = await client.get(second)
+    assert paused.status_code == 429, paused.text
+    assert paused.json()["detail"] == "card_limit_reached"
+    # The card the list opened is open for the rest of the day.
+    assert (await client.get(first)).status_code == 200
+    assert (await client.get(f"/api/contacts/{cards[0]}")).status_code == 200
 
 
 async def test_templates_stay_in_their_workspace(
