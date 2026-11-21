@@ -4,8 +4,9 @@ import { Link } from "react-router-dom";
 import { apiGet } from "../../api";
 import { ErrorAlert } from "../clients/ui";
 
-// Letting an employee go (backlog Т.15): the vault passwords they revealed, from the
-// audit log, and whether each was changed since — the rest are to change.
+// Letting an employee go (backlog Т.15): the vault passwords they know (revealed, added
+// or typed), from the audit log, and whether someone else changed each since — the rest
+// are to change. A deleted entry is still to change: the account on the site is there.
 
 type RevealedPassword = {
   entry_id: string;
@@ -32,7 +33,7 @@ export function RevealedPasswords({
     queryFn: () => apiGet<RevealedPassword[]>(`/employees/${employee.id}/revealed-passwords`),
   });
   const when = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium" });
-  const left = list.data?.filter((r) => !r.changed_since && !r.deleted).length ?? 0;
+  const left = list.data?.filter((r) => !r.changed_since).length ?? 0;
 
   return (
     <section className="card">
@@ -82,13 +83,12 @@ export function RevealedPasswords({
                       {r.times > 1 && ` · ${t("revealed.times", { count: r.times })}`}
                     </td>
                     <td>
-                      {r.deleted ? (
-                        <span className="chip st-gray">{t("revealed.deleted")}</span>
-                      ) : r.changed_since ? (
+                      {r.changed_since ? (
                         <span className="chip st-green">{t("revealed.changed")}</span>
                       ) : (
                         <span className="chip st-orange">{t("revealed.toChange")}</span>
                       )}
+                      {r.deleted && <div className="muted small">{t("revealed.deleted")}</div>}
                     </td>
                   </tr>
                 ))}
