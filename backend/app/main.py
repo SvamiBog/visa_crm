@@ -5,7 +5,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import PurePath
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
@@ -21,6 +22,7 @@ from app.api.checklists import admin_router as admin_checklists_router
 from app.api.checklists import router as checklists_router
 from app.api.consultations import router as consultations_router
 from app.api.contacts import router as contacts_router
+from app.api.deps import current_user_any
 from app.api.dictionaries import router as dictionaries_router
 from app.api.documents import router as documents_router
 from app.api.email_change import router as email_change_router
@@ -58,6 +60,9 @@ from app.core.server_errors import UnexpectedErrors
 # folder of assets/) keep the default caching.
 HASHED_ASSET = re.compile(r"-[A-Za-z0-9_-]{8}\.[a-z0-9]+$")
 IMMUTABLE = "public, max-age=31536000, immutable"
+# A request the API turns down names at most this many fields: a form has far fewer, and a
+# long list of bad items is not answered item by item.
+MAX_VALIDATION_ERRORS = 100
 
 
 class BuiltAssets(StaticFiles):
@@ -67,6 +72,16 @@ class BuiltAssets(StaticFiles):
         if response.status_code in (200, 304) and flat and HASHED_ASSET.search(path):
             response.headers["Cache-Control"] = IMMUTABLE
         return response
+
+
+async def signed_in(scope: Scope) -> bool:
+    """The API's own session check: a made-up cookie or a login still waiting for its second
+    factor gets no upload allowance (app/core/request_limit.py)."""
+    try:
+        await current_user_any(Request(scope))
+    except HTTPException:
+        return False
+    return True
 
 
 @asynccontextmanager
@@ -91,10 +106,12 @@ def create_app() -> FastAPI:
         redoc_url=None,
         lifespan=lifespan,
     )
-    # An unexpected error is logged without its text (it may quote clients' data).
+    # A request too large for its route is refused before it is read: only a file sent by
+    # someone signed in may be large.
+    app.add_middleware(RequestLimit, signed_in=signed_in)
+    # An unexpected error is logged without its text (it may quote clients' data). Added
+    # after the limit, so it also catches a failed session lookup of the limit.
     app.add_middleware(UnexpectedErrors)
-    # A request too large to be a file the CRM takes is refused before it is read.
-    app.add_middleware(RequestLimit)
 
     @app.middleware("http")
     async def remember_client_ip(request: Request, call_next) -> Response:
@@ -112,6 +129,19 @@ def create_app() -> FastAPI:
     async def limit_reached(request: Request, error: LimitReached) -> JSONResponse:
         # An employee's daily limit (backlog Т.14): paused until the next day.
         return JSONResponse(status_code=429, content={"detail": error.code})
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
+        # The field and the reason, which is what the forms read (components/Field.tsx), not
+        # the value: FastAPI's own answer sends the decoded body back, which costs time and
+        # memory as it grows and may repeat clients' data.
+        detail = [
+            {"type": e["type"], "loc": list(e["loc"]), "msg": e["msg"]}
+            for e in error.errors()[:MAX_VALIDATION_ERRORS]
+        ]
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content={"detail": detail}
+        )
 
     for router in (
         health_router,
