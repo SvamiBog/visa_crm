@@ -30,6 +30,23 @@ CONNECT_TIMEOUT = 5
 # The largest number a BIGINT column takes and asyncpg sends: a larger one from a client
 # fails in the driver, so the schema refuses it first.
 BIGINT_MAX = 2**63 - 1
+# Limits on every connection of the app (audit M6, h19.2); migrations have an engine of
+# their own and wait as long as they need. One process serves every workspace from one
+# pool, and a request that waits holds its connection: without the limits, requests
+# queued behind one long transaction would hold the whole pool, and others would get none.
+# A statement that waits for a lock longer than this fails. Locks are normally held for
+# milliseconds and at most a few seconds (a password check under the user's row, a large
+# check of an import file making its cards before a change of the base currency gets the
+# row): 10 s leaves room for those and is well under the pool's 30 s wait for a connection.
+# A write that would wait for an import to end (its case numbers, the rows it changed)
+# fails after it instead of waiting up to the whole run.
+LOCK_TIMEOUT = "10s"
+# A transaction idle this long is ended and its locks released: a session left open by
+# a bug. The longest legitimate pause inside a transaction is a call to the file storage
+# (5 s to connect, 30 s to read, 3 attempts, about two minutes at worst) or to the mail
+# server (15 s a step). An import is not idle: it reads its file before its transaction
+# begins and then sends statement after statement, however long the run.
+IDLE_IN_TRANSACTION_TIMEOUT = "5min"
 
 
 class Base(DeclarativeBase):
@@ -51,7 +68,15 @@ def get_engine() -> AsyncEngine:
     # A database error would otherwise quote every value of the statement («[parameters:
     # …]»): names, phones, the search text.
     return create_async_engine(
-        get_settings().async_database_url, pool_pre_ping=True, hide_parameters=True
+        get_settings().async_database_url,
+        pool_pre_ping=True,
+        hide_parameters=True,
+        connect_args={
+            "server_settings": {
+                "lock_timeout": LOCK_TIMEOUT,
+                "idle_in_transaction_session_timeout": IDLE_IN_TRANSACTION_TIMEOUT,
+            }
+        },
     )
 
 
