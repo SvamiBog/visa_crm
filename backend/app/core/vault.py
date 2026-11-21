@@ -27,8 +27,29 @@ def tenant_key_aad(tenant_id: uuid.UUID) -> bytes:
 
 
 async def get_tenant_key(session: AsyncSession, tenant_id: uuid.UUID) -> bytes:
-    """The tenant's data key, created on first use. The session must see the tenant row."""
-    tenant = await session.scalar(select(Tenant).where(Tenant.id == tenant_id).with_for_update())
+    """The tenant's data key, created on first use. The session must see the tenant row.
+
+    A key that exists is read without a lock. Reveals, files and an import's passwords
+    must not hold the workspace row until their transaction ends (an import's lasts the
+    whole run): a lock that stops the foreign key checks would stop every insert of the
+    workspace (audit M6)."""
+    row = (
+        await session.execute(select(Tenant.vault_key_encrypted).where(Tenant.id == tenant_id))
+    ).first()
+    if row is None:
+        raise LookupError("tenant not visible in this session")
+    if row.vault_key_encrypted is not None:
+        return unseal(row.vault_key_encrypted, tenant_key_aad(tenant_id))
+    # First use: the row is locked so that one key is made. FOR NO KEY UPDATE lets the
+    # workspace's inserts check their foreign keys meanwhile. populate_existing reads the
+    # key again into a Tenant the session already holds (an import holds it from the
+    # start): with the NULL it loaded, it would replace a key made in the meantime.
+    tenant = await session.scalar(
+        select(Tenant)
+        .where(Tenant.id == tenant_id)
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
     if tenant is None:
         raise LookupError("tenant not visible in this session")
     if tenant.vault_key_encrypted is None:
@@ -57,11 +78,15 @@ def decrypt_for_tenant(key: bytes, tenant_id: uuid.UUID, row_id: uuid.UUID, blob
 async def reseal_with_current_master_key(session: AsyncSession) -> int:
     """Re-encrypt tenant keys and TOTP secrets under the current master key (rotation step).
 
-    Runs in the system scope. Returns how many secrets were re-encrypted.
+    Runs in the system scope. Returns how many secrets were re-encrypted. The rows are
+    locked FOR NO KEY UPDATE: the rotation does not wait for the inserts that refer to them
+    (an import's last its whole run), nor do those wait for it.
     """
     count = 0
     tenants = await session.scalars(
-        select(Tenant).where(Tenant.vault_key_encrypted.is_not(None)).with_for_update()
+        select(Tenant)
+        .where(Tenant.vault_key_encrypted.is_not(None))
+        .with_for_update(key_share=True)
     )
     for tenant in tenants:
         assert tenant.vault_key_encrypted is not None
@@ -70,7 +95,7 @@ async def reseal_with_current_master_key(session: AsyncSession) -> int:
             tenant.vault_key_encrypted = seal(unseal(tenant.vault_key_encrypted, aad), aad)
             count += 1
     users = await session.scalars(
-        select(User).where(User.totp_secret_encrypted.is_not(None)).with_for_update()
+        select(User).where(User.totp_secret_encrypted.is_not(None)).with_for_update(key_share=True)
     )
     for user in users:
         assert user.totp_secret_encrypted is not None
