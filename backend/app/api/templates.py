@@ -6,8 +6,12 @@ them to clients and downloads them filled. The filled file is made on every down
 from the data of that moment and never stored; each download is written to the audit log,
 as it carries the client's data. The blank template is encrypted with the workspace's key
 before it goes to the storage, like client files (app/api/documents.py).
+
+A file is read and filled in a worker thread (backlog S4): a large one takes a while, and
+the event loop answers every workspace.
 """
 
+import asyncio
 import logging
 import re
 import uuid
@@ -188,10 +192,18 @@ def _storage_error(error: Exception) -> HTTPException:
     return HTTPException(status.HTTP_502_BAD_GATEWAY, "storage_failed")
 
 
-def _read(content: bytes) -> tuple[list[str], list[str]]:
+def _codes(content: bytes) -> tuple[list[str], list[str]]:
+    return split_codes(codes_in(read_docx(content)))
+
+
+def _filled(blank: bytes, values: dict[str, object]) -> bytes:
+    return fill(read_docx(blank), filler(values))
+
+
+async def _read(content: bytes) -> tuple[list[str], list[str]]:
     """The file's known and unknown codes; 413/422 if it is not a Word file to fill."""
     try:
-        return split_codes(codes_in(read_docx(content)))
+        return await asyncio.to_thread(_codes, content)
     except DocxError as error:
         code = (
             status.HTTP_413_CONTENT_TOO_LARGE
@@ -398,7 +410,7 @@ async def upload_template(
     if not is_configured():
         raise _storage_error(StorageNotConfigured())
     _check_pattern(body.file_name)
-    codes, unknown = _read(body.content)
+    codes, unknown = await _read(body.content)
     count = await session.scalar(select(func.count()).select_from(DocumentTemplate))
     if (count or 0) >= MAX_TEMPLATES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "too_many_templates")
@@ -444,7 +456,7 @@ async def replace_file(
 ) -> TemplateOut:
     """A new version of the file: the clients who have the template get it from now on."""
     template = await _template(session, template_id)
-    codes, unknown = _read(body.content)
+    codes, unknown = await _read(body.content)
     await _store(session, user, template.id, body.content)
     template = await _template(session, template_id)
     template.source_name = clean_source_name(body.source_name)
@@ -535,6 +547,9 @@ async def list_given(
     """The client's templates, newest first, with what their files will be called and
     which of their codes have no value yet."""
     contact = await _contact(session, contact_id)
+    # File names and missing codes come from the card's data, so the list opens the card
+    # for an employee's limit, as the filled file does (Т.14, backlog S4).
+    await watch(session, user, LimitKind.CARDS, "contact", contact.id, AuditAction.CONTACT_VIEWED)
     rows = await session.execute(
         select(ContactTemplate, DocumentTemplate)
         .join(DocumentTemplate, DocumentTemplate.id == ContactTemplate.template_id)
@@ -624,7 +639,7 @@ async def download_filled(
     values = await client_data(session, user, contact, await _case_of(session, contact_id, given))
     blank = await _load(session, user, template)
     try:
-        content = fill(read_docx(blank), filler(values))
+        content = await asyncio.to_thread(_filled, blank, values)
     except DocxError as error:
         # Checked when it was uploaded: a stored file that no longer reads is damage.
         logger.error("Template %s does not read: %s", template.id, error.code)

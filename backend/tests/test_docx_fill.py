@@ -1,11 +1,23 @@
-"""Codes in a Word document (backlog 2.1): found and filled however Word split the text."""
+"""Codes in a Word document (backlog 2.1): found and filled however Word split the text.
+A template is untrusted input: what it may cost to read and fill is bounded (backlog S4)."""
 
 import io
+import struct
+import time
 import zipfile
+import zlib
 
 import pytest
 
-from app.core.docx_fill import MAX_BYTES, DocxError, codes_in, fill, read_docx
+from app.core.docx_fill import (
+    MAX_BYTES,
+    MAX_CODES,
+    MAX_NODES,
+    DocxError,
+    codes_in,
+    fill,
+    read_docx,
+)
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 MACROS = "application/vnd.ms-word.document.macroEnabled.main+xml"
@@ -82,6 +94,40 @@ def paragraphs(data: bytes, part: str = "word/document.xml") -> list[str]:
 
     root = etree.fromstring(text_of(data, part).encode())
     return ["".join(t.text or "" for t in p.iter(f"{{{W}}}t")) for p in root.iter(f"{{{W}}}p")]
+
+
+def text_elements(data: bytes) -> list[str]:
+    """The text of each text element of the body, in order: where each value went."""
+    from lxml import etree
+
+    root = etree.fromstring(text_of(data).encode())
+    return [t.text or "" for t in root.iter(f"{{{W}}}t")]
+
+
+def with_part(
+    data: bytes, name: str, content: bytes, compress_type: int = zipfile.ZIP_DEFLATED
+) -> bytes:
+    """The archive with one more member, packed as asked."""
+    out = io.BytesIO(data)
+    with zipfile.ZipFile(out, "a") as archive:
+        archive.writestr(name, content, compress_type=compress_type)
+    return out.getvalue()
+
+
+def lying_about_size(real: int, declared: int = 16) -> bytes:
+    """A template with a member of `real` zero bytes whose headers say it has `declared`
+    (with the checksum of that many zero bytes): a few KB that would unpack into much."""
+    data = make_docx(runs("{{ФИО}}"), extra={"customXml/pad.bin": b"\0" * real})
+    info = zipfile.ZipFile(io.BytesIO(data)).getinfo("customXml/pad.bin")
+    honest = struct.pack("<III", info.CRC, info.compress_size, info.file_size)
+    lying = struct.pack("<III", zlib.crc32(b"\0" * declared), info.compress_size, declared)
+    assert data.count(honest) == 2  # the local header and the central directory
+    return data.replace(honest, lying)
+
+
+def declaring_too_much() -> bytes:
+    """A small archive whose members say they unpack into far more than a template may."""
+    return make_docx(runs("x"), extra={"word/media/big.bin": b"\0" * (60 * 1024 * 1024)})
 
 
 VALUES = {"фио": "Иван Тестов", "дата рождения": "05.10.1990", "full name": "Ivan Testov"}
@@ -191,15 +237,26 @@ def test_only_plain_word_files_are_taken(data: bytes, code: str | None):
     assert error.value.code == code
 
 
-def test_a_document_with_a_dtd_is_refused():
+@pytest.mark.parametrize(
+    ("encoding", "before"),
+    [
+        ("UTF-8", ""),
+        # Wherever the DTD is in the part, not only at its start, and in any encoding.
+        ("UTF-8", "<!--" + "x" * 5000 + "-->"),
+        ("UTF-16", ""),
+    ],
+    ids=["at_the_start", "after_a_long_comment", "utf_16"],
+)
+def test_a_document_with_a_dtd_is_refused(encoding: str, before: str):
     body = runs("x")
     data = make_docx(body)
     with zipfile.ZipFile(io.BytesIO(data)) as source:
         parts = {name: source.read(name) for name in source.namelist()}
     parts["word/document.xml"] = (
-        b'<?xml version="1.0"?><!DOCTYPE w:document [<!ENTITY e "boom">]>'
-        + parts["word/document.xml"].split(b"?>", 1)[1]
-    )
+        f'<?xml version="1.0" encoding="{encoding}"?>{before}'
+        '<!DOCTYPE w:document [<!ENTITY e "boom">]>'
+        + parts["word/document.xml"].decode().split("?>", 1)[1]
+    ).encode(encoding)
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as archive:
         for name, part in parts.items():
@@ -214,8 +271,152 @@ def test_size_limits():
         read_docx(b"PK" + b"\0" * MAX_BYTES)
     assert error.value.code == "template_too_large"
     # A small archive that unpacks into far too much: refused before it is read.
-    bomb = make_docx(runs("x"), extra={"word/media/big.bin": b"\0" * (60 * 1024 * 1024)})
+    bomb = declaring_too_much()
     assert len(bomb) < MAX_BYTES
     with pytest.raises(DocxError) as error:
         read_docx(bomb)
     assert error.value.code == "template_too_large"
+
+
+def test_an_ordinary_template_reads_to_its_parts_as_they_are():
+    data = make_docx(runs("{{ФИО}}"), header=runs("{{Full name}}"))
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        assert read_docx(data).data == {name: archive.read(name) for name in archive.namelist()}
+
+
+@pytest.fixture
+def inflated(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """The bytes each call of zipfile's decompressor gives while an archive is read."""
+    sizes: list[int] = []
+    make = zipfile._get_decompressor
+
+    class Counting:
+        def __init__(self, inner) -> None:
+            self._inner = inner
+
+        def decompress(self, *args: object) -> bytes:
+            out = self._inner.decompress(*args)
+            sizes.append(len(out))
+            return out
+
+        def flush(self, *args: object) -> bytes:
+            out = self._inner.flush(*args)
+            sizes.append(len(out))
+            return out
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._inner, name)
+
+    def counting(compress_type: int) -> object:
+        inner = make(compress_type)
+        return None if inner is None else Counting(inner)
+
+    monkeypatch.setattr(zipfile, "_get_decompressor", counting)
+    return sizes
+
+
+def test_a_member_is_never_unpacked_past_its_declared_size(inflated: list[int]):
+    # 28 MiB of zeros deflate into a few KB; the headers say the member has 16 bytes.
+    data = lying_about_size(real=28 * 1024 * 1024, declared=16)
+    assert len(data) < 64 * 1024
+    docx = read_docx(data)
+    assert docx.data["customXml/pad.bin"] == b"\0" * 16
+    assert codes_in(docx) == ["ФИО"]
+    # Read in pieces of 64 KiB at most, and stopped at the declared size.
+    assert max(inflated) <= 64 * 1024
+    assert sum(inflated) < 1024 * 1024
+
+
+def test_a_member_longer_than_it_says_is_too_large(monkeypatch: pytest.MonkeyPatch):
+    """Were zipfile to stop cutting a member at its declared size, the reader still would:
+    the file is too large, not broken."""
+    read = zipfile.ZipExtFile.read
+
+    def past_the_end(self: zipfile.ZipExtFile, n: int = -1) -> bytes:
+        data = read(self, n)
+        return data + b"\0" if data else data
+
+    monkeypatch.setattr(zipfile.ZipExtFile, "read", past_the_end)
+    with pytest.raises(DocxError) as error:
+        read_docx(make_docx(runs("x")))
+    assert error.value.code == "template_too_large"
+
+
+@pytest.mark.parametrize(
+    "compress_type", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA], ids=["bzip2", "lzma"]
+)
+def test_only_stored_and_deflated_members_are_taken(compress_type: int):
+    # Word packs parts with deflate (or stores them); other methods are not read at all.
+    data = with_part(make_docx(runs("x")), "customXml/pad.bin", b"\0" * 1024, compress_type)
+    with pytest.raises(DocxError) as error:
+        read_docx(data)
+    assert error.value.code == "template_broken"
+    stored = with_part(make_docx(runs("x")), "customXml/a.bin", b"a", zipfile.ZIP_STORED)
+    assert read_docx(stored).data["customXml/a.bin"] == b"a"
+
+
+def test_an_archive_with_two_parts_of_one_name_is_refused():
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        data = with_part(make_docx(runs("{{ФИО}}")), "word/document.xml", b"<x/>")
+    with pytest.raises(DocxError) as error:
+        read_docx(data)
+    assert error.value.code == "template_broken"
+
+
+@pytest.mark.parametrize(
+    ("element", "count"),
+    [("<w:t/>", MAX_NODES), ('<w:t w:a="" w:b="" w:c="" w:d=""/>', MAX_NODES // 4)],
+    ids=["elements", "attributes"],
+)
+def test_parts_with_too_many_nodes_are_refused(element: str, count: int):
+    # A few KB of zip that would be hundreds of MB once parsed.
+    read_docx(make_docx(f"<w:p>{element * (count // 2)}</w:p>"))
+    too_many = make_docx(f"<w:p>{element * count}</w:p>")
+    assert len(too_many) < 64 * 1024
+    with pytest.raises(DocxError) as error:
+        read_docx(too_many)
+    assert error.value.code == "template_too_large"
+
+
+def test_a_template_has_a_limited_number_of_codes():
+    # Each code written counts, in the body and in headers alike.
+    full = make_docx(runs("{{ФИО}} " * (MAX_CODES - 1)), header=runs("{{Full name}}"))
+    assert codes_in(read_docx(full)) == ["ФИО", "Full name"]
+    over = make_docx(runs("{{ФИО}} " * MAX_CODES), header=runs("{{Full name}}"))
+    with pytest.raises(DocxError) as error:
+        codes_in(read_docx(over))
+    assert error.value.code == "template_too_large"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [runs(*["{{ФИО}}"] * 20_000), runs("{{ФИО}}" * 20_000)],
+    ids=["one_paragraph_of_runs", "one_text_element"],
+)
+def test_twenty_thousand_codes_fill_in_well_under_a_second(body: str):
+    # A template stored before the limit of codes still fills, in time linear in its codes.
+    docx = read_docx(make_docx(body))
+    started = time.perf_counter()
+    filled = fill(docx, value_of)
+    assert time.perf_counter() - started < 1
+    assert paragraphs(filled) == ["Иван Тестов" * 20_000]
+
+
+@pytest.mark.parametrize(
+    ("texts", "filled"),
+    [
+        (["x{{Ф", "ИО}}y", "{{ФИО}}"], ["xИван Тестов", "y", "Иван Тестов"]),
+        (["{{Ф", "И", "О}}"], ["Иван Тестов", "", ""]),
+        (["{{", "Ф", "", "ИО}}!"], ["Иван Тестов", "", "", "!"]),
+        (
+            ["{{ФИО}}{{ФИО}}-{{ФИ", "О}}{{нет}}"],
+            ["Иван ТестовИван Тестов-Иван Тестов", "{{нет}}"],
+        ),
+        (["a{{ФИО", "}}b{{дата ", "рождения}}c"], ["aИван Тестов", "b05.10.1990", "c"]),
+        (["{{ФИО}}", "", "{{Full name}}"], ["Иван Тестов", "", "Ivan Testov"]),
+    ],
+    ids=["two_runs", "three_runs", "empty_run", "unknown_after", "two_codes", "empty_between"],
+)
+def test_each_value_goes_where_its_code_begins(texts: list[str], filled: list[str]):
+    data = make_docx(runs(*texts))
+    assert text_elements(fill(read_docx(data), value_of)) == filled
