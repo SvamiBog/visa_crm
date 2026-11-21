@@ -263,20 +263,19 @@ async def test_past_the_card_limit_an_edit_gives_no_card(
     assert (await client.patch(f"{CONTACTS}/{one['contact']['id']}", json={})).status_code == 200
     assert (await client.patch(f"/api/cases/{two['case']['id']}", json={})).status_code == 200
     assert (await client.patch(f"/api/cases/{one['case']['id']}", json={})).status_code == 200
-    group = {"case_id": one["case"]["id"]}
+    # Grouping cases is the specialist's alone (test_employee_cases.py).
     for paused in (
         await client.patch(f"{CONTACTS}/{three['contact']['id']}", json={}),
         await client.patch(f"/api/cases/{three['case']['id']}", json={}),
-        await client.post(f"/api/cases/{three['case']['id']}/group", json=group),
     ):
         assert (paused.status_code, paused.json().get("detail")) == (429, "card_limit_reached")
     viewed = await events(owner_engine, "contacts.viewed")
     assert [v.target_id for v in viewed] == [one["contact"]["id"], two["contact"]["id"]]
-    assert await events(owner_engine, "cases.grouped") == []
 
     # The specialist has no limits, and her edits are not logged as opens.
     await switch_to(client, "anna@example.com")
     assert (await client.patch(f"{CONTACTS}/{three['contact']['id']}", json={})).status_code == 200
+    group = {"case_id": one["case"]["id"]}
     grouped = await client.post(f"/api/cases/{three['case']['id']}/group", json=group)
     assert grouped.status_code == 200
     assert len(await events(owner_engine, "contacts.viewed")) == 2

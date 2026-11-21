@@ -32,7 +32,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.appointments import AttemptOut, QueueEntryOut, appointments_of, average_waits
 from app.api.bookings import BookingOut, bookings_of
 from app.api.client_status import Tab, latest_consultation, tab_of
-from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
+from app.api.deps import (
+    CurrentUser,
+    TenantSession,
+    require_module,
+    require_specialist,
+    workspace_today,
+)
 from app.core.audit import record
 from app.core.cases import (
     PLACE_FIELDS,
@@ -87,6 +93,10 @@ router = APIRouter(
 )
 
 Member = Annotated[CurrentUser, Depends(require_module("cases"))]
+# A case given to an employee opens its whole submission group to them
+# (employee_sees_case, migration 0031), so who joins which group is the specialist's
+# call, like the ticks themselves (app/api/case_access.py).
+Specialist = Annotated[CurrentUser, Depends(require_specialist)]
 
 MAX_APPLICANTS = 30
 EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
@@ -967,10 +977,12 @@ async def group_candidates(case_id: uuid.UUID, session: TenantSession) -> list[G
 
 @router.post("/cases/{case_id}/group")
 async def join_group(
-    case_id: uuid.UUID, body: GroupIn, user: Member, session: TenantSession
+    case_id: uuid.UUID, body: GroupIn, user: Specialist, session: TenantSession
 ) -> CaseOut:
     """Put two cases in one submission group. A case already in another group leaves it
-    first (the specialist does it explicitly), so groups are never merged by accident."""
+    first (the specialist does it explicitly), so groups are never merged by accident.
+    The specialist only: an employee moving a given case into a group would see the
+    group's other cases she never gave them."""
     if body.case_id == case_id:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "self_link")
     case = await _case(session, case_id)
@@ -995,11 +1007,15 @@ async def join_group(
 
 
 async def _leave(session: AsyncSession, user: CurrentUser, case: VisaCase) -> None:
-    """The case leaves its group; a group left with one case is dissolved."""
+    """The case leaves its group; a group left with one case is dissolved. Only the
+    specialist gets here (leave_group, delete_case)."""
     group_id = case.group_id
     case.group_id = None
     _audit(session, AuditAction.CASE_UNGROUPED, user, case, {"group": str(group_id)})
     await session.flush()
+    # The specialist's session sees every case of the group, so this is its real
+    # membership: deleting the group clears group_id of every member through the foreign
+    # key, past Row-Level Security, and each of them is logged below.
     remaining = list(await session.scalars(select(VisaCase).where(VisaCase.group_id == group_id)))
     if len(remaining) <= 1:
         for member in remaining:
@@ -1012,8 +1028,9 @@ async def _leave(session: AsyncSession, user: CurrentUser, case: VisaCase) -> No
 
 
 @router.delete("/cases/{case_id}/group", status_code=status.HTTP_204_NO_CONTENT)
-async def leave_group(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
-    """The case leaves its group; a group left with one case is dissolved."""
+async def leave_group(case_id: uuid.UUID, user: Specialist, session: TenantSession) -> Response:
+    """The case leaves its group; a group left with one case is dissolved. The specialist
+    only (see join_group)."""
     case = await _case(session, case_id)
     if case.group_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
