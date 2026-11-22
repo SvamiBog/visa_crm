@@ -18,6 +18,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.consultation_checks import Destination, check
 from app.core.days import Day
+from app.core.employee_limits import LimitKind, watch
 from app.core.money import Amount, Currency
 from app.core.questionnaire import Questionnaire, Refusal
 from app.models import (
@@ -308,6 +309,15 @@ async def update_consultation(
     consultation = await session.get(Consultation, consultation_id)
     if consultation is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    # The answer is a consultation of the card, so the edit opens the card (Т.14).
+    await watch(
+        session,
+        user,
+        LimitKind.CARDS,
+        "contact",
+        consultation.contact_id,
+        AuditAction.CONTACT_VIEWED,
+    )
     changes = body.model_dump(exclude_unset=True)
     for required in ("held_on", "applicants", "fee_paid", "destination_ids"):
         if changes.get(required, ...) is None:
@@ -337,6 +347,8 @@ async def replace_questionnaire(
 ) -> list[HintOut]:
     """Save the questionnaire answers; returns the checks against the latest consultation."""
     contact = await _contact(session, contact_id)
+    # The questionnaire is on the card, so saving it opens the card (Т.14).
+    await watch(session, user, LimitKind.CARDS, "contact", contact.id, AuditAction.CONTACT_VIEWED)
     contact.questionnaire = body.model_dump(mode="json")
     record(
         session,

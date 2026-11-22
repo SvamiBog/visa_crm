@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, a
 from app.core.db import scope_to_tenant
 from app.models import AuditEvent
 from tests.helpers import WALL_CLOCK, MakeUser, give_cases
-from tests.test_cases import CONTACTS, new_contact, open_case
+from tests.test_cases import CONTACTS, countries, new_contact, open_case
 from tests.test_documents import upload as upload_document
 from tests.test_employee_cases import EMPLOYEE, switch_to, user_id, with_employee
 from tests.test_templates import turn_on
@@ -325,3 +325,97 @@ async def test_past_the_card_limit_no_file_or_account_of_the_client_is_given(
         assert (paused.status_code, paused.json().get("detail")) == (429, "card_limit_reached"), url
     viewed = await events(owner_engine, "contacts.viewed")
     assert [v.target_id for v in viewed] == [made[1]["contact"]["id"]]
+
+
+async def card_sections(client: AsyncClient, contact_id: str, case_id: str) -> dict:
+    """What the card shows of a client beyond its header: read by the specialist, who has
+    no limit, to see that nothing changed."""
+    urls = {
+        "card": f"{CONTACTS}/{contact_id}",
+        "trips": f"{CONTACTS}/{contact_id}/trips",
+        "finance": f"/api/cases/{case_id}/finance",
+        "package": f"/api/cases/{case_id}/package",
+    }
+    out = {}
+    for name, url in urls.items():
+        response = await client.get(url)
+        assert response.status_code == 200, (url, response.text)
+        out[name] = response.json()
+    return out
+
+
+async def test_past_the_card_limit_no_section_of_the_card_is_given_or_changed(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant_id = await with_employee(client, make_user, owner_engine)
+    sections = ["stay_calculator", "package_check"]
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE tenants SET modules = modules || CAST(:m AS varchar[]) WHERE id = :t"),
+            {"m": sections, "t": tenant_id},
+        )
+        await conn.execute(
+            text("UPDATE users SET modules = modules || CAST(:m AS varchar[]) WHERE email = :e"),
+            {"m": sections, "e": EMPLOYEE},
+        )
+    [one, two] = await clients_with_cases(client, 2)
+    contact, case = two["contact"]["id"], two["case"]["id"]
+    poland = (await countries(client))["PL"]
+    trip = await client.post(
+        f"{CONTACTS}/{contact}/trips",
+        json={"country_id": poland, "entered_on": "2026-01-10", "left_on": "2026-01-20"},
+    )
+    await client.patch(f"/api/cases/{case}/finance", json={"price": "1234.00"})
+    money = {"amount": "100", "currency": "BYN"}
+    payment = await client.post(
+        f"/api/cases/{case}/payments", json={"paid_on": "2026-05-15", "official": True} | money
+    )
+    spent = {"spent_on": "2026-05-16", "description": "Перевод"}
+    expense = await client.post(f"/api/cases/{case}/expenses", json=spent | money)
+    item = await client.post(f"/api/checklists/{poland}/items", json={"name": "Билеты"})
+    consultation = await client.post(
+        f"{CONTACTS}/{contact}/consultations", json={"held_on": "2026-05-01", "notes": "Анна"}
+    )
+    await client.put(f"{CONTACTS}/{contact}/questionnaire", json={"note": "Анна"})
+    trip_id, item_id = trip.json()["id"], item.json()["id"]
+    payment_id = payment.json()["payments"][0]["id"]
+    expense_id = expense.json()["expenses"][0]["id"]
+    before = await card_sections(client, contact, case)
+    assert before["finance"]["price"] == "1234.00"
+    assert before["card"]["questionnaire"]["note"] == "Анна"
+    await give_cases(owner_engine, EMPLOYEE)
+    await set_limits(client, owner_engine, daily_card_limit=1)
+
+    await switch_to(client, EMPLOYEE)
+    assert (await client.get(f"{CONTACTS}/{one['contact']['id']}")).status_code == 200
+    # Each section of the other card, read or edited, opens that card: past the limit
+    # it gives nothing and changes nothing.
+    routes = [
+        ("GET", f"{CONTACTS}/{contact}/trips", None),
+        ("POST", f"{CONTACTS}/{contact}/trips", {"country_id": poland, "entered_on": "2026-02-01"}),
+        ("PATCH", f"/api/trips/{trip_id}", {"note": "Ольга"}),
+        ("GET", f"/api/cases/{case}/finance", None),
+        ("PATCH", f"/api/cases/{case}/finance", {"price": "1.00"}),
+        ("POST", f"/api/cases/{case}/payments", {"paid_on": "2026-05-17"} | money),
+        ("PATCH", f"/api/payments/{payment_id}", {"amount": "1"}),
+        ("DELETE", f"/api/payments/{payment_id}", None),
+        ("POST", f"/api/cases/{case}/expenses", spent | money),
+        ("PATCH", f"/api/expenses/{expense_id}", {"amount": "1"}),
+        ("DELETE", f"/api/expenses/{expense_id}", None),
+        ("GET", f"/api/cases/{case}/package", None),
+        ("PUT", f"/api/cases/{case}/package/{item_id}", {"state": "present"}),
+        ("PATCH", f"/api/consultations/{consultation.json()['id']}", {"notes": "Ольга"}),
+        ("PUT", f"{CONTACTS}/{contact}/questionnaire", {"note": "Ольга"}),
+    ]
+    answers = {}
+    for method, url, body in routes:
+        response = await client.request(method, url, json=body)
+        answer = response.json()
+        detail = answer.get("detail") if isinstance(answer, dict) else None
+        answers[f"{method} {url}"] = (response.status_code, detail)
+    assert answers == {route: (429, "card_limit_reached") for route in answers}
+    viewed = await events(owner_engine, "contacts.viewed")
+    assert [v.target_id for v in viewed] == [one["contact"]["id"]]
+
+    await switch_to(client, "anna@example.com")
+    assert await card_sections(client, contact, case) == before

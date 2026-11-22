@@ -24,6 +24,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.checklists import applies
 from app.core.days import Day
+from app.core.employee_limits import LimitKind, watch
 from app.core.package import ItemStatus, Summary, item_status, reference_day, summarize
 from app.models import (
     AuditAction,
@@ -84,11 +85,16 @@ class PackageOut(BaseModel):
 # --- Helpers -------------------------------------------------------------------------
 
 
-async def _case(session: AsyncSession, case_id: uuid.UUID) -> VisaCase:
-    """RLS hides other workspaces' rows, so their ids are simply not found."""
+async def _case(session: AsyncSession, user: CurrentUser, case_id: uuid.UUID) -> VisaCase:
+    """RLS hides other workspaces' rows, so their ids are simply not found. The package is
+    a section of the client's card: reading or marking it opens the card for an employee's
+    daily limit (Т.14), before anything is read or changed."""
     case = await session.get(VisaCase, case_id)
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    await watch(
+        session, user, LimitKind.CARDS, "contact", case.contact_id, AuditAction.CONTACT_VIEWED
+    )
     return case
 
 
@@ -176,8 +182,8 @@ async def package_summaries(
 
 
 @router.get("/cases/{case_id}/package")
-async def get_package(case_id: uuid.UUID, session: TenantSession) -> PackageOut:
-    case = await _case(session, case_id)
+async def get_package(case_id: uuid.UUID, user: Member, session: TenantSession) -> PackageOut:
+    case = await _case(session, user, case_id)
     on = reference_day(case.submission_on, await workspace_today(session, case.tenant_id))
     marks = (await _marks(session, [case.id]))[case.id]
     checklist = (await _checklists(session, [case]))[case.id]
@@ -200,7 +206,7 @@ async def mark_item(
     """Mark a document of the case's checklist; only items the case gets can be marked."""
     if body.document_date is not None and body.state != PackageItemState.PRESENT:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "document_date_needs_present")
-    case = await _case(session, case_id)
+    case = await _case(session, user, case_id)
     today = await workspace_today(session, case.tenant_id)
     # A document cannot be issued later than today: a mistyped year would pass as fresh.
     if body.document_date is not None and body.document_date > today:
