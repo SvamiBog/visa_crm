@@ -9,7 +9,9 @@ from app.api.auth import (
     CodeIn,
     _check_second_factor,
     check_current_password,
+    refuse_if_locked,
     reject_wrong_secret,
+    sign_out_other_devices,
 )
 from app.api.deps import CurrentUser, SystemSession, current_user_password_set
 from app.core.audit import record
@@ -73,21 +75,28 @@ async def start_setup(
 async def enable(
     body: CodeIn, current: CurrentUserPasswordSet, session: SystemSession
 ) -> RecoveryCodesOut:
-    """Confirm the app works with one code; returns recovery codes, shown only once."""
-    user = await session.get_one(User, current.id)
+    """Confirm the app works with one code; returns recovery codes, shown only once.
+
+    The row stays locked to the end, as at the login (audit h02.1): wrong codes count with
+    wrong logins, so a stolen session cannot guess the code of a setup the owner began and
+    left, and two confirmations at once do not both pass. Other devices are signed out: a
+    session stolen before 2FA was on must not outlive it (h01.2)."""
+    user = await session.get_one(User, current.id, with_for_update=True)
     if user.totp_enabled_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "two_factor_already_enabled")
     if user.totp_secret_encrypted is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "two_factor_setup_not_started")
+    await refuse_if_locked(session, user)
     step = verify_totp(unseal_secret(user.id, user.totp_secret_encrypted), body.code, None)
     if step is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_code")
+        await reject_wrong_secret(session, user, "code", "invalid_code")
 
     user.totp_enabled_at = datetime.now(UTC)
     user.totp_last_step = step
     codes = generate_recovery_codes()
     await session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
     session.add_all(RecoveryCode(user_id=user.id, code_hash=hash_recovery_code(c)) for c in codes)
+    await sign_out_other_devices(session, current)
     record(session, AuditAction.TWO_FACTOR_ENABLED, actor=user)
     await session.commit()
     return RecoveryCodesOut(recovery_codes=codes)
@@ -96,7 +105,8 @@ async def enable(
 @router.post("/disable", status_code=status.HTTP_204_NO_CONTENT)
 async def disable(body: DisableIn, current: CurrentUserPasswordSet, session: SystemSession) -> None:
     """Turn two-factor login off (it is optional): the password and a current code, so a
-    stolen session alone cannot do it. Wrong ones count towards the login lockout."""
+    stolen session alone cannot do it. Wrong ones count towards the login lockout. Other
+    devices are signed out, logins waiting for their code too (h01.2)."""
     user = await session.get_one(User, current.id, with_for_update=True)
     if user.totp_enabled_at is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "two_factor_not_enabled")
@@ -105,5 +115,6 @@ async def disable(body: DisableIn, current: CurrentUserPasswordSet, session: Sys
         await reject_wrong_secret(session, user, "two_factor_disable_code", "invalid_code")
     reset_two_factor(user)
     await session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
+    await sign_out_other_devices(session, current)
     record(session, AuditAction.TWO_FACTOR_DISABLED, actor=user)
     await session.commit()
