@@ -571,6 +571,8 @@
   "errors.unknown_employee": "There is no such employee in your workspace.",
   "errors.document_too_large": "The file is over 10 MB. Compress it or split it into parts.",
   "errors.document_type_not_allowed": "Only PDF and photos are accepted: JPEG, PNG, WebP, HEIC.",
+  "errors.too_many_documents": "This client already has 50 files. Delete the ones you don't need to add a new one.",
+  "errors.documents_storage_full": "Client files have taken all 10 GB set aside for the workspace. Delete the ones you don't need to add a new one.",
   "errors.storage_unavailable": "File storage is not set up yet. Contact the administrator.",
   "errors.storage_failed": "File storage did not respond. Try again later.",
   "errors.card_limit_reached": "Today's card limit is used up. Cards opened today still open; new ones open tomorrow or once the specialist raises the limit.",
