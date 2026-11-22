@@ -1,15 +1,31 @@
 import asyncio
+import threading
+import time
 from collections.abc import Callable
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.api.auth import MAX_FAILED_LOGINS
+from app.api.auth import CLIENT_WINDOW, MAX_CLIENT_FAILURES, MAX_FAILED_LOGINS
 from app.api.deps import SESSION_COOKIE
 from app.core import security
-from tests.helpers import CLOCK, NEW_PASSWORD, PASSWORD, MakeUser, enable_two_factor, login
+from tests.helpers import (
+    CLOCK,
+    NEW_PASSWORD,
+    PASSWORD,
+    MakeUser,
+    enable_two_factor,
+    login,
+    login_first_step,
+)
+
+
+def from_address(client: AsyncClient, ip: str) -> AsyncClient:
+    """Another client of the same app, coming from another address."""
+    transport = ASGITransport(app=client._transport.app, client=(ip, 50000))
+    return AsyncClient(transport=transport, base_url=client.base_url)
 
 
 async def test_login_sets_http_only_session_cookie(client: AsyncClient, make_user: MakeUser):
@@ -47,31 +63,6 @@ async def test_wrong_password_and_unknown_email_look_the_same(
     assert SESSION_COOKIE not in client.cookies
 
 
-async def test_lockout_after_ten_failed_attempts(client: AsyncClient, make_user: MakeUser):
-    await make_user("anna@example.com")
-    for _ in range(MAX_FAILED_LOGINS):
-        assert (await login(client, "anna@example.com", "nope")).status_code == 401
-    locked = await login(client, "anna@example.com")
-    assert locked.status_code == 423
-    assert locked.json() == {"detail": "account_locked"}
-
-
-async def test_wrong_passwords_sent_at_once_still_lock_the_account(
-    client: AsyncClient, make_user: MakeUser
-):
-    # Requests running side by side must not read the same counter and lose each other's
-    # misses: a burst tries no more passwords than attempts made one by one.
-    await make_user("anna@example.com")
-    burst = 2 * MAX_FAILED_LOGINS
-    misses = await asyncio.gather(
-        *(login(client, "anna@example.com", f"wrong-{n}-password") for n in range(burst))
-    )
-    statuses = [r.status_code for r in misses]
-    assert statuses.count(401) == MAX_FAILED_LOGINS
-    assert statuses.count(423) == burst - MAX_FAILED_LOGINS
-    assert (await login(client, "anna@example.com")).status_code == 423
-
-
 class CountingHasher:
     """The password hasher, noting each hash a password is checked against."""
 
@@ -82,6 +73,187 @@ class CountingHasher:
     def verify(self, password_hash: str, password: str) -> bool:
         self.checked.append(password_hash)
         return self.hasher.verify(password_hash, password)
+
+    def check_needs_rehash(self, password_hash: str) -> bool:
+        return self.hasher.check_needs_rehash(password_hash)
+
+
+def counting_hasher(monkeypatch: pytest.MonkeyPatch) -> CountingHasher:
+    hasher = CountingHasher(security._hasher)
+    monkeypatch.setattr(security, "_hasher", hasher)
+    return hasher
+
+
+async def test_lockout_after_ten_failed_attempts(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await make_user("anna@example.com")
+    for _ in range(MAX_FAILED_LOGINS):
+        assert (await login(client, "anna@example.com", "nope")).status_code == 401
+    # Even the right password is refused, with the answer an address without an account
+    # gets: a lock must not tell which addresses have one (audit L4).
+    locked = await login(client, "anna@example.com")
+    assert locked.status_code == 401
+    assert locked.json() == {"detail": "invalid_credentials"}
+
+    async with owner_engine.begin() as conn:
+        await conn.execute(text("UPDATE users SET locked_until = now() - interval '1 s'"))
+    assert (await login(client, "anna@example.com")).status_code == 200
+
+
+async def test_a_locked_account_answers_like_an_address_without_one(
+    client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+):
+    # Audit L4: ten misses and an eleventh try. The answer and the work behind it (the
+    # stand-in hash) are the same whether the address has an account or not.
+    await make_user("anna@example.com")
+    hasher = counting_hasher(monkeypatch)
+    eleventh = {}
+    for n, email in enumerate(("anna@example.com", "ghost@example.com")):
+        async with from_address(client, f"198.51.100.{n + 1}") as prober:
+            for miss in range(MAX_FAILED_LOGINS):
+                assert (await login(prober, email, f"wrong-{miss}-password")).status_code == 401
+            hasher.checked.clear()
+            eleventh[email] = (await login(prober, email), hasher.checked.copy())
+    (existing, existing_checked), (unknown, unknown_checked) = eleventh.values()
+    assert existing.status_code == unknown.status_code == 401
+    assert existing.json() == unknown.json() == {"detail": "invalid_credentials"}
+    assert existing.headers.get("set-cookie") is unknown.headers.get("set-cookie") is None
+    assert existing_checked == unknown_checked == [security._DUMMY_HASH]
+
+
+async def test_wrong_passwords_sent_at_once_still_lock_the_account(
+    client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+):
+    # Requests running side by side must not read the same counter and lose each other's
+    # misses: a burst tries no more passwords than attempts made one by one, and the
+    # tries beyond them answer like any wrong password.
+    await make_user("anna@example.com")
+    hasher = counting_hasher(monkeypatch)
+    burst = 2 * MAX_FAILED_LOGINS
+    misses = await asyncio.gather(
+        *(login(client, "anna@example.com", f"wrong-{n}-password") for n in range(burst))
+    )
+    assert [r.status_code for r in misses] == [401] * burst
+    assert {r.json()["detail"] for r in misses} == {"invalid_credentials"}
+    tried = [h for h in hasher.checked if h != security._DUMMY_HASH]
+    assert len(tried) == MAX_FAILED_LOGINS
+    assert (await login(client, "anna@example.com")).json() == {"detail": "invalid_credentials"}
+
+
+async def _idle_in_transaction(owner_engine: AsyncEngine) -> int:
+    """Connections to the test database that wait inside an open transaction."""
+    async with owner_engine.connect() as conn:
+        return await conn.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                "AND state LIKE 'idle in transaction%' AND pid <> pg_backend_pid()"
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("email", "password"),
+    [
+        ("anna@example.com", PASSWORD),
+        ("anna@example.com", "wrong-password"),
+        ("ghost@example.com", PASSWORD),
+    ],
+    ids=["right password", "wrong password", "no such account"],
+)
+async def test_password_is_checked_with_no_transaction_open(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+    email: str,
+    password: str,
+):
+    # Audit N6: argon2 takes a quarter of a CPU-second and 64 MiB. Checked inside a
+    # transaction, every anonymous login held one of the pool's connections the whole
+    # time, and a stream of them left no connection to anyone else.
+    await make_user("anna@example.com")
+    loop = asyncio.get_running_loop()
+    verify = security.verify_password
+    seen: list[int] = []
+
+    def watched(password_hash: str | None, given: str) -> bool:
+        waiting = asyncio.run_coroutine_threadsafe(_idle_in_transaction(owner_engine), loop)
+        seen.append(waiting.result(timeout=10))
+        return verify(password_hash, given)
+
+    monkeypatch.setattr(security, "verify_password", watched)
+    await login_first_step(client, email, password)
+    assert seen == [0]
+
+
+async def test_password_checks_run_a_few_at_a_time(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    # Each check takes 64 MiB: a crowd of logins must not run them all at once.
+    verify = security.verify_password
+    lock = threading.Lock()
+    running = [0]
+    most = [0]
+
+    def slow(password_hash: str | None, given: str) -> bool:
+        with lock:
+            running[0] += 1
+            most[0] = max(most[0], running[0])
+        time.sleep(0.05)
+        with lock:
+            running[0] -= 1
+        return verify(password_hash, given)
+
+    monkeypatch.setattr(security, "verify_password", slow)
+    crowd = 4 * security.PASSWORD_CHECKS_AT_ONCE
+    answers = await asyncio.gather(*(login(client, f"ghost-{n}@example.com") for n in range(crowd)))
+    assert [a.status_code for a in answers] == [401] * crowd
+    assert most[0] == security.PASSWORD_CHECKS_AT_ONCE
+
+
+async def test_failed_logins_from_one_client_are_limited(
+    client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+):
+    # Whoever tries addresses or passwords from one place gets a pause, before any
+    # password is checked: not even the right one passes, so the pause tells nothing.
+    await make_user("anna@example.com")
+    for n in range(MAX_CLIENT_FAILURES):
+        assert (await login(client, f"guess-{n}@example.com")).status_code == 401
+    hasher = counting_hasher(monkeypatch)
+    paused = await login(client, "anna@example.com")
+    assert paused.status_code == 429
+    assert paused.json() == {"detail": "account_locked"}
+    assert hasher.checked == []
+
+    # Someone else is not paused.
+    async with from_address(client, "203.0.113.7") as other:
+        assert (await login(other, "anna@example.com")).status_code == 200
+    # The pause ends when the misses are older than the window.
+    later = security._monotonic() + CLIENT_WINDOW.total_seconds() + 1
+    monkeypatch.setattr(security, "_monotonic", lambda: later)
+    assert (await login(client, "anna@example.com")).status_code == 200
+
+
+async def test_failed_logins_sent_at_once_from_one_client_are_limited(client: AsyncClient):
+    # Attempts in flight count too: a burst gets no more tries than one by one.
+    burst = MAX_CLIENT_FAILURES + 5
+    answers = await asyncio.gather(*(login(client, f"guess-{n}@example.com") for n in range(burst)))
+    statuses = [a.status_code for a in answers]
+    assert statuses.count(401) == MAX_CLIENT_FAILURES
+    assert statuses.count(429) == burst - MAX_CLIENT_FAILURES
+
+
+async def test_successful_logins_do_not_use_up_the_client_limit(
+    client: AsyncClient, make_user: MakeUser
+):
+    await make_user("anna@example.com", two_factor=False)
+    for n in range(MAX_CLIENT_FAILURES - 1):
+        await login(client, f"guess-{n}@example.com")
+    for _ in range(3):
+        assert (await login(client, "anna@example.com")).status_code == 200
+    assert (await login(client, "ghost@example.com")).status_code == 401
+    assert (await login(client, "anna@example.com")).status_code == 429
 
 
 async def test_unknown_email_is_checked_against_a_hash_too(
@@ -224,7 +396,9 @@ async def test_guessing_the_password_in_settings_locks_the_account_and_signs_out
     assert (await client.get("/api/auth/me")).status_code == 401
     assert (await other_device.get("/api/auth/me")).status_code == 401
     client.cookies.clear()
-    assert (await login(client, "anna@example.com")).status_code == 423
+    # The login page refuses even the right password, as for an unknown address (L4).
+    locked = await login(client, "anna@example.com")
+    assert locked.status_code == 401 and locked.json() == {"detail": "invalid_credentials"}
     await other_device.aclose()
 
 
