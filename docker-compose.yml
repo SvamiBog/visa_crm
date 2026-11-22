@@ -1,4 +1,9 @@
 # Local Postgres and a mail catcher for development: docker compose up -d
+# Ports are published on this computer only: the password below is public, and nobody
+# else on the network should reach the database or the letters. Both loopback addresses,
+# because `localhost` tries ::1 first, and on Windows a port on 127.0.0.1 alone makes
+# every connection to localhost wait about 2 seconds. On a machine with IPv6 turned off
+# Docker cannot bind [::1]: drop those lines there.
 services:
   db:
     # The major version of production (Railway) and CI.
@@ -8,7 +13,8 @@ services:
       POSTGRES_PASSWORD: visacrm
       POSTGRES_DB: visacrm
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
+      - "[::1]:5432:5432"
     volumes:
       # Postgres 18+ keeps its data in /var/lib/postgresql/18/docker: the volume is the
       # parent directory, so a later major version can sit next to it for pg_upgrade.
@@ -17,7 +23,9 @@ services:
   mail:
     image: axllent/mailpit:v1.21
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "[::1]:1025:1025"
+      - "127.0.0.1:8025:8025"
+      - "[::1]:8025:8025"
 volumes:
   pgdata:

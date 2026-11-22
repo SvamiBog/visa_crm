@@ -27,7 +27,7 @@
   | ежемесячные копии (за 1-е число) | `db/monthly/` | 12 месяцев |
   | файлы, удалённые в CRM | `files/` | 30 дней после удаления |
 
-- **Проверка.** На каждом PR задание CI `backup` проходит весь путь на демо-данных: бэкап → проверка, что копия зашифрована → восстановление в пустую базу → сверка каждой таблицы по содержимому, плюс RLS, политики, права и триггеры. Раз в месяц владелец проверяет настоящую копию (раздел 5).
+- **Проверка.** На каждом PR задание CI `backup` проходит весь путь на демо-данных: бэкап → проверка, что копия зашифрована → восстановление в отдельный Postgres без сети → сверка каждой таблицы по содержимому, плюс RLS, политики, права и триггеры. Ещё оно проверяет, что в восстановленной базе нет сессий входа, что `restore.sh` не берёт подброшенные в бакет копии и не принимает пароль базы в адресе. Раз в месяц владелец проверяет настоящую копию (раздел 5).
 - **Цена.** В B2 первые 10 ГБ бесплатно, дальше $6,95 за ТБ в месяц. Сервис cron работает минуту в сутки и укладывается в использование, которое входит в Pro.
 
 ## 1. Ключ шифрования
@@ -119,14 +119,15 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 
 Сначала решите, какой слой нужен:
 
-- **Ошибка в данных** (неудачная миграция, удалили лишнее), а проект Railway цел — восстановление Railway: Postgres → **Backups** → PITR на нужную минуту (deploy.md, раздел 7). Это быстрее и точнее суточной копии.
+- **Ошибка в данных** (неудачная миграция, удалили лишнее), а проект Railway цел — восстановление Railway: Postgres → **Backups** → PITR на нужную минуту (deploy.md, раздел 7). Это быстрее и точнее суточной копии. Railway создаст рядом новый сервис Postgres с данными на эту минуту, старая база останется как была. Прежде чем поставить веб-сервису `DATABASE_URL` на новую базу, сделайте в ней шаги из «Отзывы доступа после копии» ниже, начиная с удаления сессий.
+- Снимки Daily, Weekly и Monthly Railway восстанавливает в тот же сервис: после **Deploy** сайт сразу работает на старых данных, и сделать что-то до переключения не получится. Поэтому для отката берите PITR. Снимок — только если нужная минута старше окна PITR; тогда шаги «Отзывы доступа после копии» делайте сразу после Deploy.
 - **Нет проекта, тома или доступа к Railway** — внешняя копия, ниже.
 
 ### База
 
 Делается на своём компьютере с Docker.
 
-1. **Новая база.** Новый Postgres той же версии, например новый сервис в Railway. Временно включите ему публичное подключение (Settings → Networking → TCP Proxy) и возьмите адрес `postgresql://…`.
+1. **Новая база.** Новый Postgres той же версии, например новый сервис в Railway. Временно включите ему публичное подключение (Settings → Networking → TCP Proxy) и возьмите адрес `postgresql://USER:PASSWORD@HOST:PORT/railway`. Пароль из него пойдёт в `restore.env`, а в команду — адрес без пароля: `postgresql://USER@HOST:PORT/railway`.
 2. **Файл `restore.env`** в `~/visacrm-keys`, не в репозитории:
 
    ```
@@ -136,21 +137,79 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
    BACKUP_S3_ACCESS_KEY=<keyID ключа Read Only>
    BACKUP_S3_SECRET_KEY=<applicationKey этого ключа>
    BACKUP_AGE_IDENTITY=/keys/visacrm-backup-key.txt
+   PGPASSWORD=<пароль новой базы>
    ```
+
+   Пароль базы указывается только здесь. Адрес с паролем `restore.sh` не примет: адрес стоит в командной строке, а её видят все программы на компьютере.
 3. **Восстановление.** Закрытый ключ age временно положите в `~/visacrm-keys` (вне репозитория), туда же `restore.env`. Команды — из папки репозитория:
 
    ```bash
    docker build -t visacrm-backup ops/backup
    docker run --rm --env-file ~/visacrm-keys/restore.env -v ~/visacrm-keys:/keys:ro --entrypoint restore.sh \
-     visacrm-backup latest "postgresql://USER:PASSWORD@HOST:PORT/railway"
+     visacrm-backup latest "postgresql://USER@HOST:PORT/railway"
    ```
 
    В PowerShell — `"$HOME\visacrm-keys\restore.env"` и `"$HOME\visacrm-keys:/keys:ro"`, а перенос строки — обратная кавычка `` ` `` вместо `\`.
 
    Вместо `latest` можно указать конкретную копию: `daily/visacrm-20261101T010000Z.dump.age` или `monthly/…`. Список копий — в B2, в бакете.
 
-   `restore.sh` восстанавливает только в пустую базу: если в ней уже есть таблицы, он откажется. Перезаписать живые данные он не может.
-4. **Переключение.** Веб-сервису поставьте `DATABASE_URL` на новую базу. `VAULT_MASTER_KEY` нужен тот же, что был в production. Выключите TCP Proxy, удалите ключ age из папки `keys`.
+   `restore.sh` восстанавливает только в пустую базу: если в ней уже есть таблицы, он откажется. Перезаписать живые данные он не может. Сессии входа из копии он удаляет: после восстановления все входят заново.
+
+   **Какие копии берёт `restore.sh`.** Ключ бэкапа лежит в Railway и может писать в бакет, поэтому `restore.sh` берёт только копии, похожие на сделанные `backup.sh`:
+   - имя вида `visacrm-20261101T010000Z.dump.age`;
+   - время в имени не в будущем;
+   - B2 принял файл в течение 6 часов после этого времени (по часам B2);
+   - у файла одна версия.
+
+   `latest` — самая новая такая копия в `db/daily/`. Остальные файлы он пропускает и пишет `restore: skipped …` с причиной. Копию с двумя версиями (под её именем загрузили другой файл) он не восстанавливает ни через `latest`, ни по имени. Такие строки почти наверняка значат, что в бакет писал кто-то чужой. Восстановите более раннюю копию по имени. Потом смените ключ `railway-backup` в B2 и проверьте, у кого есть доступ к переменным сервиса `backup` в Railway.
+4. **Отзывы доступа.** До переключения сделайте шаги из «Отзывы доступа после копии» ниже. Время копии `restore.sh` печатает в последней строке.
+5. **Переключение.** Веб-сервису поставьте `DATABASE_URL` на новую базу. `VAULT_MASTER_KEY` нужен тот же, что был в production. Выключите TCP Proxy, удалите ключ age из папки `keys` и пароль из `restore.env`.
+
+### Отзывы доступа после копии
+
+Копия помнит доступы такими, какими они были в момент копии. Всё, что отозвали позже, в новой базе снова действует: заблокированный сотрудник или визовик входит по старому паролю, сброшенный пароль снова подходит, стёртый кабинет снова со всеми данными. Поэтому, пока сайт не переключён на новую базу:
+
+1. **Время копии.** Оно в имени копии: `visacrm-20261101T010000Z` — это 1 ноября 2026, 01:00 UTC. У PITR — выбранная минута.
+2. **Сессии.** После внешней копии их уже удалил `restore.sh`. После PITR удалите их в новой базе сами (новый сервис Postgres → **Data** → Query):
+
+   ```sql
+   DELETE FROM user_sessions;
+   ```
+3. **Что отозвали после копии.** Если старая база ещё открывается (после PITR она цела), выполните в ней запрос, подставив время копии:
+
+   ```sql
+   SELECT occurred_at, action, tenant_id, actor_id, target_id
+   FROM audit_events
+   WHERE occurred_at > '2026-11-01 01:00:00+00'
+     AND action IN ('employees.blocked', 'employees.password_reset',
+       'admin.specialist_blocked', 'admin.specialist_password_reset',
+       'auth.password_changed', 'auth.two_factor_disabled', 'auth.two_factor_reset',
+       'workspace.erased')
+   ORDER BY occurred_at;
+   ```
+
+   Сохраните результат у себя: этих записей журнала в новой базе не будет.
+4. **Повторите отзывы в новой базе**, по каждой строке результата:
+
+   | Событие | Что выполнить в новой базе |
+   | --- | --- |
+   | `employees.blocked` | `UPDATE users SET is_active = false WHERE id = '<target_id>';` |
+   | `admin.specialist_blocked`, `workspace.erased` | `UPDATE tenants SET is_active = false WHERE id = '<tenant_id>';` |
+   | `employees.password_reset`, `auth.two_factor_reset` | `UPDATE users SET password_hash = NULL WHERE id = '<target_id>';` |
+   | `admin.specialist_password_reset` | `UPDATE users SET password_hash = NULL WHERE tenant_id = '<tenant_id>' AND role = 'specialist';` |
+   | `auth.password_changed`, `auth.two_factor_disabled` | `UPDATE users SET password_hash = NULL WHERE id = '<actor_id>' AND role <> 'admin';` |
+
+   После переключения:
+   - Без пароля войти нельзя, пока не выдадут новый временный. Сотруднику его выдаёт визовик («Сотрудники» → «Новый пароль»), визовику — админ («Визовики» → «Новый пароль»). Новый пароль сбрасывает и двухфакторный вход.
+   - Стёртый кабинет админ разблокирует, когда визовик готов, и визовик сразу удаляет данные снова: «Настройки» → «Удалить все данные…».
+   - Админ, который сменил свой пароль после копии, входит старым и сразу меняет его снова.
+5. **Если списка нет** (старая база не открывается, своих записей нет), заблокируйте всех сотрудников:
+
+   ```sql
+   UPDATE users SET is_active = false WHERE role = 'employee';
+   ```
+
+   После переключения визовики разблокируют своих сотрудников сами. Визовикам, которые меняли пароль после копии, админ выдаёт новый временный.
 
 ### Файлы
 
@@ -167,21 +226,35 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 
 Копия, которую ни разу не восстанавливали, — не копия.
 
-1. **Пустая база.** `docker compose up -d db` — это Postgres 18, как в production: копию от `pg_dump` 18 в базу младшей версии не восстановить. Если `db` не запускается, а в `docker compose logs db` — `Error: in 18+…`, остался том от Postgres 16: README → «Запуск локально». Затем:
+В проверочной базе настоящие данные клиентов всех кабинетов, поэтому она живёт в отдельном контейнере Postgres без сети и без порта. По сети к ней не подключиться ни из локальной сети, ни с этого компьютера, только через сам Docker (`docker exec`). `restore.sh` достаёт до неё через сокет в общем томе Docker. Пароль базы случайный, он нигде не нужен. База из `docker compose` для проверки не годится: её пароль лежит в репозитории.
+
+1. **Пустая база.** Postgres 18, как в production: копию от `pg_dump` 18 в базу младшей версии не восстановить.
 
    ```bash
-   docker compose exec db createdb -U visacrm restore_drill
+   docker run -d --name visacrm-restore-drill --network none \
+     -v visacrm-restore-drill-socket:/var/run/postgresql \
+     -e POSTGRES_PASSWORD="$(openssl rand -hex 16)" -e POSTGRES_DB=restore_drill \
+     postgres:18 -c listen_addresses=
    ```
-2. **Восстановление.** Как в разделе 4, с адресом `postgresql://visacrm:visacrm@host.docker.internal:5432/restore_drill`.
-3. **Сверка.** Число клиентов и кейсов совпадает с тем, что видно в CRM на день копии:
+
+   В PowerShell пароль — `-e "POSTGRES_PASSWORD=$([guid]::NewGuid())"`, а перенос строки — обратная кавычка `` ` `` вместо `\`. База готова, когда `docker logs visacrm-restore-drill` показывает `PostgreSQL init process complete`.
+2. **Восстановление.** Как в разделе 4, шаги 2–3. `PGPASSWORD` в `restore.env` не нужен, а к команде добавляется том с сокетом:
 
    ```bash
-   docker compose exec db psql -U visacrm restore_drill -c "SELECT (SELECT count(*) FROM contacts) AS contacts, (SELECT count(*) FROM visa_cases) AS cases"
+   docker run --rm --env-file ~/visacrm-keys/restore.env -v ~/visacrm-keys:/keys:ro \
+     -v visacrm-restore-drill-socket:/var/run/postgresql --entrypoint restore.sh \
+     visacrm-backup latest "postgresql:///restore_drill?host=/var/run/postgresql"
    ```
-4. **Удаление.** Удалите проверочную базу и ключ с диска — в ней настоящие данные клиентов:
+3. **Сверка.** Число клиентов и кейсов совпадает с тем, что видно в CRM на день копии, а сессий входа — 0:
 
    ```bash
-   docker compose exec db dropdb -U visacrm restore_drill
+   docker exec visacrm-restore-drill psql -U postgres restore_drill -c "SELECT (SELECT count(*) FROM contacts) AS contacts, (SELECT count(*) FROM visa_cases) AS cases, (SELECT count(*) FROM user_sessions) AS sessions"
+   ```
+4. **Удаление.** Удалите контейнер вместе с базой (`-v` удаляет и её том), том с сокетом и ключ с диска:
+
+   ```bash
+   docker rm -f -v visacrm-restore-drill
+   docker volume rm visacrm-restore-drill-socket
    ```
 5. **Запись.** Запишите строку ниже.
 
