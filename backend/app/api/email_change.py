@@ -13,15 +13,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.auth import MeOut, _me, check_current_password
 from app.api.deps import CurrentUser, SystemSession, current_user
 from app.core.audit import record
 from app.core.mail import Mail, MailFailed, MailNotConfigured, send_mail
-from app.core.security import MAX_PASSWORD_LENGTH, hash_password, verify_password
-from app.models import AuditAction, EmailChange, User, UserSession
+from app.core.security import MAX_PASSWORD_LENGTH, check_password, hash_password
+from app.models import AuditAction, AuditEvent, EmailChange, User, UserSession
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,9 @@ router = APIRouter(prefix="/auth/email-change", tags=["auth"])
 CODE_TTL = timedelta(minutes=30)
 RESEND_AFTER = timedelta(seconds=60)
 MAX_CODE_ATTEMPTS = 5
+# Code letters one user may have sent in 24 hours: each goes to an address nobody has
+# confirmed yet, so the form must not become a way to mail anyone over and over.
+MAX_CODES_A_DAY = 10
 EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 
@@ -135,6 +138,20 @@ async def request_change(
     pending = await session.get(EmailChange, user.id)
     if pending is not None and pending.sent_at + RESEND_AFTER > now:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "code_sent_recently")
+    # Only letters that left are in the log: a failed send rolls its record back. The user
+    # row is locked, so requests sent at once count one after another.
+    sent_today = await session.scalar(
+        select(func.count())
+        .select_from(AuditEvent)
+        .where(
+            AuditEvent.actor_id == user.id,
+            AuditEvent.action == AuditAction.EMAIL_CHANGE_REQUESTED,
+            AuditEvent.occurred_at > now - timedelta(days=1),
+        )
+    )
+    if sent_today >= MAX_CODES_A_DAY:
+        # No code of its own: the nearest text is the pause before the next code.
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "code_sent_recently")
     if pending is None:
         pending = EmailChange(user_id=user.id)
         session.add(pending)
@@ -163,20 +180,43 @@ async def confirm_change(
     current: Annotated[CurrentUser, Depends(current_user)],
     session: SystemSession,
 ) -> MeOut:
-    user = await session.get_one(User, current.id)
-    pending = await session.get(EmailChange, user.id)
-    now = datetime.now(UTC)
-    if pending is None or pending.expires_at <= now:
+    # Each check takes one of the code's attempts before argon2 runs, in a short
+    # transaction of its own: checks sent at once take turns at the counter and none is
+    # left out, a spent code is not checked at all, and no connection waits on argon2.
+    taken = (
+        await session.execute(
+            update(EmailChange)
+            .where(
+                EmailChange.user_id == current.id,
+                EmailChange.attempts < MAX_CODE_ATTEMPTS,
+                EmailChange.expires_at > datetime.now(UTC),
+            )
+            .values(attempts=EmailChange.attempts + 1)
+            .returning(EmailChange.attempts, EmailChange.code_hash)
+        )
+    ).one_or_none()
+    await session.commit()
+    if taken is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "code_expired")
-    if not verify_password(pending.code_hash, body.code):
-        pending.attempts += 1
-        if pending.attempts >= MAX_CODE_ATTEMPTS:
-            # Too many guesses: start again, with the password.
-            await session.delete(pending)
+    attempt, code_hash = taken
+    if not await check_password(code_hash, body.code):
+        if attempt >= MAX_CODE_ATTEMPTS:
+            # Too many guesses: start again, with the password. The row stays, expired,
+            # so the pause before the next code is kept (as in cancel_change).
+            await session.execute(
+                update(EmailChange)
+                .where(EmailChange.user_id == current.id, EmailChange.code_hash == code_hash)
+                .values(expires_at=datetime.now(UTC))
+            )
             await session.commit()
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "code_expired")
-        await session.commit()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid_code")
+
+    user = await session.get_one(User, current.id, with_for_update=True)
+    pending = await session.get(EmailChange, user.id, with_for_update=True)
+    if pending is None or pending.code_hash != code_hash or pending.expires_at <= datetime.now(UTC):
+        # A new code was asked for meanwhile, or a miss sent at the same time spent this one.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "code_expired")
 
     old_email, new_email = user.email, pending.new_email
     record(session, AuditAction.EMAIL_CHANGED, actor=user)
