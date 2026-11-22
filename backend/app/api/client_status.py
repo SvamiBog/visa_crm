@@ -9,6 +9,10 @@ exactly one tab, computed in SQL so search, filters, paging and counts agree.
   and not covered by a case yet (`covers`); also a new contact with no consultations or
   cases.
 - «Архив» (archive): the rest — a «no», or all cases at the result stage.
+
+Without the «cases» module the index tells nothing about cases (audit L3, owner's
+decision 2026-11-22): tabs and counts go as if the contact had no cases, and the filters
+by a case's stage, registrar and destination are left out.
 """
 
 import uuid
@@ -158,7 +162,16 @@ def covers(
     )
 
 
-def tab_of(latest: Lateral) -> ColumnElement[str]:
+def tab_of(latest: Lateral, *, with_cases: bool = True) -> ColumnElement[str]:
+    """The contact's tab; without the «cases» module, as if they had no cases."""
+    if not with_cases:
+        return case(
+            (latest.c.decision == Decision.THINKING, Tab.THINKING.value),
+            (latest.c.id.is_(None), Tab.CONSULT.value),
+            (latest.c.decision.is_(None), Tab.CONSULT.value),
+            (latest.c.decision == Decision.YES, Tab.CONSULT.value),
+            else_=Tab.ARCHIVE.value,
+        )
     in_work = exists().where(of_contact(Contact.id), VisaCase.stage != CaseStage.RESULT)
     any_case = exists().where(VisaCase.contact_id == Contact.id)
     covered = exists().where(covers(latest.c.id, Contact.id, latest.c.held_on, latest.c.created_at))
@@ -227,18 +240,23 @@ def filter_contacts(
     stage: CaseStage | None = None,
     channel_id: uuid.UUID | None = None,
     registrar_id: uuid.UUID | None = None,
+    with_cases: bool,
 ) -> Select:
     """Country: of a case or of the latest consultation. Stage and registrar: of a case —
-    the contact's own or one opened from their consultation (`of_contact`)."""
+    the contact's own or one opened from their consultation (`of_contact`). Without the
+    «cases» module only the consultation counts: the filters by a case are left out, so
+    they neither narrow the list nor tell anything about the cases."""
     if channel_id is not None:
         query = query.where(Contact.lead_channel_id == channel_id)
     if country_id is not None:
-        query = query.where(
-            or_(
-                exists().where(of_contact(Contact.id), VisaCase.destination_id == country_id),
-                any_(latest.c.destination_ids) == country_id,
-            )
-        )
+        by_consultation = any_(latest.c.destination_ids) == country_id
+        if with_cases:
+            by_case = exists().where(of_contact(Contact.id), VisaCase.destination_id == country_id)
+            query = query.where(or_(by_case, by_consultation))
+        else:
+            query = query.where(by_consultation)
+    if not with_cases:
+        return query
     if stage is not None:
         query = query.where(exists().where(of_contact(Contact.id), VisaCase.stage == stage))
     if registrar_id is not None:

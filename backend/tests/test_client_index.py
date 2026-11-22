@@ -161,6 +161,121 @@ async def test_rows_without_the_cases_module(
     assert (await client.get("/api/cases/board")).status_code == 403
 
 
+# A made-up number the visa center knows Anna's case by.
+VAC_NUMBER = "V02QJX-7731"
+
+
+async def given_to_olga(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, modules: list[str]
+) -> dict[str, str]:
+    """Anna said «yes» and has a case to Poland (the VAC number, registrar Ivan, at the
+    submission stage); Boris has a case to France and no consultation. Both cases are
+    given to the employee Olga, who has `modules` and is then signed in."""
+    tenant_id = await as_specialist(client, make_user)
+    ivan, petr = [
+        (
+            await client.post(
+                "/api/dictionaries/registrars", json={"name": name, "kind": "individual"}
+            )
+        ).json()["id"]
+        for name in ("Иван", "Пётр")
+    ]
+    anna = await contact(client, "Анна")
+    await consult(client, anna, decision="yes")
+    case = await open_case(client, anna, registrar_id=ivan)
+    changed = await client.patch(
+        f"/api/cases/{case['id']}", json={"vac_number": VAC_NUMBER, "stage": "submission"}
+    )
+    assert changed.json()["stage"] == "submission", changed.text
+    await open_case(client, await contact(client, "Борис"), destination="FR")
+    client.cookies.clear()
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE users SET modules = :modules WHERE email = 'olga@example.com'"),
+            {"modules": modules},
+        )
+    await give_cases(owner_engine, "olga@example.com")
+    await login(client, "olga@example.com")
+    return {"case": case["id"], "ivan": ivan, "petr": petr}
+
+
+async def test_case_fields_neither_find_nor_narrow_without_the_cases_module(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Search must not answer questions about a case the user may not open (audit L3):
+    the VAC number, stage, registrar and destination of Anna's case give the same rows
+    and counts as values that are nobody's. The country filter keeps the consultations."""
+    ids = await given_to_olga(client, make_user, owner_engine, ["clients"])
+    codes = await countries(client)
+    assert (await client.get(f"/api/cases/{ids['case']}")).status_code == 403
+
+    nobodys = await search(client, query="V02QJX-78")
+    for probe in (VAC_NUMBER, "V02QJX-77", "QJX-773"):
+        assert await search(client, query=probe) == nobodys
+    assert nobodys["items"] == [] and nobodys["counts"]["all"] == 0
+    everyone = await search(client)
+    for tab in ("all", "work", "consult"):
+        assert await search(client, tab=tab, stage="submission") == await search(
+            client, tab=tab, stage="waiting"
+        )
+        assert await search(client, tab=tab, registrar_id=ids["ivan"]) == await search(
+            client, tab=tab, registrar_id=ids["petr"]
+        )
+        assert await search(client, tab=tab, country_id=codes["PL"]) == await search(
+            client, tab=tab, country_id=codes["IT"]
+        )
+    # Without the module a filter on the case does not narrow the list at all.
+    assert await search(client, stage="submission") == everyone
+    assert await search(client, registrar_id=ids["ivan"]) == everyone
+
+
+async def test_tabs_go_by_consultations_alone_without_the_cases_module(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Without the module a client's tab is counted as if they had no cases (owner's
+    decision 2026-11-22): the tab does not tell whether a case is in work or done."""
+    ids = await given_to_olga(client, make_user, owner_engine, ["clients"])
+    before = await search(client)
+    assert names(before) == {"Анна", "Борис"}
+    # Anna said «yes» and Boris has no consultation: both are «consultations».
+    assert before["counts"] == {"all": 2, "work": 0, "consult": 2, "thinking": 0, "archive": 0}
+    assert {row["tab"] for row in before["items"]} == {"consult"}
+
+    # The specialist enters the result of Anna's case: nothing in Olga's search changes.
+    client.cookies.clear()
+    await login(client, "anna@example.com")
+    done = await client.patch(f"/api/cases/{ids['case']}", json={"outcome": "visa"})
+    assert done.json()["stage"] == "result", done.text
+    client.cookies.clear()
+    await login(client, "olga@example.com")
+    assert await search(client) == before
+
+
+async def test_case_fields_find_and_narrow_with_the_cases_module(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """With the module the same employee finds clients by the VAC number and the filters
+    and tabs go by the cases, as for the specialist."""
+    ids = await given_to_olga(client, make_user, owner_engine, ["clients", "cases"])
+    codes = await countries(client)
+    for probe in (VAC_NUMBER, "V02QJX-77", "QJX-773"):
+        assert names(await search(client, query=probe)) == {"Анна"}
+    assert await search(client, query="V02QJX-78") == await search(client, query="nobody")
+    assert names(await search(client, stage="submission")) == {"Анна"}
+    assert names(await search(client, stage="waiting")) == {"Борис"}
+    assert names(await search(client, registrar_id=ids["ivan"])) == {"Анна"}
+    assert names(await search(client, registrar_id=ids["petr"])) == set()
+    assert names(await search(client, country_id=codes["PL"])) == {"Анна"}
+    assert (await search(client))["counts"] == {
+        "all": 2,
+        "work": 2,
+        "consult": 0,
+        "thinking": 0,
+        "archive": 0,
+    }
+
+
 async def test_board(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     codes = await countries(client)
