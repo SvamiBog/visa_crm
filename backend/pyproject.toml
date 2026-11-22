@@ -27,6 +27,12 @@ dev = [
     "ruff>=0.8",
     "pytest-asyncio>=0.25",
 ]
+# Tools the CI security job runs from the lock (`uv run --frozen --only-group audit`), so
+# their versions and hashes are pinned in uv.lock. Not a default group: `uv sync` and the
+# image do not install it.
+audit = [
+    "pip-audit>=2.10.1",
+]
 
 [tool.ruff]
 line-length = 100

@@ -5,6 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+# The job token only reads the repository. A job that needs more gets it in its own
+# permissions block. Actions are pinned by commit SHA (the version in the comment) and
+# images by digest, so a moved tag cannot change what runs here.
+permissions:
+  contents: read
+
+env:
+  # uv of every job: the same release as the image's (Dockerfile), checked against the
+  # sha256 of that release's uv-x86_64-unknown-linux-gnu.tar.gz.
+  PINNED_UV_VERSION: "0.13.9"
+  PINNED_UV_SHA256: a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -13,7 +25,8 @@ jobs:
         working-directory: backend
     services:
       postgres:
-        image: postgres:18
+        # The same digest in every job (postgres 18.7).
+        image: postgres:18@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
         env:
           POSTGRES_USER: visacrm
           POSTGRES_PASSWORD: visacrm
@@ -25,24 +38,39 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # A pull request is checked out as its merge commit; its first parent is the base.
-          fetch-depth: 2
-      # Migrations are not edited after merge (CLAUDE.md → «Как работать»): a pull request
-      # only adds files to migrations/versions. .claude/hooks/guard-migrations.cjs stops such
-      # edits inside Claude Code; this catches the rest.
+          # The whole history: the guard below needs the commit main was at before a push,
+          # which may be several commits back.
+          fetch-depth: 0
+          persist-credentials: false
+      # Migrations are not edited after merge (CLAUDE.md → «Как работать»): a change only
+      # adds files to migrations/versions. .claude/hooks/guard-migrations.cjs stops such
+      # edits inside Claude Code; this catches the rest. A pull request is compared with its
+      # base (the merge commit's first parent), a push to main with main before it: the
+      # push run is the verdict Railway waits for before it deploys.
       - name: Merged migrations are unchanged
-        if: github.event_name == 'pull_request'
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          changed="$(git diff --name-only --diff-filter=DMR HEAD^1 HEAD -- migrations/versions)"
+          if [ "$EVENT" = pull_request ]; then base="HEAD^1"; else base="$BEFORE"; fi
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "The commit to compare with ($base) is not in the history (a force push?)."
+            exit 1
+          fi
+          changed="$(git diff --name-only --diff-filter=DMR "$base" HEAD -- migrations/versions)"
           if [ -n "$changed" ]; then
             echo "Merged migrations edited, renamed or removed (add a new revision instead):"
             echo "$changed"
             exit 1
           fi
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.PINNED_UV_VERSION }}
+          checksum: ${{ env.PINNED_UV_SHA256 }}
+      # --locked: exactly uv.lock; a lock out of step with pyproject.toml fails here.
+      - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run pytest
 
@@ -52,12 +80,78 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      - run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      # Only package-lock.json: without it the job fails instead of resolving afresh.
+      - run: npm ci
       - run: npm run build
+
+  # The image Railway deploys (root Dockerfile, docs/deploy.md): it builds, starts the way
+  # Railway starts it (start.sh migrates an empty database, then uvicorn listens on $PORT),
+  # answers the healthcheck and serves the frontend, and the app cannot write its own files.
+  image:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
+        env:
+          POSTGRES_USER: visacrm
+          POSTGRES_PASSWORD: visacrm
+          POSTGRES_DB: visacrm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the image
+        run: docker build -t visacrm:ci .
+      - name: Start it like Railway
+        run: |
+          # A throwaway database and key of this run only: these are not secrets.
+          docker run -d --name app --network host \
+            -e ENV=production -e PORT=8080 \
+            -e DATABASE_URL=postgresql://visacrm:visacrm@localhost:5432/visacrm \
+            -e VAULT_MASTER_KEY="$(openssl rand -base64 32)" \
+            visacrm:ci
+          for _ in $(seq 1 60); do
+            health="$(curl -sf "localhost:8080/api/health?db=1" || true)"
+            if [[ "$health" == *'"db":"ok"'* ]]; then echo "$health"; exit 0; fi
+            sleep 1
+          done
+          echo "No healthy answer from /api/health?db=1 in 60 s."
+          exit 1
+      - name: Migrated to the head revision, frontend served
+        run: |
+          current="$(docker exec app alembic current 2>/dev/null)"
+          head="$(docker exec app alembic heads 2>/dev/null)"
+          echo "current: $current; head: $head"
+          if [ -z "$head" ] || [ "${current%% *}" != "${head%% *}" ]; then
+            echo "The database is not at the head revision."
+            exit 1
+          fi
+          page="$(curl -sf localhost:8080/)"
+          if [[ "$page" != *'<div id="root">'* ]]; then
+            echo "The frontend is not served at /."
+            exit 1
+          fi
+      - name: Runs unprivileged and cannot write its own files
+        run: |
+          docker exec app sh -c '
+            echo "uid $(id -u)"
+            [ "$(id -u)" != 0 ] || { echo "The app runs as root."; exit 1; }
+            writable="$(find /srv -writable -print)"
+            [ -z "$writable" ] || { echo "Writable by the app:"; echo "$writable"; exit 1; }
+            [ -w "$TMPDIR" ] || { echo "The temporary directory is not writable."; exit 1; }'
+      - name: Container log
+        if: always()
+        run: docker logs app 2>&1 | tail -n 100 || true
 
   # Forms in a real browser against the app with demo data (frontend/e2e): the fields of
   # a row line up in both languages and at every width.
@@ -65,7 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:18@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
         env:
           POSTGRES_USER: visacrm
           POSTGRES_PASSWORD: visacrm
@@ -80,16 +174,21 @@ jobs:
       ENV: staging
       DEMO_PASSWORD: ci-demo-password
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.PINNED_UV_VERSION }}
+          checksum: ${{ env.PINNED_UV_SHA256 }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - name: Start the app with demo data
         run: |
           (cd frontend && npm ci && npm run build)
           cd backend
-          uv sync
+          uv sync --locked
           export VAULT_MASTER_KEY="$(uv run python -m app.cli generate-master-key)"
           uv run alembic upgrade head
           uv run python -m app.cli seed-demo --specialists 1 --clients 30
@@ -102,7 +201,7 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npx playwright test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         continue-on-error: true
         with:
@@ -120,7 +219,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:18@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
         env:
           POSTGRES_USER: visacrm
           POSTGRES_PASSWORD: visacrm
@@ -135,12 +234,17 @@ jobs:
       ENV: staging
       DEMO_PASSWORD: ci-demo-password
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.PINNED_UV_VERSION }}
+          checksum: ${{ env.PINNED_UV_SHA256 }}
       - name: Demo data
         working-directory: backend
         run: |
-          uv sync
+          uv sync --locked
           export VAULT_MASTER_KEY="$(uv run python -m app.cli generate-master-key)"
           uv run alembic upgrade head
           uv run python -m app.cli seed-demo --specialists 1 --clients 30
@@ -163,7 +267,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:18@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
         env:
           POSTGRES_USER: visacrm
           POSTGRES_PASSWORD: visacrm
@@ -179,16 +283,24 @@ jobs:
       DEMO_PASSWORD: ci-demo-password
       DEMO_TOTP_SECRET: JBSWY3DPEHPK3PXP
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.PINNED_UV_VERSION }}
+          checksum: ${{ env.PINNED_UV_SHA256 }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
+      # pip-audit and its dependencies come from uv.lock with their hashes (the audit group
+      # of pyproject.toml), not from whatever PyPI serves on the day of the run.
       - name: Python dependencies with known vulnerabilities
         working-directory: backend
         run: |
-          uv export --no-dev --no-emit-project --format requirements-txt > /tmp/requirements.txt
-          uvx pip-audit -r /tmp/requirements.txt --disable-pip --progress-spinner off
+          uv export --locked --no-dev --no-emit-project --format requirements-txt > /tmp/requirements.txt
+          uv run --frozen --only-group audit \
+            pip-audit -r /tmp/requirements.txt --disable-pip --progress-spinner off
       - name: npm dependencies with known high or critical vulnerabilities
         working-directory: frontend
         run: |
@@ -198,7 +310,7 @@ jobs:
         run: |
           (cd frontend && npm run build)
           cd backend
-          uv sync
+          uv sync --locked
           export VAULT_MASTER_KEY="$(uv run python -m app.cli generate-master-key)"
           uv run alembic upgrade head
           uv run python -m app.cli seed-demo --specialists 1 --clients 30
@@ -211,9 +323,11 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p zap && chmod 777 zap
-          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+          # The stable image as of 2026-11-03, pinned: it runs with --network host.
+          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
             zap-baseline.py -t http://localhost:8000 -r zap-report.html -J zap-report.json -I
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         # The report is for reading, like the scan: a full artifact quota must not fail the job
         # (the scan's summary is in the job log anyway).
