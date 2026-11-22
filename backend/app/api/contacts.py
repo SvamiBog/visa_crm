@@ -407,11 +407,17 @@ async def _relations(session: AsyncSession, contact_id: uuid.UUID) -> list[Relat
 
 async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> ContactCard:
     with_cases = "cases" in await effective_modules(session, user)
+    consultations = await consultations_of(session, contact.id)
+    if not with_cases:
+        # Nor the cases a consultation led to: their number, destination and stage are
+        # the case's (audit L3).
+        for consultation in consultations:
+            consultation.cases = []
     return ContactCard(
         contact=ContactOut.model_validate(contact),
         notes=await _notes(session, contact.id),
         relations=await _relations(session, contact.id),
-        consultations=await consultations_of(session, contact.id),
+        consultations=consultations,
         questionnaire=Questionnaire.model_validate(contact.questionnaire),
         hints=await hints_for(session, contact),
         cases=await cases_of(session, contact.id) if with_cases else None,
@@ -438,9 +444,14 @@ async def _own_note(
 @router.post("/search")
 async def search_contacts(body: SearchIn, user: Member, session: TenantSession) -> SearchOut:
     """By name (Cyrillic or Latin), part of the phone number or Telegram, within a tab of
-    the client index and its filters; newest first or by the sorted column."""
+    the client index and its filters; newest first or by the sorted column. What a module
+    holds is searched only with that module: without «cases» nothing in a case finds,
+    filters or sorts a contact, nor decides their tab (audit L3), as the card shows no
+    cases."""
+    modules = await effective_modules(session, user)
+    with_cases = "cases" in modules
     latest = latest_consultation()
-    tab = tab_of(latest)
+    tab = tab_of(latest, with_cases=with_cases)
     query = select(Contact, tab.label("tab")).outerjoin(latest, true())
     term = telegram_nick(body.query)
     if term:
@@ -448,10 +459,13 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
             _has(Contact.full_name, term),
             _has(Contact.full_name_latin, term),
             _has(Contact.telegram, term),
-            # The number the visa center knows the client by (ID, application number…).
-            exists().where(VisaCase.contact_id == Contact.id, _has(VisaCase.vac_number, term)),
         ]
-        if "vault" in await effective_modules(session, user):
+        if with_cases:
+            # The number the visa center knows the client by (ID, application number…).
+            conditions.append(
+                exists().where(VisaCase.contact_id == Contact.id, _has(VisaCase.vac_number, term))
+            )
+        if "vault" in modules:
             # The login of an account in the vault: whose account is on this mailbox.
             conditions.append(
                 exists().where(VaultEntry.contact_id == Contact.id, _has(VaultEntry.login, term))
@@ -468,6 +482,7 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
         stage=body.stage,
         channel_id=body.channel_id,
         registrar_id=body.registrar_id,
+        with_cases=with_cases,
     )
 
     tabs = query.with_only_columns(tab.label("tab")).subquery()
@@ -479,7 +494,6 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
 
     if body.tab != Tab.ALL:
         query = query.where(tab == body.tab.value)
-    with_cases = "cases" in await effective_modules(session, user)
     query = sort_contacts(query, latest, body.sort, with_cases)
     rows = (await session.execute(query.offset(body.offset).limit(SEARCH_LIMIT + 1))).all()
     page = rows[:SEARCH_LIMIT]

@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api import contacts
-from tests.helpers import MakeUser, give_cases, login
+from tests.helpers import MakeUser, give_cases, login, workspace_today
 from tests.test_cases import open_case
 
 BASE = "/api/contacts"
@@ -559,3 +559,40 @@ async def test_only_the_specialist_deletes_a_card(
 
     await as_specialist(client, make_user, "bella@example.com")
     assert (await client.delete(f"{BASE}/{contact['id']}")).status_code == 404
+
+
+async def test_card_shows_no_cases_of_a_consultation_without_the_cases_module(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """The card has no cases without the module (audit L3), and neither has the list of
+    its consultations: «Открыт кейс №1, Польша · Подача» would tell the case's number,
+    destination and stage to someone who may not open it."""
+    tenant_id = await as_specialist(client, make_user)
+    contact = await create(client)
+    consultation = await client.post(
+        f"{BASE}/{contact['id']}/consultations",
+        json={"held_on": workspace_today().isoformat(), "decision": "yes"},
+    )
+    assert consultation.status_code == 201, consultation.text
+    opened = await open_case(client, contact["id"], consultation_id=consultation.json()["id"])
+    assert opened.status_code == 201, opened.text
+    client.cookies.clear()
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+
+    async def card_with(modules: list[str]) -> dict:
+        async with owner_engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE users SET modules = :modules WHERE email = 'olga@example.com'"),
+                {"modules": modules},
+            )
+        return (await client.get(f"{BASE}/{contact['id']}")).json()
+
+    await give_cases(owner_engine, "olga@example.com")
+    await login(client, "olga@example.com")
+    without = await card_with(["clients"])
+    assert without["cases"] is None
+    assert [c["cases"] for c in without["consultations"]] == [[]]
+    # With the module the same employee sees which case the consultation led to.
+    with_cases = await card_with(["clients", "cases"])
+    [[case]] = [c["cases"] for c in with_cases["consultations"]]
+    assert case["id"] == opened.json()[0]["id"]
