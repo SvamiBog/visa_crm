@@ -13,7 +13,6 @@ app/core/import_cards.py; the rules are in docs/decisions.md → «Формат 
 «Карточки до загрузки».
 """
 
-import asyncio
 import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
@@ -43,7 +42,7 @@ from app.core.import_cards import cards, render, summary
 from app.core.import_jobs import ImportJob, ImportRunning
 from app.core.import_prompt import import_prompt
 from app.core.import_uploads import Upload
-from app.core.workbook import Workbook, WorkbookError, first_clients, read_workbook
+from app.core.workbook import Workbook, WorkbookError, first_clients, parse_upload
 from app.models import (
     AuditAction,
     Country,
@@ -245,9 +244,9 @@ class PromptOut(BaseModel):
 # --- Helpers --------------------------------------------------------------------------
 
 
-def _read(content: bytes) -> Workbook:
+async def _read(content: bytes) -> Workbook:
     try:
-        return read_workbook(content)
+        return await parse_upload(content)
     except WorkbookError as error:
         code = (
             status.HTTP_413_CONTENT_TOO_LARGE
@@ -354,7 +353,7 @@ def _start(
     tenant_id = user.tenant_id
 
     async def work(progress: Progress) -> ReportOut | None:
-        book = await asyncio.to_thread(read_workbook, upload.content)
+        book = await parse_upload(upload.content)
         if kind == "sample":
             book = first_clients(book, SAMPLE_CLIENTS)
         async with get_sessionmaker()() as session:
@@ -466,7 +465,7 @@ async def upload_file(body: UploadIn, user: Specialist) -> UploadOut:
         import_jobs.stop(user.tenant_id)
     except ImportRunning as error:
         raise HTTPException(status.HTTP_409_CONFLICT, "import_running") from error
-    book = await asyncio.to_thread(_read, body.content)
+    book = await _read(body.content)
     clients = book.sheets.get("clients")
     upload = import_uploads.put(
         user.tenant_id,

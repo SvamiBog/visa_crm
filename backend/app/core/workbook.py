@@ -1,7 +1,13 @@
 """Reading a file in the VisaCRM data format (backlog 1.21, docs/data-format.md): one XLSX
 workbook, every sheet at once. The file comes from the user, so it is bounded before it is
-read — its size, its unpacked size (an XLSX is a zip), the rows and columns. XML is parsed
-with defusedxml (openpyxl picks it up when installed).
+read — its size, its unpacked size (an XLSX is a zip), its stylesheet, the rows and
+columns. XML is parsed with defusedxml (openpyxl picks it up when installed).
+
+What a file grows into in memory is not bounded by its parts' sizes (backlog S5): openpyxl
+builds objects for whole parts, and a member may unpack past the size it declares. So an
+uploaded file is parsed in a process of its own under memory and CPU limits (parse_upload):
+whatever swells fails there as file_too_large, and the web process, which serves every
+workspace, keeps its memory.
 
 Sheets and headers are matched by their Russian or English names; anything else is passed
 by with a warning. Each cell is read strictly (app/core/data_values.py). A bad cell in a
@@ -14,14 +20,25 @@ result — a file written by a script, never opened in Excel — reads as an emp
 line in the report.
 """
 
+import asyncio
 import io
+import multiprocessing
 import re
 import warnings
 import zipfile
 from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import IO, Any
+from xml.etree.ElementTree import ParseError
+from xml.parsers.expat import ExpatError
+from xml.parsers.expat import errors as expat_errors
+
+from defusedxml.ElementTree import iterparse
+from lxml.etree import LxmlError
 
 from app.core.data_format import (
     ABOUT_EXPORTED,
@@ -57,6 +74,15 @@ from app.core.data_values import (
 
 MAX_BYTES = 10 * 1024 * 1024
 MAX_UNPACKED = 120 * 1024 * 1024
+# openpyxl reads the stylesheet by this name and builds an object for every entry in it,
+# whatever the sheets use; an ordinary one is a few KB.
+STYLES = "xl/styles.xml"
+MAX_STYLES = 1024 * 1024
+# The parser process's address space and CPU time (Linux; a Windows machine has no limits).
+# A file of 20,000 rows parses well inside them; keep the memory below the service's limit
+# minus the web process.
+PARSE_MEMORY = 768 * 1024 * 1024
+PARSE_CPU_SECONDS = 60
 # Rows of data on all sheets together.
 MAX_ROWS = 20_000
 MAX_COLUMNS = 100
@@ -192,6 +218,69 @@ def read_workbook(data: bytes) -> Workbook:
     return result
 
 
+_parser: ProcessPoolExecutor | None = None
+
+
+def _limit_parser(memory: int, cpu_seconds: int) -> None:
+    """The parser process's initializer: past the memory, an allocation fails (MemoryError);
+    past the CPU time, the system stops the process."""
+    try:
+        import resource  # POSIX only: the service runs on Linux
+    except ImportError:
+        return
+    resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+
+
+def _pool() -> ProcessPoolExecutor:
+    global _parser
+    if _parser is None:
+        if "forkserver" in multiprocessing.get_all_start_methods():
+            context = multiprocessing.get_context("forkserver")
+            # The server imports the reader once; each parser is forked from it ready.
+            context.set_forkserver_preload([__name__, "openpyxl"])
+        else:
+            context = multiprocessing.get_context("spawn")
+        _parser = ProcessPoolExecutor(
+            max_workers=1,  # one parse at a time in the whole server
+            mp_context=context,
+            initializer=_limit_parser,
+            initargs=(PARSE_MEMORY, PARSE_CPU_SECONDS),
+            max_tasks_per_child=1,  # a fresh process, with fresh limits, for every file
+        )
+    return _parser
+
+
+def stop_parser() -> None:
+    """Stop the parser process and wait for it; the next file starts one with the limits as
+    they are then."""
+    global _parser
+    if _parser is not None:
+        pool, _parser = _parser, None
+        # Waited for: a pool shut down without waiting may still be replacing the process
+        # that has just finished its file (concurrent.futures in Python 3.12).
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
+async def parse_upload(data: bytes) -> Workbook:
+    """read_workbook in the parser process: an upload, and the file again for each sample,
+    check and import run."""
+    global _parser
+    pool = _pool()
+    try:
+        return await asyncio.get_running_loop().run_in_executor(pool, read_workbook, data)
+    except MemoryError as error:
+        raise WorkbookError("file_too_large") from error
+    except BrokenProcessPool as error:
+        # The system stopped the parser: past its CPU time, or for its memory. A file
+        # waiting behind it is refused too; the next one gets a new parser. A broken pool
+        # has already stopped its processes, so it is not waited for.
+        if _parser is pool:
+            _parser = None
+        pool.shutdown(wait=False)
+        raise WorkbookError("file_too_large") from error
+
+
 class _RowCounter:
     def __init__(self) -> None:
         self.rows = 0
@@ -202,60 +291,122 @@ class _RowCounter:
             raise WorkbookError("too_many_rows")
 
 
+@contextmanager
+def _reading() -> Iterator[None]:
+    """A broken or foreign file makes zipfile and openpyxl raise many kinds of errors: they
+    read as unreadable. Running out of the parser's memory reads as too large."""
+    try:
+        yield
+    except WorkbookError:
+        raise
+    except Exception as error:
+        code = "file_too_large" if _out_of_memory(error) else "file_unreadable"
+        raise WorkbookError(code) from error
+
+
+# An XML parser written in C that fails to allocate says so as a parse error with a code of
+# its own: libxml2 (lxml, which openpyxl uses for some parts) and expat (ElementTree).
+_LIBXML_NO_MEMORY = 2  # XML_ERR_NO_MEMORY
+_EXPAT_NO_MEMORY = expat_errors.codes[expat_errors.XML_ERROR_NO_MEMORY]
+
+
+def _out_of_memory(error: Exception) -> bool:
+    if isinstance(error, LxmlError):
+        return getattr(error, "code", None) == _LIBXML_NO_MEMORY
+    if isinstance(error, ParseError | ExpatError):
+        return getattr(error, "code", None) == _EXPAT_NO_MEMORY
+    return isinstance(error, MemoryError)
+
+
 def _xlsx_sheets(data: bytes) -> Iterator[tuple[str, Iterator[tuple[RawCell, ...]]]]:
     import openpyxl  # imported here: only uploads need it
 
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            if sum(info.file_size for info in archive.infolist()) > MAX_UNPACKED:
-                raise WorkbookError("file_too_large")
-        with warnings.catch_warnings():
+    with _reading():
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    with archive:
+        members = archive.infolist()
+        if sum(info.file_size for info in members) > MAX_UNPACKED or any(
+            info.filename == STYLES and info.file_size > MAX_STYLES for info in members
+        ):
+            raise WorkbookError("file_too_large")
+        with _reading(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
+            # Loaded once, with the saved results; formulas are told from empty cells by
+            # the sheet's XML (_rows).
             book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-            # The same file with its formulas: a cell that has one and no result is told
-            # from an empty cell.
-            formulas = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=False)
-    except WorkbookError:
-        raise
-    except Exception as error:  # a broken or foreign file: openpyxl raises many kinds
-        raise WorkbookError("file_unreadable") from error
-    try:
-        for sheet, written in zip(book.worksheets, formulas.worksheets, strict=True):
-            for side in (sheet, written):
-                # Read to the last cell that is there, not to the size the sheet declares.
-                side.reset_dimensions()
-            yield sheet.title, _rows(sheet, written)
-    finally:
-        book.close()
-        formulas.close()
-
-
-def _rows(sheet: Any, written: Any) -> Iterator[tuple[RawCell, ...]]:
-    """The sheet's rows, cut to MAX_COLUMNS; the sheets are parsed as they are read, so a
-    broken one shows here."""
-    values = sheet.iter_rows(values_only=True)
-    sources = written.iter_rows(values_only=True)
-    while True:
         try:
-            cells = next(values, None)
-            source = next(sources, None)
-        except Exception as error:
-            raise WorkbookError("file_unreadable") from error
-        if cells is None:
-            return
-        cells, source = cells[:MAX_COLUMNS], (source or ())[:MAX_COLUMNS]
-        if not any(isinstance(cell, str) and cell.startswith("=") for cell in source):
-            yield tuple(cells)
+            for sheet in book.worksheets:
+                # Read to the last cell that is there, not to the size the sheet declares.
+                sheet.reset_dimensions()
+                yield sheet.title, _rows(sheet, archive)
+        finally:
+            book.close()
+
+
+def _rows(sheet: Any, archive: zipfile.ZipFile) -> Iterator[tuple[RawCell, ...]]:
+    """The sheet's rows, cut to MAX_COLUMNS; the sheets are parsed as they are read, so a
+    broken one shows here. A cell with a formula and no saved result is NO_RESULT."""
+    values = sheet.iter_rows(values_only=True)
+    with _reading():
+        # The part openpyxl reads this sheet from: a read-only sheet keeps its path there.
+        source = archive.open(sheet._worksheet_path)
+    with source:
+        formulas = _formula_places(source)
+        while True:
+            with _reading():
+                cells = next(values, None)
+                places = next(formulas, frozenset())
+            if cells is None:
+                return
+            cells = cells[:MAX_COLUMNS]
+            yield tuple(
+                NO_RESULT if cell is None and index in places else cell
+                for index, cell in enumerate(cells)
+            )
+
+
+_SHEET_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_ROW, _FORMULA = _SHEET_NS + "row", _SHEET_NS + "f"
+
+
+def _formula_places(source: IO[bytes]) -> Iterator[frozenset[int]]:
+    """For each row openpyxl gives of a sheet, the places of its cells that hold a formula.
+    The sheet's XML is read as a stream beside openpyxl, so rows and cells are numbered as
+    openpyxl numbers them (worksheet/_reader.py, worksheet/_read_only.py): a row or a cell
+    without its reference follows the one before, a missing row is an empty one, and a row
+    that goes back is passed by."""
+    from openpyxl.utils.cell import coordinate_to_tuple
+
+    given = number = 0
+    for _, element in iterparse(source):
+        if element.tag != _ROW:
             continue
-        yield tuple(
-            NO_RESULT
-            if cell is None
-            and index < len(source)
-            and isinstance(source[index], str)
-            and source[index].startswith("=")
-            else cell
-            for index, cell in enumerate(cells)
-        )
+        number = _row_number(element.get("r"), number)
+        places, column = set(), 0
+        for cell in element:
+            reference = cell.get("r")
+            column = coordinate_to_tuple(reference)[1] if reference else column + 1
+            if cell.find(_FORMULA) is not None:
+                places.add(column - 1)
+        element.clear()
+        while given < number - 1:
+            given += 1
+            yield frozenset()
+        if given < number:
+            given += 1
+            yield frozenset(places)
+
+
+def _row_number(reference: str | None, previous: int) -> int:
+    if reference is None:
+        return previous + 1
+    try:
+        return int(reference)
+    except ValueError:
+        number = float(reference)
+        if not number.is_integer():
+            raise
+        return int(number)
 
 
 def _header(column: Column, russian: bool) -> str:
