@@ -4,6 +4,8 @@
 A file is encrypted with the workspace's key before it goes to the storage
 (app/core/documents.py, app/core/storage.py). Every download is written to the audit log;
 names of files stay out of it and out of URLs (they may carry the client's name).
+A client keeps a limited number of files and a workspace a limited number of bytes
+(backlog S12), so no member can fill the storage.
 """
 
 import logging
@@ -14,10 +16,10 @@ from typing import Annotated
 from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import Base64Bytes, BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TenantSession, require_module
+from app.api.deps import CurrentUser, SystemSession, TenantSession, require_module
 from app.core.audit import record
 from app.core.documents import (
     DocumentError,
@@ -47,6 +49,13 @@ router = APIRouter(
 )
 
 Member = Annotated[CurrentUser, Depends(require_module("clients"))]
+
+# Quotas (owner's decision, 2026-11-22). A client: a consent and a contract per trip,
+# photographed page by page, for someone who comes back for years. A workspace: years of
+# such clients (about 3,500 at two files of 1.5 MB). Templates have their own limit. The
+# numbers are also in the texts of the errors (errors.* in the locales).
+MAX_DOCUMENTS_PER_CONTACT = 50
+MAX_WORKSPACE_BYTES = 10 * 1024 * 1024 * 1024
 
 
 class DocumentIn(BaseModel):
@@ -120,9 +129,45 @@ def _storage_error(error: Exception) -> HTTPException:
     return HTTPException(status.HTTP_502_BAD_GATEWAY, "storage_failed")
 
 
+async def _check_room(
+    system: AsyncSession, tenant_id: uuid.UUID, contact_id: uuid.UUID, size: int
+) -> None:
+    """Refuse a file past the client's or the workspace's quota. Counted in the system
+    scope, for the user's own workspace only: an employee sees just their clients' files,
+    while the workspace's space is taken by everyone's. Two numbers come out, no rows."""
+    count, used = (
+        await system.execute(
+            select(
+                func.count().filter(ContactDocument.contact_id == contact_id),
+                func.coalesce(func.sum(ContactDocument.size_bytes), 0),
+            ).where(ContactDocument.tenant_id == tenant_id)
+        )
+    ).one()
+    # End the read: the connection is not kept through the upload.
+    await system.commit()
+    if count >= MAX_DOCUMENTS_PER_CONTACT:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "too_many_documents")
+    if used + size > MAX_WORKSPACE_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "documents_storage_full")
+
+
+async def _remove_object(document: ContactDocument, why: str) -> None:
+    """Remove the file of a row that is gone or was never kept."""
+    try:
+        await delete_object(object_key(document.tenant_id, document.id))
+    except (StorageNotConfigured, StorageFailed):
+        # No row refers to it: what is left in the storage is ciphertext nobody can open
+        # through the app.
+        logger.warning("Object of %s document %s was not removed", why, document.id)
+
+
 @router.post("/{contact_id}/documents", status_code=status.HTTP_201_CREATED)
 async def add_document(
-    contact_id: uuid.UUID, body: DocumentIn, user: Member, session: TenantSession
+    contact_id: uuid.UUID,
+    body: DocumentIn,
+    user: Member,
+    session: TenantSession,
+    system: SystemSession,
 ) -> DocumentOut:
     assert user.tenant_id is not None
     if await session.get(Contact, contact_id) is None:
@@ -152,6 +197,8 @@ async def add_document(
     # The workspace row stays locked until commit: release it (keeping a key made on first
     # use) before the upload, which may take seconds.
     await session.commit()
+    # Before sending: a file past the quota never reaches the storage.
+    await _check_room(system, user.tenant_id, contact_id, document.size_bytes)
     try:
         await put_object(
             object_key(user.tenant_id, document.id),
@@ -159,6 +206,19 @@ async def add_document(
         )
     except (StorageNotConfigured, StorageFailed) as error:
         raise _storage_error(error) from error
+    # One file at a time per workspace from the count to the commit: uploads sent at once
+    # would all count the same files and all pass. The lock is not held through the
+    # upload (a wait for it gives up after LOCK_TIMEOUT), so the count is made again here;
+    # a file that lost the race to another goes from the storage.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"contact_documents:{user.tenant_id}"},
+    )
+    try:
+        await _check_room(system, user.tenant_id, contact_id, document.size_bytes)
+    except HTTPException:
+        await _remove_object(document, "refused")
+        raise
     session.add(document)
     await session.flush()
     _audit(session, AuditAction.CONTACT_DOCUMENT_ADDED, user, document)
@@ -207,9 +267,5 @@ async def delete_document(
     await session.delete(document)
     _audit(session, AuditAction.CONTACT_DOCUMENT_DELETED, user, document)
     await session.commit()
-    try:
-        await delete_object(object_key(user.tenant_id, document.id))
-    except (StorageNotConfigured, StorageFailed):
-        # The row is gone; what is left in the storage is ciphertext nobody refers to.
-        logger.warning("Object of deleted document %s was not removed", document.id)
+    await _remove_object(document, "deleted")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
