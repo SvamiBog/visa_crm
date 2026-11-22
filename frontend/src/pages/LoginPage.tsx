@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate } from "react-router-dom";
 import { apiPost, errorCode } from "../api";
-import { homePath, ME_KEY, useMe, type Me } from "../auth";
+import { forgetAccount, homePath, ME_KEY, useMe, type Me } from "../auth";
 import { Field, useFieldErrors } from "../components/Field";
 import { LanguageSwitch } from "../components/LanguageSwitch";
 import { Logo } from "../components/Logo";
@@ -21,6 +21,9 @@ export function LoginPage() {
   const [secondStep, setSecondStep] = useState(false);
 
   const signedIn = (user: Me) => {
+    // The page opens only when no one is signed in here, so nothing cached belongs to this
+    // account: whatever the last one left goes before its screens open (audit N14).
+    forgetAccount(queryClient);
     queryClient.setQueryData(ME_KEY, user);
     navigate(homePath(user), { replace: true });
   };
