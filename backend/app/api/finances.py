@@ -23,6 +23,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.base_currency import hold_base
 from app.core.days import Day
+from app.core.employee_limits import LimitKind, watch
 from app.core.finance import Paid, Summary, in_case_currency, money, summarize, to_base
 from app.core.money import Amount, Currency, Percent, ordered_currencies
 from app.core.rates import RateUnavailable, convert, latest, rate_to_base
@@ -305,6 +306,18 @@ async def _get[T](session: AsyncSession, model: type[T], item_id: Any) -> T:
     return item
 
 
+async def _card_case(session: AsyncSession, user: CurrentUser, case_id: uuid.UUID) -> VisaCase:
+    """The case of a money answer. The money is a section of the client's card, so reading
+    or editing it opens the card for an employee's daily limit (Т.14), as an answer with
+    the case does (cases._open_card_of): checked before anything is read or changed, and
+    before the workspace's row is held (tenant_for_money), since watch may commit."""
+    case = await _get(session, VisaCase, case_id)
+    await watch(
+        session, user, LimitKind.CARDS, "contact", case.contact_id, AuditAction.CONTACT_VIEWED
+    )
+    return case
+
+
 async def _tenant(session: AsyncSession, user: CurrentUser) -> Tenant:
     return await _get(session, Tenant, user.tenant_id)
 
@@ -557,14 +570,14 @@ async def exchange_rate(
 
 @router.get("/cases/{case_id}/finance")
 async def get_finance(case_id: uuid.UUID, user: Member, session: TenantSession) -> FinanceOut:
-    return await finance_out(session, await _get(session, VisaCase, case_id), user)
+    return await finance_out(session, await _card_case(session, user, case_id), user)
 
 
 @router.patch("/cases/{case_id}/finance")
 async def update_finance(
     case_id: uuid.UUID, body: FinanceUpdate, user: Member, session: TenantSession
 ) -> FinanceOut:
-    case = await _get(session, VisaCase, case_id)
+    case = await _card_case(session, user, case_id)
     tenant = await tenant_for_money(session, user)
     finance = await session.get(CaseFinance, case.id)
     if finance is None:
@@ -640,7 +653,7 @@ async def _price_currency(changes: dict[str, Any], finance: CaseFinance, tenant:
 async def add_payment(
     case_id: uuid.UUID, body: PaymentIn, user: Member, session: TenantSession
 ) -> FinanceOut:
-    case = await _get(session, VisaCase, case_id)
+    case = await _card_case(session, user, case_id)
     tenant = await tenant_for_money(session, user)
     rate = await _rate(body.currency, tenant.base_currency, body.rate)
     payment = CasePayment(
@@ -685,7 +698,7 @@ async def update_payment(
     payment_id: uuid.UUID, body: PaymentUpdate, user: Member, session: TenantSession
 ) -> FinanceOut:
     payment = await _get(session, CasePayment, payment_id)
-    case = await _get(session, VisaCase, payment.case_id)
+    case = await _card_case(session, user, payment.case_id)
     changed = await _update_money(
         session, user, payment, body.model_dump(exclude_unset=True), "paid_on"
     )
@@ -698,7 +711,7 @@ async def update_payment(
 @router.delete("/payments/{payment_id}")
 async def delete_payment(payment_id: uuid.UUID, user: Member, session: TenantSession) -> FinanceOut:
     payment = await _get(session, CasePayment, payment_id)
-    case = await _get(session, VisaCase, payment.case_id)
+    case = await _card_case(session, user, payment.case_id)
     _audit(session, AuditAction.PAYMENT_DELETED, user, case, ("payment", payment.id))
     await session.delete(payment)
     await session.commit()
@@ -709,7 +722,7 @@ async def delete_payment(payment_id: uuid.UUID, user: Member, session: TenantSes
 async def add_expense(
     case_id: uuid.UUID, body: ExpenseIn, user: Member, session: TenantSession
 ) -> FinanceOut:
-    case = await _get(session, VisaCase, case_id)
+    case = await _card_case(session, user, case_id)
     tenant = await tenant_for_money(session, user)
     rate = await _rate(body.currency, tenant.base_currency, body.rate)
     expense = CaseExpense(
@@ -732,7 +745,7 @@ async def update_expense(
     expense_id: uuid.UUID, body: ExpenseUpdate, user: Member, session: TenantSession
 ) -> FinanceOut:
     expense = await _get(session, CaseExpense, expense_id)
-    case = await _get(session, VisaCase, expense.case_id)
+    case = await _card_case(session, user, expense.case_id)
     changes = body.model_dump(exclude_unset=True)
     if "description" in changes and changes["description"] is None:
         del changes["description"]
@@ -746,7 +759,7 @@ async def update_expense(
 @router.delete("/expenses/{expense_id}")
 async def delete_expense(expense_id: uuid.UUID, user: Member, session: TenantSession) -> FinanceOut:
     expense = await _get(session, CaseExpense, expense_id)
-    case = await _get(session, VisaCase, expense.case_id)
+    case = await _card_case(session, user, expense.case_id)
     _audit(session, AuditAction.EXPENSE_DELETED, user, case, ("expense", expense.id))
     await session.delete(expense)
     await session.commit()

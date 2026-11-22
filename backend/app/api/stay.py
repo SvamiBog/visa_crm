@@ -19,6 +19,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core import stay
 from app.core.audit import record
 from app.core.days import LAST_DAY
+from app.core.employee_limits import LimitKind, watch
 from app.models import AuditAction, Contact, Country, Trip
 
 router = APIRouter(tags=["stay"], dependencies=[Depends(require_module("stay_calculator"))])
@@ -226,6 +227,12 @@ async def _today(session: AsyncSession, user: CurrentUser) -> date:
     return await workspace_today(session, user.tenant_id)
 
 
+async def _open_card(session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID) -> None:
+    """The trips are a section of the client's card: reading or editing them opens the card
+    for an employee's daily limit (Т.14), before anything is read or changed."""
+    await watch(session, user, LimitKind.CARDS, "contact", contact_id, AuditAction.CONTACT_VIEWED)
+
+
 async def _trip(session: AsyncSession, trip_id: uuid.UUID) -> Trip:
     """RLS hides other workspaces' rows, so their ids are simply not found."""
     trip = await session.get(Trip, trip_id)
@@ -272,6 +279,7 @@ async def contact_trips(
 ) -> ContactTripsOut:
     if await session.get(Contact, contact_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    await _open_card(session, user, contact_id)
     trips = list(
         await session.scalars(
             select(Trip)
@@ -291,6 +299,7 @@ async def add_trip(
 ) -> TripOut:
     if await session.get(Contact, contact_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    await _open_card(session, user, contact_id)
     today = await _today(session, user)
     _check_dates(body.entered_on, body.left_on, body.long_stay, today)
     await _schengen_since(session, {body.country_id})
@@ -310,6 +319,7 @@ async def update_trip(
     trip_id: uuid.UUID, body: TripUpdate, user: Member, _card: CardMember, session: TenantSession
 ) -> TripOut:
     trip = await _trip(session, trip_id)
+    await _open_card(session, user, trip.contact_id)
     # Asked before the trip changes: a query sends the trip to the database, where dates
     # in the wrong order fail the table's check instead of being answered below.
     today = await _today(session, user)
