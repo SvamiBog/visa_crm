@@ -9,4 +9,7 @@ alembic upgrade head
 if [ "${SEED_DEMO:-}" = "1" ] || [ "${SEED_DEMO:-}" = "true" ]; then
   python -m app.cli seed-demo
 fi
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers --forwarded-allow-ips="*"
+# uvicorn reads no proxy header: trusting X-Forwarded-For it would take its first entry,
+# which the client writes. The app takes the address Railway's proxy adds, the last
+# entry (remember_client_ip in app/main.py), and needs no forwarded scheme.
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --no-proxy-headers

@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, NoReturn
@@ -5,6 +6,7 @@ from typing import Annotated, Literal, NoReturn
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
+from sqlalchemy.exc import DBAPIError
 
 from app.api.deps import (
     CurrentUser,
@@ -43,6 +45,7 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 SESSION_TTL = timedelta(days=7)
 # Time to enter the second-factor code after the password was accepted.
@@ -123,17 +126,28 @@ def _count_miss(user: User, now: datetime) -> bool:
     return True
 
 
-def _record_miss(session: SystemSession, user: User, reason: str, locked: bool) -> None:
-    record(session, AuditAction.LOGIN_FAILED, actor=user, details={"reason": reason})
-    if locked:
-        record(session, AuditAction.ACCOUNT_LOCKED, actor=user)
+async def _record_miss(session: SystemSession, user: User, reason: str, locked: bool) -> None:
+    """The miss in the audit log, in a savepoint of its own: an entry the log turns down
+    is lost alone, not with the count that stops guessing (audit N2). The count is
+    written first, outside the savepoint, so a failure of its own still ends the request."""
+    await session.flush()
+    try:
+        async with session.begin_nested():
+            record(session, AuditAction.LOGIN_FAILED, actor=user, details={"reason": reason})
+            if locked:
+                record(session, AuditAction.ACCOUNT_LOCKED, actor=user)
+    except DBAPIError as error:
+        # Ids and the kind of failure only: the database's message may quote the values.
+        logger.error(
+            "The audit log refused a failed login of user %s (%s)", user.id, type(error).__name__
+        )
 
 
-def _register_failure(session: SystemSession, user: User, now: datetime, reason: str) -> None:
+async def _register_failure(session: SystemSession, user: User, now: datetime, reason: str) -> None:
     """Wrong passwords and wrong second-factor codes share one counter and one lockout.
     The caller holds the user's row locked (FOR UPDATE): misses sent at once must not
     read the same count and lose each other."""
-    _record_miss(session, user, reason, _count_miss(user, now))
+    await _record_miss(session, user, reason, _count_miss(user, now))
 
 
 async def _sign_out_locked(session: SystemSession, user: User) -> NoReturn:
@@ -168,7 +182,7 @@ async def reject_wrong_secret(
     """A wrong password or code given in the settings counts with wrong logins; the miss
     that locks the account ends its sessions."""
     now = datetime.now(UTC)
-    _register_failure(session, user, now, reason)
+    await _register_failure(session, user, now, reason)
     if _is_locked(user, now):
         await _sign_out_locked(session, user)
     await session.commit()
@@ -260,7 +274,7 @@ async def login(
     password_ok = await check_password(password_hash, body.password)
     if user is None or not password_ok:
         if user is not None:
-            _record_miss(session, user, "password", locked=lock is not None)
+            await _record_miss(session, user, "password", locked=lock is not None)
             await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid_credentials")
 
@@ -350,7 +364,7 @@ async def verify_login(
 
     method = await _check_second_factor(session, user, body.code)
     if method is None:
-        _register_failure(session, user, now, "code")
+        await _register_failure(session, user, now, "code")
         if _is_locked(user, now):
             await session.delete(pending)
         await session.commit()
