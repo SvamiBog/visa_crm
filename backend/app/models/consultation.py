@@ -30,6 +30,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 
 
 class Decision(StrEnum):
@@ -62,6 +63,7 @@ class Consultation(Base):
         ),
         CheckConstraint("fee_amount IS NULL OR fee_amount > 0", name="fee_positive"),
         CheckConstraint("fee_paid_on IS NULL OR fee_paid", name="paid_on_only_when_paid"),
+        account_fk("consultations", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -89,9 +91,7 @@ class Consultation(Base):
     fee_paid: Mapped[bool] = mapped_column(server_default=text("false"))
     fee_paid_on: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

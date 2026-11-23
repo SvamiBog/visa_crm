@@ -29,6 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
 from app.models.dictionaries import PartnerTermsType
+from app.models.user import account_fk
 
 
 def _case_fk(table: str) -> ForeignKeyConstraint:
@@ -148,9 +149,7 @@ class _Money:
     currency: Mapped[str] = mapped_column(String(3))
     rate: Mapped[Decimal] = mapped_column(Numeric(14, 6))
     amount_base: Mapped[Decimal] = mapped_column(Numeric(14, 2))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # A snapshot row of an export must not overwrite a later change (backlog 1.21).
     updated_at: Mapped[datetime] = mapped_column(
@@ -161,6 +160,7 @@ class _Money:
 def _money_checks(table: str) -> tuple:
     return (
         _case_fk(table),
+        account_fk(table, "created_by"),
         CheckConstraint("amount > 0", name="amount_positive"),
         CheckConstraint("rate > 0", name="rate_positive"),
     )
@@ -206,6 +206,7 @@ class RegistrarPayment(Base):
         ),
         CheckConstraint("amount > 0", name="amount_positive"),
         CheckConstraint("talons IS NULL OR talons > 0", name="talons_positive"),
+        account_fk("registrar_payments", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -224,7 +225,5 @@ class RegistrarPayment(Base):
     )
     talons: Mapped[int | None] = mapped_column(SmallInteger)
     note: Mapped[str | None] = mapped_column(String(200))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -171,7 +171,7 @@ class VisaCenter(Base):
 
     __tablename__ = "visa_centers"
     __table_args__ = (
-        UniqueConstraint("rule_id", "city_ru", name="uq_visa_centers_rule_city"),
+        UniqueConstraint("tenant_id", "rule_id", "city_ru", name="uq_visa_centers_rule_city"),
         UniqueConstraint("id", "tenant_id", name="uq_visa_centers_id_tenant"),
         ForeignKeyConstraint(
             ["rule_id", "tenant_id"],

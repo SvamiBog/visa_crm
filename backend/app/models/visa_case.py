@@ -29,6 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
 from app.models.dictionaries import Hall
+from app.models.user import account_fk
 
 
 def _enum(cls: type[StrEnum], name: str, *, create: bool = True) -> Enum:
@@ -127,6 +128,7 @@ class VisaCase(Base):
         CheckConstraint(
             "NOT after_appeal OR outcome IN ('visa', 'refusal')", name="appeal_needs_decision"
         ),
+        account_fk("visa_cases", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -182,9 +184,7 @@ class VisaCase(Base):
     stay_days: Mapped[int | None] = mapped_column(SmallInteger)
     after_appeal: Mapped[bool] = mapped_column(server_default=text("false"))
 
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -212,6 +212,7 @@ class EmployeeCase(Base):
             name="fk_employee_cases_case_id_same_tenant",
         ),
         Index("ix_employee_cases_case_id", "case_id"),
+        account_fk("employee_cases", "granted_by"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
@@ -219,7 +220,5 @@ class EmployeeCase(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), index=True
     )
-    granted_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    granted_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

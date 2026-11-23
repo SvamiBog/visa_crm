@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 
 
 class ImportKind(StrEnum):
@@ -67,7 +68,10 @@ class ImportRun(Base):
     column header — no cell values."""
 
     __tablename__ = "import_runs"
-    __table_args__ = (UniqueConstraint("id", "tenant_id", name="uq_import_runs_id_tenant"),)
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_import_runs_id_tenant"),
+        account_fk("import_runs", "created_by"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -78,9 +82,7 @@ class ImportRun(Base):
     sheet: Mapped[str | None] = mapped_column(String(100))
     rows: Mapped[int] = mapped_column(Integer)
     report: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError, apiGet, apiPut } from "../../api";
+import { useMe } from "../../auth";
 import { useCaseLists } from "../../contacts";
 import {
   byId,
@@ -241,6 +242,8 @@ function CenterNote({ centerId, note }: { centerId: string; note: string | null 
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(note ?? "");
+  // The remarks are the specialist's own: an employee reads them (audit h07.1).
+  const canEdit = useMe().data?.role === "specialist";
   const save = useMutation({
     mutationFn: () => apiPut<void>(`/analytics/centers/${centerId}/note`, { note: text }),
     onSuccess: async () => {
@@ -248,6 +251,7 @@ function CenterNote({ centerId, note }: { centerId: string; note: string | null 
       setEditing(false);
     },
   });
+  if (!canEdit) return <span className="center-note">{note || "—"}</span>;
   if (!editing)
     return (
       <span className="center-note">

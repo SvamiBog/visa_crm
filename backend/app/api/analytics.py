@@ -24,7 +24,13 @@ from sqlalchemy import ColumnElement, and_, any_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
+from app.api.deps import (
+    CurrentUser,
+    TenantSession,
+    effective_modules,
+    require_module,
+    require_specialist,
+)
 from app.api.home import MoneyBlock, money_block
 from app.core import analytics as rules
 from app.core.days import Day
@@ -59,6 +65,9 @@ router = APIRouter(
 )
 
 Member = Annotated[CurrentUser, Depends(require_module("analytics"))]
+# The remarks on visa centers are the specialist's own: her employees read them (owner's
+# answer to question 6 of the security audit, 2026-11-23).
+Specialist = Annotated[CurrentUser, Depends(require_specialist)]
 
 LONGEST_PERIOD = timedelta(days=3660)
 
@@ -588,9 +597,10 @@ async def _attempts(
 
 @router.put("/centers/{center_id}/note", status_code=status.HTTP_204_NO_CONTENT)
 async def set_center_note(
-    center_id: uuid.UUID, body: NoteIn, user: Member, session: TenantSession
+    center_id: uuid.UUID, body: NoteIn, user: Specialist, session: TenantSession
 ) -> None:
-    """The specialist's remark about a visa center; an empty one removes it."""
+    """The specialist's remark about a visa center; an empty one removes it. An employee
+    reads it in the report and changes nothing (the database refuses it too, 0043)."""
     if await session.get(VisaCenter, center_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
     note = body.note.strip()

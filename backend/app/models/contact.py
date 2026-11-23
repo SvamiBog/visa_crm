@@ -28,6 +28,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 
 
 class DocumentKind(StrEnum):
@@ -78,6 +79,7 @@ class Contact(Base):
             "nullif(concat_ws(' ', last_name_latin, first_name_latin), '')",
             name="full_name_latin_joined",
         ),
+        account_fk("contacts", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -112,9 +114,7 @@ class Contact(Base):
     contract_signed_on: Mapped[date | None] = mapped_column(Date)
     # Consultation questionnaire answers and the passport (app/core/questionnaire.py).
     questionnaire: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -128,6 +128,7 @@ class ContactNote(Base):
     __table_args__ = (
         _same_tenant("contact_notes", "contact_id", "contacts", "CASCADE"),
         Index("ix_contact_notes_contact_created", "contact_id", "created_at"),
+        account_fk("contact_notes", "author_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -136,7 +137,7 @@ class ContactNote(Base):
     )
     contact_id: Mapped[uuid.UUID]
     body: Mapped[str] = mapped_column(Text)
-    author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    author_id: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -172,6 +173,7 @@ class ContactDocument(Base):
     __table_args__ = (
         _same_tenant("contact_documents", "contact_id", "contacts", "CASCADE"),
         Index("ix_contact_documents_contact_created", "contact_id", "created_at"),
+        account_fk("contact_documents", "uploaded_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -188,7 +190,5 @@ class ContactDocument(Base):
     content_type: Mapped[str] = mapped_column(String(50))
     # Of the file itself, before encryption.
     size_bytes: Mapped[int] = mapped_column(Integer)
-    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    uploaded_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

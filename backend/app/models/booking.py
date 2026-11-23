@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 
 
 def _enum(cls: type[StrEnum], name: str) -> Enum:
@@ -59,6 +60,7 @@ class Booking(Base):
             "kind = 'hotel' OR free_cancel_until IS NULL", name="cancel_date_for_hotel"
         ),
         CheckConstraint("kind = 'flight' OR valid_until IS NULL", name="validity_for_flight"),
+        account_fk("bookings", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -83,9 +85,7 @@ class Booking(Base):
     # The account the booking was made in (usually the specialist's Booking account).
     vault_entry_id: Mapped[uuid.UUID | None]
     note: Mapped[str | None] = mapped_column(String(500))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
