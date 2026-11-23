@@ -7,14 +7,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from app.api.deps import (
-    SESSION_COOKIE,
     CurrentUser,
     SystemSession,
     current_user,
-    current_user_any,
+    delete_session_cookies,
+    read_session_cookie,
+    set_session_cookie,
+    signed_in_user,
 )
 from app.core.audit import client_ip, record
-from app.core.config import get_settings
 from app.core.security import (
     MAX_PASSWORD_LENGTH,
     MIN_PASSWORD_LENGTH,
@@ -192,18 +193,6 @@ async def _can_sign_in(session: SystemSession, user: User) -> bool:
     return user.is_active and bool(tenant_active)
 
 
-def _set_cookie(response: Response, token: str, ttl: timedelta) -> None:
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        max_age=int(ttl.total_seconds()),
-        httponly=True,
-        secure=get_settings().cookie_secure,
-        samesite="lax",
-        path="/",
-    )
-
-
 def _complete_login(user: User, now: datetime) -> None:
     user.failed_login_count = 0
     user.locked_until = None
@@ -312,7 +301,7 @@ async def login(
     # With 2FA the failed-attempt counter is not reset yet: otherwise someone who knows
     # the password could guess codes forever by logging in again between guesses.
     await session.commit()
-    _set_cookie(response, token, ttl)
+    set_session_cookie(response, token, ttl)
     return MfaRequiredOut() if mfa_pending else _me(user)
 
 
@@ -336,13 +325,14 @@ async def verify_login(
 ) -> MeOut:
     """Second step: the authenticator code or a recovery code."""
     now = datetime.now(UTC)
-    token = request.cookies.get(SESSION_COOKIE)
+    cookie = read_session_cookie(request)
+    token = cookie.token if cookie else ""
     row = (
         await session.execute(
             select(UserSession, User)
             .join(User, User.id == UserSession.user_id)
             .where(
-                UserSession.token_hash == hash_session_token(token or ""),
+                UserSession.token_hash == hash_session_token(token),
                 UserSession.mfa_pending.is_(True),
                 UserSession.expires_at > now,
             )
@@ -371,20 +361,19 @@ async def verify_login(
     _complete_login(user, now)
     record(session, AuditAction.LOGIN, actor=user, details={"method": method})
     await session.commit()
-    assert token is not None
-    _set_cookie(response, token, SESSION_TTL)
+    set_session_cookie(response, token, SESSION_TTL)
     return _me(user)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(request: Request, response: Response, session: SystemSession) -> None:
-    token = request.cookies.get(SESSION_COOKIE)
-    if token:
+    cookie = read_session_cookie(request)
+    if cookie:
         row = (
             await session.execute(
                 select(UserSession, User)
                 .join(User, User.id == UserSession.user_id)
-                .where(UserSession.token_hash == hash_session_token(token))
+                .where(UserSession.token_hash == hash_session_token(cookie.token))
             )
         ).first()
         if row is not None:
@@ -393,11 +382,11 @@ async def logout(request: Request, response: Response, session: SystemSession) -
             if not user_session.mfa_pending:
                 record(session, AuditAction.LOGOUT, actor=user)
             await session.commit()
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    delete_session_cookies(response)
 
 
 @router.get("/me")
-async def me(user: Annotated[CurrentUser, Depends(current_user_any)]) -> MeOut:
+async def me(user: Annotated[CurrentUser, Depends(signed_in_user)]) -> MeOut:
     return _me(user)
 
 
@@ -417,7 +406,7 @@ async def update_preferences(
 @router.post("/change-password")
 async def change_password(
     body: ChangePasswordIn,
-    current: Annotated[CurrentUser, Depends(current_user_any)],
+    current: Annotated[CurrentUser, Depends(signed_in_user)],
     session: SystemSession,
 ) -> MeOut:
     user = await session.get_one(User, current.id, with_for_update=True)
