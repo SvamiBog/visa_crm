@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     LargeBinary,
     SmallInteger,
     String,
@@ -19,6 +20,18 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+
+
+def account_fk(table: str, column: str) -> ForeignKeyConstraint:
+    """(column, tenant_id) → users(id, tenant_id) for a column naming the account that made
+    or changed a workspace row: it is always an account of the same workspace (migration
+    0043). Removing the account clears only the column; the row stays in its workspace."""
+    return ForeignKeyConstraint(
+        [column, "tenant_id"],
+        ["users.id", "users.tenant_id"],
+        ondelete=f"SET NULL ({column})",
+        name=f"fk_{table}_{column}_same_tenant",
+    )
 
 
 class UserRole(StrEnum):

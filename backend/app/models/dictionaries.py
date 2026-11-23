@@ -149,7 +149,9 @@ class PartnerTerms(Base):
     __tablename__ = "partner_terms"
     __table_args__ = (
         _tenant_fk("partner_terms", "partner_id", "partners", "CASCADE"),
+        # tenant_id first: a foreign partner fails on its key, whatever rows it has (0043).
         UniqueConstraint(
+            "tenant_id",
             "partner_id",
             "country_id",
             name="uq_partner_terms_partner_country",
@@ -221,6 +223,7 @@ class RegistrarPrice(Base):
         _tenant_fk("registrar_prices", "registrar_id", "registrars", "CASCADE"),
         _tenant_fk("registrar_prices", "purpose_id", "visa_purposes", "RESTRICT"),
         UniqueConstraint(
+            "tenant_id",
             "registrar_id",
             "country_id",
             "purpose_id",

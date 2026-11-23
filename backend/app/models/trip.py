@@ -20,6 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 
 
 class Trip(Base):
@@ -33,6 +34,7 @@ class Trip(Base):
         ),
         Index("ix_trips_contact_entered", "contact_id", "entered_on"),
         CheckConstraint("left_on IS NULL OR left_on >= entered_on", name="dates_order"),
+        account_fk("trips", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -50,9 +52,7 @@ class Trip(Base):
     # Under a long-stay visa (D) or a residence permit: the days do not count.
     long_stay: Mapped[bool] = mapped_column(server_default=text("false"))
     note: Mapped[str | None] = mapped_column(String(200))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

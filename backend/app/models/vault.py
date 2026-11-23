@@ -27,6 +27,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 from app.models.visa_case import EmailOwner
 
 
@@ -99,6 +100,7 @@ class VaultEntry(Base):
         CheckConstraint("case_id IS NULL OR contact_id IS NOT NULL", name="case_needs_contact"),
         # Bookings refer to the account they were made in, within the same workspace.
         UniqueConstraint("id", "tenant_id", name="uq_vault_entries_id_tenant"),
+        account_fk("vault_entries", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -127,9 +129,7 @@ class VaultEntry(Base):
     # E.g. the username at the Greek visa center (2 letters + 2 digits).
     extra_id: Mapped[str | None] = mapped_column(String(100))
     note: Mapped[str | None] = mapped_column(String(1000))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

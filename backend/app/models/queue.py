@@ -28,6 +28,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 
 
 def _case_fk(table: str) -> ForeignKeyConstraint:
@@ -61,6 +62,7 @@ class WaitingListEntry(Base):
         CheckConstraint(
             "removed_reason IS NULL OR removed_on IS NOT NULL", name="reason_only_when_removed"
         ),
+        account_fk("waiting_list_entries", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -75,9 +77,7 @@ class WaitingListEntry(Base):
     # Taken off the list: the client did not wait.
     removed_on: Mapped[date | None] = mapped_column(Date)
     removed_reason: Mapped[str | None] = mapped_column(String(500))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # A snapshot row of an export must not overwrite a later change (backlog 1.21).
     updated_at: Mapped[datetime] = mapped_column(
@@ -111,6 +111,7 @@ class ApplicationAttempt(Base):
         CheckConstraint("number > 0", name="number_positive"),
         CheckConstraint("deadline_on >= sent_on", name="deadline_after_sent"),
         CheckConstraint("closed_on IS NULL OR outcome IS NOT NULL", name="closed_with_outcome"),
+        account_fk("application_attempts", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -130,9 +131,7 @@ class ApplicationAttempt(Base):
         )
     )
     closed_on: Mapped[date | None] = mapped_column(Date)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # A snapshot row of an export must not overwrite a later change (backlog 1.21).
     updated_at: Mapped[datetime] = mapped_column(

@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 
 
 def _same_tenant(column: str, parent: str, ondelete: str) -> ForeignKeyConstraint:
@@ -40,7 +41,10 @@ class DocumentTemplate(Base):
     off, it is no longer offered for new clients; the clients who have it keep it."""
 
     __tablename__ = "document_templates"
-    __table_args__ = (UniqueConstraint("id", "tenant_id", name="uq_document_templates_id_tenant"),)
+    __table_args__ = (
+        UniqueConstraint("id", "tenant_id", name="uq_document_templates_id_tenant"),
+        account_fk("document_templates", "uploaded_by"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -58,9 +62,7 @@ class DocumentTemplate(Base):
         ARRAY(String(100)), server_default=text("'{}'")
     )
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
-    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    uploaded_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -78,6 +80,7 @@ class ContactTemplate(Base):
         _same_tenant("case_id", "visa_cases", "SET NULL (case_id)"),
         Index("ix_contact_templates_contact_id", "contact_id"),
         Index("ix_contact_templates_template_id", "template_id"),
+        account_fk("contact_templates", "created_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -87,7 +90,5 @@ class ContactTemplate(Base):
     contact_id: Mapped[uuid.UUID]
     template_id: Mapped[uuid.UUID]
     case_id: Mapped[uuid.UUID | None]
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -8,6 +8,7 @@ from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, String, Uniqu
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from app.models.user import account_fk
 
 
 class VisaCenterNote(Base):
@@ -20,6 +21,7 @@ class VisaCenterNote(Base):
             ondelete="CASCADE",
             name="fk_visa_center_notes_visa_center_id_same_tenant",
         ),
+        account_fk("visa_center_notes", "updated_by"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -28,9 +30,7 @@ class VisaCenterNote(Base):
     )
     visa_center_id: Mapped[uuid.UUID]
     note: Mapped[str] = mapped_column(String(500))
-    updated_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
-    )
+    updated_by: Mapped[uuid.UUID | None]
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

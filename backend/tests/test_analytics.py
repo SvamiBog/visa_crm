@@ -355,6 +355,15 @@ async def test_analytics_follows_modules_and_workspaces(
     report = await ok(await give("clients", "cases", "analytics"))
     assert report["money"] is None and report["totals"]["profit"] is None
     assert {row["profit"] for row in report["channels"] + report["months"]} == {None}
+    # The specialist's remark on a center is there to read, not to change (owner's answer,
+    # audit h07.1).
+    [minsk] = [row for row in report["centers"] if row["visa_center_id"] == made["minsk"]]
+    assert minsk["note"] == "Капча"
+    for note in ("Очередь с утра", ""):
+        refused = await client.put(
+            f"/api/analytics/centers/{made['minsk']}/note", json={"note": note}
+        )
+        assert refused.status_code == 403 and refused.json()["detail"] == "forbidden"
 
     # Another workspace sees none of it, nor the note.
     client.cookies.clear()
