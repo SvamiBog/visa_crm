@@ -46,7 +46,7 @@ from app.api.templates import router as templates_router
 from app.api.two_factor import router as two_factor_router
 from app.api.vault import router as vault_router
 from app.api.workspace import router as workspace_router
-from app.core.audit import client_ip
+from app.core.audit import client_address, client_ip
 from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
 from app.core.http_headers import add_security_headers, refuse_cross_site_changes
@@ -118,9 +118,12 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def remember_client_ip(request: Request, call_next) -> Response:
-        # The audit log records the client address (uvicorn --proxy-headers resolves
-        # the real one behind Railway's proxy).
-        token = client_ip.set(request.client.host if request.client else None)
+        # The audit log and the login limit take the client's address from the entry
+        # Railway's proxy adds to X-Forwarded-For, checked to be an address. uvicorn
+        # reads no proxy header (start.sh): it would take the first entry, the client's.
+        peer = request.client.host if request.client else None
+        address = client_address(request.headers.getlist("x-forwarded-for"), peer)
+        token = client_ip.set(address)
         try:
             return await call_next(request)
         finally:
