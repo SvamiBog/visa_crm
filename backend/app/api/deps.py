@@ -1,25 +1,104 @@
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import today_in
+from app.core.config import get_settings
 from app.core.db import get_sessionmaker, scope_to_system, scope_to_tenant
 from app.core.security import hash_session_token
 from app.models import Tenant, User, UserRole, UserSession
 
+# The session cookie (backlog S18, audit N10). On HTTPS its name carries the __Host- prefix:
+# a browser takes a cookie of that name only from this very host, Secure, for Path=/ and
+# without Domain, so a neighbouring site under the same parent domain (another
+# *.up.railway.app, another subdomain of the site's own domain) cannot plant one. The prefix
+# needs Secure, so a developer's machine on plain http keeps the plain name.
 SESSION_COOKIE = "visacrm_session"
+HOST_SESSION_COOKIE = f"__Host-{SESSION_COOKIE}"
+# Browsers signed in on HTTPS before the prefix hold the plain name. Until this moment such a
+# session still works there and moves to the new name with its next request, so the change
+# signs nobody out; after it the plain name is ignored on HTTPS, and this transition can go.
+# A session lasts a week (auth.SESSION_TTL): deployed by 14 December 2026, nobody signed in
+# has to sign in again.
+PLAIN_SESSION_COOKIE_UNTIL = datetime(2026, 12, 21, tzinfo=UTC)
+
+
+def session_cookie_name() -> str:
+    """The name the session cookie is set under."""
+    return HOST_SESSION_COOKIE if get_settings().cookie_secure else SESSION_COOKIE
+
+
+@dataclass(frozen=True)
+class SessionCookie:
+    token: str
+    name: str  # the name it came under
+
+
+def _cookie_values(request: Request, name: str) -> list[str]:
+    """Every value the request carries under the name, on every Cookie line of it:
+    request.cookies keeps only the last of several."""
+    values = []
+    for line in request.headers.getlist("cookie"):
+        for pair in line.split(";"):
+            key, _, value = pair.partition("=")
+            if key.strip() == name:
+                values.append(value.strip())
+    return values
+
+
+def read_session_cookie(request: Request) -> SessionCookie | None:
+    """The session cookie the request comes with, or None.
+
+    A name sent twice gives none: a neighbouring site can add a copy, and which copy is the
+    user's own cannot be told (audit N10). On HTTPS the __Host- name decides whenever it
+    comes; the plain one, which a neighbour can plant, counts only without it, and only
+    until PLAIN_SESSION_COOKIE_UNTIL."""
+    names = [session_cookie_name()]
+    if names[0] == HOST_SESSION_COOKIE and datetime.now(UTC) < PLAIN_SESSION_COOKIE_UNTIL:
+        names.append(SESSION_COOKIE)
+    for name in names:
+        values = _cookie_values(request, name)
+        if values:
+            return SessionCookie(values[0], name) if len(values) == 1 and values[0] else None
+    return None
+
+
+def set_session_cookie(response: Response, token: str, max_age: timedelta) -> None:
+    """Give the browser its session cookie; on HTTPS a plain one from before the prefix goes."""
+    secure = get_settings().cookie_secure
+    response.set_cookie(
+        session_cookie_name(),
+        token,
+        max_age=int(max_age.total_seconds()),
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+    if secure:
+        response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True)
+
+
+def delete_session_cookies(response: Response) -> None:
+    """Clear the session cookie under both names. A browser takes the cookie that clears a
+    __Host- one only when it is Secure too."""
+    secure = get_settings().cookie_secure
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=secure, httponly=True)
+    if secure:
+        response.delete_cookie(HOST_SESSION_COOKIE, path="/", secure=True, httponly=True)
 
 
 @dataclass(frozen=True)
 class CurrentUser:
     id: uuid.UUID
     session_id: uuid.UUID
+    session_expires_at: datetime
     tenant_id: uuid.UUID | None
     role: UserRole
     email: str
@@ -37,19 +116,22 @@ async def system_session() -> AsyncIterator[AsyncSession]:
 
 async def current_user_any(request: Request) -> CurrentUser:
     """The logged-in user, even one who still has to replace a temporary password.
-    A login waiting for its second factor is not logged in."""
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
+    A login waiting for its second factor is not logged in.
+
+    app/main.py calls it before a route runs, to size the request body; the routes take it
+    through signed_in_user."""
+    cookie = read_session_cookie(request)
+    if cookie is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not_authenticated")
     async with get_sessionmaker()() as session:
         scope_to_system(session)
         row = (
             await session.execute(
-                select(UserSession.id, User)
+                select(UserSession.id, UserSession.expires_at, User)
                 .join(User, User.id == UserSession.user_id)
                 .outerjoin(Tenant, Tenant.id == User.tenant_id)
                 .where(
-                    UserSession.token_hash == hash_session_token(token),
+                    UserSession.token_hash == hash_session_token(cookie.token),
                     UserSession.expires_at > datetime.now(UTC),
                     UserSession.mfa_pending.is_(False),
                     User.is_active,
@@ -60,10 +142,11 @@ async def current_user_any(request: Request) -> CurrentUser:
         ).first()
     if row is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not_authenticated")
-    session_id, user = row
+    session_id, expires_at, user = row
     return CurrentUser(
         id=user.id,
         session_id=session_id,
+        session_expires_at=expires_at,
         tenant_id=user.tenant_id,
         role=user.role,
         email=user.email,
@@ -73,8 +156,18 @@ async def current_user_any(request: Request) -> CurrentUser:
     )
 
 
+async def signed_in_user(request: Request, response: Response) -> CurrentUser:
+    """current_user_any for the routes: a session that came under the plain name on HTTPS
+    moves to the __Host- one for what is left of it."""
+    user = await current_user_any(request)
+    cookie = read_session_cookie(request)
+    if cookie is not None and cookie.name != session_cookie_name():
+        set_session_cookie(response, cookie.token, user.session_expires_at - datetime.now(UTC))
+    return user
+
+
 async def current_user_password_set(
-    user: Annotated[CurrentUser, Depends(current_user_any)],
+    user: Annotated[CurrentUser, Depends(signed_in_user)],
 ) -> CurrentUser:
     """Logged in with their own password (temporary one already replaced)."""
     if user.must_change_password:

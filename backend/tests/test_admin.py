@@ -82,6 +82,9 @@ async def test_blocking_signs_specialist_out_and_stops_login(
 
     client.cookies = admin_cookies
     await client.post(f"/api/admin/specialists/{tenant_id}/unblock")
+    # Anna signs in afresh. The admin's cookie, put back by hand above, would go along as a
+    # second copy of the same name, and a doubled session cookie signs nobody in (S18).
+    client.cookies.clear()
     assert (await login(client, "anna@example.com")).status_code == 200
 
 
