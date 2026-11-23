@@ -1,17 +1,19 @@
-"""Demo data for the staging stand (docs/staging.md): specialists with a few hundred
-fictional clients each — consultations, cases at every stage, queues, applications,
-vault accounts, bookings and trips — so the system can be tried, and attacked, without
-real data.
+"""Demo data for the stands (docs/staging.md): specialists with a few hundred fictional
+clients each — consultations, cases at every stage, queues, applications, vault accounts,
+bookings and trips — so the system can be tried, and attacked, without real data.
 
 Everything is made up: names from lists, phones from random digits, emails on example.com.
-Refuses to run in production. Passwords and the shared authenticator secret come from the
-DEMO_PASSWORD and DEMO_TOTP_SECRET variables of the stand, never from the code.
+Runs only where the stand sets ENV to local, staging or test (backlog S15). The password
+comes from the stand's DEMO_PASSWORD; a stand without one (a PR stand, docs/staging-setup.md)
+makes up its own and shows it once in its log. The optional authenticator secret comes from
+DEMO_TOTP_SECRET. Neither is ever in the code.
 """
 
+import logging
 import random
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -19,13 +21,14 @@ import pyotp
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.consultation_checks import add_months
 from app.core.dictionaries import add_default_dictionaries
 from app.core.finance import to_base
 from app.core.modules import DEFAULT_MODULES
 from app.core.names import split_full_name, split_latin_name
 from app.core.passwords import PasswordRules, generate_password
-from app.core.security import hash_password
+from app.core.security import generate_temporary_password, hash_password
 from app.core.subscription import amount_due
 from app.core.two_factor import seal_secret
 from app.core.vault import encrypt_for_tenant, get_tenant_key
@@ -83,9 +86,13 @@ from app.models import (
 )
 from app.models.dictionaries import Hall
 
+logger = logging.getLogger(__name__)
+
 DOMAIN = "demo.visacrm.test"
 ADMIN_EMAIL = f"admin@{DOMAIN}"
+# Where demo data may go: the stands and a developer's machine (ENV=local in backend/.env).
 ALLOWED_ENVS = ("local", "staging", "test")
+RANDOM_PASSWORD_LENGTH = 20
 
 # Where the demo clients go, most often first.
 DESTINATIONS = ("PL", "PL", "PL", "FR", "IT", "LV", "LT", "ES", "DE", "GR", "HU")
@@ -291,6 +298,7 @@ class DemoRefused(RuntimeError):
 
 @dataclass(frozen=True)
 class DemoSettings:
+    # Empty: the stand gets a random password, shown once in its log (seed).
     password: str
     # Optional: the admin and the specialists get two-factor login with this secret.
     totp_secret: str = ""
@@ -339,10 +347,15 @@ DEMO_OWN_CHECKLIST: tuple[dict[str, object], ...] = (
 
 
 def check_settings(env: str, password: str, totp_secret: str) -> None:
+    """Refuse demo data unless the stand asks for it. ENV must be set (in the environment or
+    backend/.env), not taken from the default of config.py: a server that forgot ENV must not
+    get demo accounts (audit h20.1). An empty password is fine: seed makes one up."""
+    if "env" not in get_settings().model_fields_set:
+        raise DemoRefused(f"ENV is not set: demo data needs ENV={'|'.join(ALLOWED_ENVS)}")
     if env not in ALLOWED_ENVS:
         raise DemoRefused(f"demo data is only for {', '.join(ALLOWED_ENVS)}, not {env!r}")
-    if len(password) < 10:
-        raise DemoRefused("DEMO_PASSWORD must be at least 10 characters")
+    if password and len(password) < 10:
+        raise DemoRefused("DEMO_PASSWORD must be at least 10 characters, or empty for a random one")
     if not totp_secret:
         return  # demo accounts sign in with the password only
     try:
@@ -476,6 +489,9 @@ async def _shared_checklist(session: AsyncSession, country: Country) -> None:
 
 async def seed(session: AsyncSession, settings: DemoSettings) -> dict[str, int]:
     """Create the demo admin and specialists. The session must be in the system scope."""
+    made_up = not settings.password
+    if made_up:
+        settings = replace(settings, password=generate_temporary_password(RANDOM_PASSWORD_LENGTH))
     now = datetime.now(UTC)
     countries = {c.code: c for c in await session.scalars(select(Country))}
     await _shared_checklist(session, countries["PL"])
@@ -496,6 +512,12 @@ async def seed(session: AsyncSession, settings: DemoSettings) -> dict[str, int]:
         totals["clients"] += counts["clients"]
         totals["cases"] += counts["cases"]
     await session.flush()
+    if made_up:
+        # A PR stand gets no DEMO_PASSWORD from staging (it is sealed there), so its log is
+        # the one place this password is shown. Fictional accounts only, never real data.
+        logger.warning(
+            "Demo accounts of this stand sign in with the password %s", settings.password
+        )
     return totals
 
 

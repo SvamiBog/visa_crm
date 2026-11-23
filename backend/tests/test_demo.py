@@ -1,16 +1,24 @@
-"""Demo data for the staging stand: it fills empty workspaces, works through the API like
-real data and never runs in production."""
+"""Demo data for the stands: it fills empty workspaces, works through the API like real
+data, runs only where the stand sets ENV, and gives a stand without DEMO_PASSWORD its own
+random password (docs/staging.md)."""
 
+import logging
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.cli import seed_demo
+from app.core.config import get_settings
 from app.core.db import scope_to_system
 from app.core.demo import (
     ADMIN_EMAIL,
+    ALLOWED_ENVS,
     DemoRefused,
     DemoSettings,
     _user,
@@ -19,21 +27,113 @@ from app.core.demo import (
     seed,
     specialist_email,
 )
-from app.models import UserRole
+from app.core.security import verify_password
+from app.models import User, UserRole
 from tests.helpers import TOTP_SECRET, login
 
 PASSWORD = "demo-password-42"
 
 
-def test_demo_data_is_refused_outside_the_stand():
+@pytest.fixture
+def stand_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Callable[..., str]]:
+    """Set ENV as a stand does, or leave it unset (None); returns the value the app sees.
+    Runs in an empty folder, so a developer's backend/.env does not set ENV here."""
+    monkeypatch.chdir(tmp_path)
+
+    def set_env(env: str | None) -> str:
+        if env is None:
+            monkeypatch.delenv("ENV", raising=False)
+        else:
+            monkeypatch.setenv("ENV", env)
+        get_settings.cache_clear()
+        return get_settings().env
+
+    yield set_env
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def demo_log(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> pytest.LogCaptureFixture:
+    """What the demo seeding writes to the log. The migrations of the test database run in
+    this process, and Alembic's logging config switches off the loggers made before them."""
+    monkeypatch.setattr(logging.getLogger("app.core.demo"), "disabled", False)
+    caplog.set_level(logging.DEBUG, logger="app.core.demo")
+    return caplog
+
+
+def _logged_passwords(log: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        record.getMessage().rsplit(" ", 1)[-1]
+        for record in log.records
+        if record.name == "app.core.demo"
+    ]
+
+
+def test_demo_data_is_refused_outside_the_stand(stand_env: Callable[..., str]):
+    stand_env("production")
     with pytest.raises(DemoRefused):
         check_settings("production", PASSWORD, TOTP_SECRET)
+    stand_env("staging")
     with pytest.raises(DemoRefused):
         check_settings("staging", "short", TOTP_SECRET)
     with pytest.raises(DemoRefused):
         check_settings("staging", PASSWORD, "not base32!")
     check_settings("staging", PASSWORD, TOTP_SECRET)
     check_settings("staging", PASSWORD, "")  # no secret: demo accounts without the code
+    check_settings("staging", "", "")  # no DEMO_PASSWORD: the stand makes up its own
+
+
+async def test_demo_data_is_refused_when_env_is_left_to_the_default(
+    stand_env: Callable[..., str],
+):
+    # A server that forgot ENV runs with the default of config.py: no demo accounts there.
+    env = stand_env(None)
+    with pytest.raises(DemoRefused, match="ENV is not set"):
+        check_settings(env, PASSWORD, "")
+    # The command start.sh runs refuses before it touches the database.
+    with pytest.raises(DemoRefused, match="ENV is not set"):
+        await seed_demo(specialists=1, clients=10)
+
+
+def test_demo_data_runs_where_the_stand_sets_env(stand_env: Callable[..., str], tmp_path: Path):
+    for env in ALLOWED_ENVS:
+        check_settings(stand_env(env), PASSWORD, "")
+    # A developer's local stand sets it in backend/.env.
+    (tmp_path / ".env").write_text("ENV=local\n", encoding="utf-8")
+    check_settings(stand_env(None), PASSWORD, "")
+
+
+async def test_a_stand_without_demo_password_gets_its_own_random_one(
+    sessionmaker: async_sessionmaker[AsyncSession], demo_log: pytest.LogCaptureFixture
+):
+    passwords = []
+    for _ in range(2):
+        demo_log.clear()
+        async with sessionmaker() as session:
+            scope_to_system(session)
+            await seed(session, DemoSettings("", specialists=0))
+            logged = _logged_passwords(demo_log)
+            assert len(logged) == 1, "the stand's password is shown once, in its log"
+            admin = await session.scalar(select(User).where(User.email == ADMIN_EMAIL))
+            assert admin is not None and verify_password(admin.password_hash, logged[0])
+            await session.rollback()  # the next round is another, empty stand
+        passwords.append(logged[0])
+    assert passwords[0] != passwords[1]
+    assert all(len(p) >= 16 for p in passwords)
+
+
+async def test_a_set_demo_password_is_used_and_kept_out_of_the_log(
+    sessionmaker: async_sessionmaker[AsyncSession], demo_log: pytest.LogCaptureFixture
+):
+    async with sessionmaker() as session:
+        scope_to_system(session)
+        await seed(session, DemoSettings(PASSWORD, specialists=0))
+        admin = await session.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None and verify_password(admin.password_hash, PASSWORD)
+        await session.rollback()
+    assert not _logged_passwords(demo_log) and PASSWORD not in demo_log.text
 
 
 def test_demo_accounts_get_two_factor_only_with_a_secret():
