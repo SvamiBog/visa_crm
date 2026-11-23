@@ -114,11 +114,12 @@ jobs:
         run: docker build -t visacrm:ci .
       - name: Start it like Railway
         run: |
-          # A throwaway database and key of this run only: these are not secrets.
+          # A throwaway database and keys of this run only: these are not secrets.
           docker run -d --name app --network host \
             -e ENV=production -e PORT=8080 \
             -e DATABASE_URL=postgresql://visacrm:visacrm@localhost:5432/visacrm \
             -e VAULT_MASTER_KEY="$(openssl rand -base64 32)" \
+            -e SECRET_KEY="$(openssl rand -base64 48)" \
             visacrm:ci
           for _ in $(seq 1 60); do
             health="$(curl -sf "localhost:8080/api/health?db=1" || true)"
@@ -173,6 +174,8 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm
       ENV: staging
       DEMO_PASSWORD: ci-demo-password
+      # Outside ENV=local|test the app does not start without a server key (backlog S19).
+      SECRET_KEY: ci-only-server-key-not-a-secret-0123456789
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -233,6 +236,8 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm
       ENV: staging
       DEMO_PASSWORD: ci-demo-password
+      # Outside ENV=local|test the app does not start without a server key (backlog S19).
+      SECRET_KEY: ci-only-server-key-not-a-secret-0123456789
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -282,6 +287,8 @@ jobs:
       ENV: staging
       DEMO_PASSWORD: ci-demo-password
       DEMO_TOTP_SECRET: JBSWY3DPEHPK3PXP
+      # Outside ENV=local|test the app does not start without a server key (backlog S19).
+      SECRET_KEY: ci-only-server-key-not-a-secret-0123456789
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

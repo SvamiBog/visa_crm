@@ -49,7 +49,7 @@ from app.api.workspace import router as workspace_router
 from app.core.audit import client_ip
 from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
-from app.core.http_headers import add_security_headers
+from app.core.http_headers import add_security_headers, refuse_cross_site_changes
 from app.core.rates import keep_fresh
 from app.core.request_limit import RequestLimit
 from app.core.server_errors import UnexpectedErrors
@@ -96,8 +96,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    # The schema maps every endpoint and error code: developers and the stands have it,
-    # the real site does not. ReDoc is off everywhere: the site's CSP blocks its scripts.
+    # The schema maps every endpoint and error code: developers have it, the stands and the
+    # real site do not. ReDoc is off everywhere: the site's CSP blocks its scripts.
     docs = settings.api_docs
     app = FastAPI(
         title="VisaCRM",
@@ -112,6 +112,9 @@ def create_app() -> FastAPI:
     # An unexpected error is logged without its text (it may quote clients' data). Added
     # after the limit, so it also catches a failed session lookup of the limit.
     app.add_middleware(UnexpectedErrors)
+    # A changing request from another site is refused before its body is read or its
+    # session looked up; inside the security headers, so the refusal carries them too.
+    refuse_cross_site_changes(app)
 
     @app.middleware("http")
     async def remember_client_ip(request: Request, call_next) -> Response:

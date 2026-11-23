@@ -1,8 +1,21 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
+from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+Environment = Literal["local", "test", "staging", "production"]
+# A developer's machine and the tests: plain HTTP, files in memory, mail kept instead of
+# sent, API docs.
+DEVELOPMENT: tuple[Environment, ...] = ("local", "test")
+# Outside development the server key must be a real secret: an empty, known or short one is
+# as good as none (audit h03.4, h14.3).
+MIN_SECRET_KEY_LENGTH = 32
+
+
+class InvalidSettings(RuntimeError):
+    """The environment is not one the site may run in: the server does not start."""
 
 
 class Settings(BaseSettings):
@@ -10,7 +23,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    env: str = "local"
+    # Unset means the real site: a forgotten variable gives the strictest mode, not a
+    # developer's machine (audit h14.1, owner's decision of backlog S19). Read in any case
+    # and without spaces; any other value stops the start.
+    env: Environment = "production"
     # postgresql+asyncpg://user:pass@host:5432/db
     # A plain postgresql:// URL from Railway is converted in async_database_url.
     database_url: str = "postgresql+asyncpg://visacrm:visacrm@localhost:5432/visacrm"
@@ -41,15 +57,35 @@ class Settings(BaseSettings):
     demo_password: str = ""
     demo_totp_secret: str = ""
 
+    @field_validator("env", mode="before")
+    @classmethod
+    def _env_in_any_case(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _server_key_outside_development(self) -> Self:
+        if not self.development and len(self.secret_key) < MIN_SECRET_KEY_LENGTH:
+            raise ValueError(
+                f"SECRET_KEY must be at least {MIN_SECRET_KEY_LENGTH} random characters "
+                f"outside ENV={'|'.join(DEVELOPMENT)}"
+            )
+        return self
+
+    @property
+    def development(self) -> bool:
+        return self.env in DEVELOPMENT
+
     @property
     def cookie_secure(self) -> bool:
         """Session cookie only over HTTPS everywhere except local development and tests."""
-        return self.env not in ("local", "test")
+        return not self.development
 
     @property
     def api_docs(self) -> bool:
-        """Swagger UI and the OpenAPI schema everywhere except production (docs/decisions.md)."""
-        return self.env != "production"
+        """Swagger UI and the OpenAPI schema on a developer's machine only: the stands are
+        on the internet like the site, and Swagger UI loads its scripts from a CDN without
+        integrity checks (audit h15.2, docs/decisions.md)."""
+        return self.development
 
     @property
     def async_database_url(self) -> str:
@@ -63,4 +99,14 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    try:
+        return Settings()
+    except ValidationError as error:
+        # Which setting and why, never its value: a server's start log must not carry its
+        # secrets, so the validation error that quotes them is not chained either.
+        reasons = []
+        for e in error.errors(include_url=False, include_input=False):
+            reason = e["msg"].removeprefix("Value error, ")
+            field = ".".join(map(str, e["loc"])).upper()
+            reasons.append(f"{field}: {reason}" if field else reason)
+        raise InvalidSettings("; ".join(reasons)) from None

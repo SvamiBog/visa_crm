@@ -11,7 +11,7 @@ from app.api.auth import MAX_FAILED_LOGINS
 from app.api.deps import SESSION_COOKIE
 from app.cli import reset_user_two_factor, upgrade_recovery_codes
 from app.core import two_factor
-from app.core.config import get_settings
+from app.core.config import InvalidSettings, get_settings
 from app.core.crypto import generate_master_key
 from app.core.two_factor import verify_totp
 from tests.helpers import (
@@ -495,10 +495,12 @@ async def test_the_cli_keeps_every_old_recovery_code_as_hmac(
     assert used.status_code == 200
 
 
-@pytest.mark.parametrize("value", ["", "change-me"])
+@pytest.mark.parametrize("value", ["", "change-me", "a-short-server-key"])
 def test_recovery_codes_need_a_server_key_outside_development(server_key, value: str):
+    # Such a key never gets as far as a code: outside development the settings refuse it
+    # and the site does not start (app/core/config.py, backlog S19).
     server_key(value, env="production")
-    with pytest.raises(two_factor.RecoveryKeyMissing):
+    with pytest.raises(InvalidSettings, match="SECRET_KEY"):
         two_factor.hash_recovery_code("abcde-fghjk")
-    server_key("a-server-key", env="production")
+    server_key("a-server-key-of-32-characters-or-more", env="production")
     assert two_factor.hash_recovery_code("abcde-fghjk") != _unsalted("abcde-fghjk")

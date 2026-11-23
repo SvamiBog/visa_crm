@@ -232,12 +232,12 @@ async def test_without_a_mail_server_outside_development_nothing_is_sent(
 ):
     await make_user("anna@example.com")
     await login(client, "anna@example.com")
-    monkeypatch.setenv("ENV", "production")
-    get_settings.cache_clear()
     try:
-        response = await ask(client, "new@example.com")
+        with monkeypatch.context() as production:
+            production.setenv("ENV", "production")
+            get_settings.cache_clear()
+            response = await ask(client, "new@example.com")
     finally:
-        monkeypatch.delenv("ENV")
-        get_settings.cache_clear()
+        get_settings.cache_clear()  # back to the tests' own ENV
     assert response.status_code == 503 and response.json()["detail"] == "mail_unavailable"
     assert (await client.get(URL)).json() is None
