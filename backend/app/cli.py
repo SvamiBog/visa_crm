@@ -4,6 +4,10 @@ create-admin EMAIL     first platform admin (asks for the password)
 generate-master-key    a new VAULT_MASTER_KEY value
 rotate-master-key      re-encrypt secrets after setting a new VAULT_MASTER_KEY
                        (see docs/operations.md)
+rekey-after-leak       after a leak of VAULT_MASTER_KEY: new data keys for every
+                       workspace, vault and files encrypted again, 2FA off for everyone
+                       (see docs/operations.md)
+upgrade-recovery-codes keep the recovery codes made before backlog S16 as HMAC too
 reset-two-factor EMAIL turn off 2FA for a user who lost the phone and recovery codes
 seed-demo              fill the staging stand with demo specialists and clients
                        (docs/staging.md; refuses in production)
@@ -16,7 +20,8 @@ import getpass
 import sys
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
+from sqlalchemy.exc import DBAPIError
 
 from app.core.audit import record
 from app.core.config import get_settings
@@ -24,9 +29,10 @@ from app.core.crypto import generate_master_key, master_keys
 from app.core.db import get_engine, get_sessionmaker, scope_to_system, wait_for_database
 from app.core.demo import DemoRefused, DemoSettings, already_seeded, check_settings, seed
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
-from app.core.two_factor import reset_two_factor
-from app.core.vault import reseal_with_current_master_key
-from app.models import AuditAction, RecoveryCode, User, UserRole, UserSession
+from app.core.storage import StorageFailed
+from app.core.two_factor import reset_two_factor, upgrade_legacy_recovery_codes
+from app.core.vault import RekeyFailed, rekey_workspace, reseal_with_current_master_key
+from app.models import AuditAction, RecoveryCode, Tenant, User, UserRole, UserSession
 
 
 async def create_admin(email: str, password: str) -> None:
@@ -85,6 +91,76 @@ async def rotate_master_key() -> int:
     return count
 
 
+async def _reset_everyones_two_factor() -> int:
+    """Two-factor login off for every user, every session ended (logins waiting for their
+    code too, audit h02.8). The leaked master key opened every authenticator secret."""
+    async with get_sessionmaker()() as session:
+        scope_to_system(session)
+        users = await session.scalars(
+            select(User)
+            .where(or_(User.totp_secret_encrypted.is_not(None), User.totp_enabled_at.is_not(None)))
+            .with_for_update()
+        )
+        count = 0
+        for user in users:
+            if user.totp_enabled_at is not None:
+                record(
+                    session,
+                    AuditAction.TWO_FACTOR_RESET,
+                    actor=None,
+                    tenant_id=user.tenant_id,
+                    target_type="user",
+                    target_id=user.id,
+                    details={"via": "cli", "reason": "rekey"},
+                )
+                count += 1
+            reset_two_factor(user)
+        await session.execute(delete(RecoveryCode))
+        await session.execute(delete(UserSession))
+        await session.commit()
+    return count
+
+
+async def rekey_after_leak() -> str:
+    """The response to a leaked VAULT_MASTER_KEY (docs/operations.md): every workspace gets
+    a new data key, its vault passwords and files are encrypted again, and two-factor login
+    is turned off for everyone. Each workspace is its own transaction: a run stopped by an
+    error is run again and goes on."""
+    try:
+        users = await _reset_everyones_two_factor()
+        async with get_sessionmaker()() as session:
+            scope_to_system(session)
+            tenant_ids = list(
+                await session.scalars(
+                    select(Tenant.id).where(Tenant.vault_key_encrypted.is_not(None))
+                )
+            )
+        entries = files = 0
+        for tenant_id in tenant_ids:
+            async with get_sessionmaker()() as session:
+                scope_to_system(session)
+                done = await rekey_workspace(session, tenant_id)
+                await session.commit()
+            entries += done.vault_entries
+            files += done.files
+    finally:
+        await get_engine().dispose()
+    return (
+        f"New keys for {len(tenant_ids)} workspaces: {entries} vault passwords and "
+        f"{files} files encrypted again; two-factor login turned off for {users} users, "
+        "everyone signed out"
+    )
+
+
+async def upgrade_recovery_codes() -> int:
+    async with get_sessionmaker()() as session:
+        scope_to_system(session)
+        count = await upgrade_legacy_recovery_codes(session)
+        await session.commit()
+    await get_engine().dispose()
+    return count
+
+
 async def seed_demo(specialists: int, clients: int) -> str:
     settings = get_settings()
     check_settings(settings.env, settings.demo_password, settings.demo_totp_secret)
@@ -116,6 +192,13 @@ def main() -> None:
     create.add_argument("email")
     commands.add_parser("generate-master-key", help="print a new VAULT_MASTER_KEY value")
     commands.add_parser("rotate-master-key", help="re-encrypt secrets with the current key")
+    rekey = commands.add_parser(
+        "rekey-after-leak", help="new data keys for every workspace after a key leak"
+    )
+    rekey.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    commands.add_parser(
+        "upgrade-recovery-codes", help="keep recovery codes made before S16 as HMAC"
+    )
     reset = commands.add_parser("reset-two-factor", help="turn off 2FA for a user")
     reset.add_argument("email")
     demo = commands.add_parser("seed-demo", help="fill the staging stand with demo data")
@@ -132,6 +215,34 @@ def main() -> None:
         if len(master_keys()) < 2:
             sys.exit("Set VAULT_MASTER_KEY_PREVIOUS to the old key before rotating")
         print(f"Re-encrypted {asyncio.run(rotate_master_key())} secrets")
+    elif args.command == "rekey-after-leak":
+        keys = master_keys()
+        if len(keys) < 2 or keys[0] == keys[1]:
+            sys.exit(
+                "Set VAULT_MASTER_KEY to a new key and VAULT_MASTER_KEY_PREVIOUS to the "
+                "leaked one first"
+            )
+        if not args.yes:
+            print(
+                "Every workspace gets a new key; two-factor login is turned off for every "
+                "user and everyone is signed out. Each workspace stops while its files are "
+                "encrypted again."
+            )
+            if input("Type REKEY to go on: ") != "REKEY":
+                sys.exit("Nothing changed")
+        try:
+            print(asyncio.run(rekey_after_leak()))
+        except RekeyFailed as error:
+            sys.exit(f"Stopped: a file opens with neither key ({error}); see docs/operations.md")
+        except StorageFailed as error:
+            # The workspace in progress is left as it was, the next run goes on.
+            sys.exit(f"Stopped by the storage ({error}); run the command again to go on")
+        except DBAPIError as error:
+            # A lock wait that ran out: a workspace busy, e.g. with an import. Only the
+            # error's name: its text quotes the statement.
+            sys.exit(f"Stopped by {type(error).__name__}; run the command again to go on")
+    elif args.command == "upgrade-recovery-codes":
+        print(f"Kept {asyncio.run(upgrade_recovery_codes())} recovery codes as HMAC")
     elif args.command == "seed-demo":
         try:
             print(asyncio.run(seed_demo(args.specialists, args.clients)))

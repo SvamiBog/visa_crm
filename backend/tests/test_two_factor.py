@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 
 import pyotp
 import pytest
@@ -8,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api.auth import MAX_FAILED_LOGINS
 from app.api.deps import SESSION_COOKIE
-from app.cli import reset_user_two_factor
+from app.cli import reset_user_two_factor, upgrade_recovery_codes
 from app.core import two_factor
+from app.core.config import get_settings
 from app.core.crypto import generate_master_key
 from app.core.two_factor import verify_totp
 from tests.helpers import (
@@ -345,3 +347,158 @@ def test_clock_drift_of_one_step_is_accepted(
 def test_malformed_codes_are_rejected():
     assert verify_totp(TOTP_SECRET, "12345", None) is None
     assert verify_totp(TOTP_SECRET, "abcdef", None) is None
+    # Audit h02.7: digits of another script are a wrong code, not a server error, even
+    # when they spell the right one.
+    right = pyotp.TOTP(TOTP_SECRET).at(two_factor._now())
+    for digits in (ARABIC_INDIC, FULLWIDTH):
+        assert verify_totp(TOTP_SECRET, right.translate(digits), None) is None
+
+
+ARABIC_INDIC = str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
+FULLWIDTH = str.maketrans("0123456789", "０１２３４５６７８９")
+
+
+async def _failed_logins(owner_engine: AsyncEngine, email: str) -> int:
+    async with owner_engine.connect() as conn:
+        return await conn.scalar(
+            text("SELECT failed_login_count FROM users WHERE email = :e"), {"e": email}
+        )
+
+
+async def test_a_code_in_digits_of_another_script_is_a_wrong_code_that_counts(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await make_user("anna@example.com")
+    await login_first_step(client, "anna@example.com")
+    code = CLOCK.next_code().translate(ARABIC_INDIC)
+    response = await client.post("/api/auth/login/verify", json={"code": code})
+    assert (response.status_code, response.json()) == (401, {"detail": "invalid_code"})
+    assert await _failed_logins(owner_engine, "anna@example.com") == 1
+
+
+@pytest.mark.parametrize("reset_by", ["admin", "specialist", "cli"])
+async def test_a_login_left_at_its_code_ends_when_two_factor_is_reset(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, reset_by: str
+):
+    # Audit h02.8: the login waiting for its code must not outlive the 2FA it waits for.
+    tenant_id = await make_user("anna@example.com")
+    await make_user("root@example.com", role="admin")
+    await make_user("staff@example.com", role="employee", tenant_id=tenant_id, two_factor=True)
+    whose = "anna@example.com" if reset_by == "admin" else "staff@example.com"
+    halfway = AsyncClient(transport=client._transport, base_url=client.base_url)
+    assert (await login_first_step(halfway, whose)).json() == {"mfa_required": True}
+
+    if reset_by == "admin":
+        await login(client, "root@example.com")
+        reset = await client.post(f"/api/admin/specialists/{tenant_id}/reset-password")
+        assert reset.status_code == 200
+    elif reset_by == "specialist":
+        await login(client, "anna@example.com")
+        staff_id = (await client.get("/api/employees")).json()[0]["id"]
+        assert (await client.post(f"/api/employees/{staff_id}/reset-password")).status_code == 200
+    else:
+        await reset_user_two_factor(whose)
+
+    verify = await halfway.post("/api/auth/login/verify", json={"code": CLOCK.next_code()})
+    assert verify.json() == {"detail": "login_expired"}
+    await halfway.aclose()
+
+
+@pytest.fixture
+def server_key(monkeypatch: pytest.MonkeyPatch):
+    """Set SECRET_KEY and ENV for one test."""
+
+    def set_key(value: str, env: str = "test") -> None:
+        monkeypatch.setenv("SECRET_KEY", value)
+        monkeypatch.setenv("ENV", env)
+        get_settings.cache_clear()
+
+    yield set_key
+    get_settings.cache_clear()
+
+
+def _unsalted(code: str) -> str:
+    """How recovery codes were kept before backlog S16."""
+    return hashlib.sha256(code.replace("-", "").encode()).hexdigest()
+
+
+async def _stored_codes(owner_engine: AsyncEngine) -> set[str]:
+    async with owner_engine.connect() as conn:
+        return set(
+            (await conn.execute(text("SELECT code_hash FROM user_recovery_codes"))).scalars()
+        )
+
+
+async def _add_old_codes(owner_engine: AsyncEngine, email: str, *codes: str) -> None:
+    async with owner_engine.begin() as conn:
+        for code in codes:
+            await conn.execute(
+                text(
+                    "INSERT INTO user_recovery_codes (id, user_id, code_hash) "
+                    "SELECT gen_random_uuid(), id, :h FROM users WHERE email = :e"
+                ),
+                {"h": _unsalted(code), "e": email},
+            )
+
+
+async def test_recovery_codes_are_kept_as_hmac_with_the_server_key(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, server_key
+):
+    # Audit h02.3: an unsalted SHA-256 of a code (about 49.5 bits) is guessed offline from
+    # a copy of the database; without the server key a copy gives nothing to guess against.
+    server_key("a-server-key")
+    await make_user("anna@example.com", two_factor=False)
+    await login(client, "anna@example.com")
+    _, codes = await enable_two_factor(client)
+    stored = await _stored_codes(owner_engine)
+    assert not stored & {_unsalted(c) for c in codes}
+    assert stored == {two_factor.hash_recovery_code(c) for c in codes}
+
+    server_key("another-server-key")
+    assert not stored & {two_factor.hash_recovery_code(c) for c in codes}
+
+
+async def test_an_old_unsalted_recovery_code_is_taken_once_and_kept_as_hmac(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await make_user("anna@example.com")
+    await _add_old_codes(owner_engine, "anna@example.com", "abcde-fghjk")
+    await login_first_step(client, "anna@example.com")
+    used = await client.post("/api/auth/login/verify", json={"code": "ABCDE-FGHJK"})
+    assert used.status_code == 200
+    async with owner_engine.connect() as conn:
+        row = (await conn.execute(text("SELECT code_hash, used_at FROM user_recovery_codes"))).one()
+    assert row.code_hash != _unsalted("abcde-fghjk")
+    assert row.code_hash == two_factor.hash_recovery_code("abcde-fghjk")
+    assert row.used_at is not None
+
+    await client.post("/api/auth/logout")
+    await login_first_step(client, "anna@example.com")
+    again = await client.post("/api/auth/login/verify", json={"code": "abcde-fghjk"})
+    assert again.json() == {"detail": "invalid_code"}
+
+
+async def test_the_cli_keeps_every_old_recovery_code_as_hmac(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Codes never used would otherwise stay guessable in the database: the command keys
+    # the stored SHA-256 itself, the codes are not needed for it.
+    await make_user("anna@example.com")
+    codes = ("abcde-fghjk", "mnpqr-stuvw")
+    await _add_old_codes(owner_engine, "anna@example.com", *codes)
+    assert await upgrade_recovery_codes() == 2
+    assert await _stored_codes(owner_engine) == {two_factor.hash_recovery_code(c) for c in codes}
+    assert await upgrade_recovery_codes() == 0
+
+    await login_first_step(client, "anna@example.com")
+    used = await client.post("/api/auth/login/verify", json={"code": codes[1]})
+    assert used.status_code == 200
+
+
+@pytest.mark.parametrize("value", ["", "change-me"])
+def test_recovery_codes_need_a_server_key_outside_development(server_key, value: str):
+    server_key(value, env="production")
+    with pytest.raises(two_factor.RecoveryKeyMissing):
+        two_factor.hash_recovery_code("abcde-fghjk")
+    server_key("a-server-key", env="production")
+    assert two_factor.hash_recovery_code("abcde-fghjk") != _unsalted("abcde-fghjk")

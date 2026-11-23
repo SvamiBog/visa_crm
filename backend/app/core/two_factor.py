@@ -1,16 +1,26 @@
-"""Two-factor login: TOTP (RFC 6238) and one-time recovery codes."""
+"""Two-factor login: TOTP (RFC 6238) and one-time recovery codes.
 
+Recovery codes are kept as an HMAC with a key derived from SECRET_KEY (backlog S16):
+a copy of the database alone gives nothing to guess them against.
+"""
+
+import base64
 import hashlib
 import hmac
 import secrets
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pyotp
 import segno
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.crypto import seal, unseal
+from app.models import RecoveryCode
 
 if TYPE_CHECKING:
     from app.models import User
@@ -21,6 +31,10 @@ RECOVERY_CODE_COUNT = 10
 # Codes from the previous and next 30-second step are accepted too: phone clocks drift.
 _DRIFT_STEPS = 1
 _RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+# Marks a recovery code kept as HMAC; the old unsalted SHA-256 is 64 hex digits.
+RECOVERY_HASH_PREFIX = "hmac:"
+# The value in .env.example and the settings' default: known to everyone.
+_DEFAULT_SECRET_KEYS = ("", "change-me")
 
 
 def _now() -> float:
@@ -58,7 +72,8 @@ def verify_totp(secret: str, code: str, last_used_step: int | None) -> int | Non
     A code is accepted once: steps up to last_used_step are rejected (no replay).
     """
     code = code.replace(" ", "")
-    if len(code) != 6 or not code.isdigit():
+    # ASCII only: digits of other scripts pass isdigit() and are a wrong code (audit h02.7).
+    if len(code) != 6 or not (code.isascii() and code.isdigit()):
         return None
     totp = pyotp.TOTP(secret)
     current = int(_now() // STEP_SECONDS)
@@ -89,6 +104,66 @@ def generate_recovery_codes() -> list[str]:
     return [one() for _ in range(RECOVERY_CODE_COUNT)]
 
 
-def hash_recovery_code(code: str) -> str:
+class RecoveryKeyMissing(RuntimeError):
+    """SECRET_KEY is empty or the default outside local development and tests."""
+
+
+def _recovery_key() -> bytes:
+    settings = get_settings()
+    if settings.secret_key in _DEFAULT_SECRET_KEYS and settings.env not in ("local", "test"):
+        raise RecoveryKeyMissing("SECRET_KEY is not set")
+    # A key of its own: another use of SECRET_KEY never computes the same values.
+    return hmac.new(settings.secret_key.encode(), b"visacrm:recovery-codes", "sha256").digest()
+
+
+def _digest(code: str) -> bytes:
     normalized = code.strip().lower().replace(" ", "").replace("-", "")
-    return hashlib.sha256(normalized.encode()).hexdigest()
+    return hashlib.sha256(normalized.encode()).digest()
+
+
+def _keyed(digest: bytes) -> str:
+    """The stored form: an HMAC with the server key (audit h02.3). It is taken of the
+    SHA-256 that used to be stored, so a stored old hash is converted without the code."""
+    mac = hmac.new(_recovery_key(), digest, "sha256").digest()
+    return RECOVERY_HASH_PREFIX + base64.urlsafe_b64encode(mac).decode().rstrip("=")
+
+
+def hash_recovery_code(code: str) -> str:
+    return _keyed(_digest(code))
+
+
+async def use_recovery_code(session: AsyncSession, user_id: uuid.UUID, code: str) -> bool:
+    """Spend one of the user's unused recovery codes; False if none matches. A code still
+    kept as an unsalted SHA-256 (before backlog S16) is taken too and kept as HMAC from
+    now on."""
+    digest = _digest(code)
+    keyed = _keyed(digest)
+    recovery = await session.scalar(
+        select(RecoveryCode)
+        .where(
+            RecoveryCode.user_id == user_id,
+            RecoveryCode.code_hash.in_([keyed, digest.hex()]),
+            RecoveryCode.used_at.is_(None),
+        )
+        .with_for_update()
+    )
+    if recovery is None:
+        return False
+    recovery.code_hash = keyed
+    recovery.used_at = datetime.now(UTC)
+    return True
+
+
+async def upgrade_legacy_recovery_codes(session: AsyncSession) -> int:
+    """Key every recovery code still kept as an unsalted SHA-256; how many there were."""
+    old = await session.scalars(
+        select(RecoveryCode)
+        .where(RecoveryCode.code_hash.not_like(f"{RECOVERY_HASH_PREFIX}%"))
+        .with_for_update()
+    )
+    count = 0
+    for recovery in old:
+        recovery.code_hash = _keyed(bytes.fromhex(recovery.code_hash))
+        count += 1
+    await session.flush()
+    return count
