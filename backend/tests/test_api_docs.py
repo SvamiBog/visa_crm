@@ -1,4 +1,7 @@
-"""The API docs and schema are for developers: every environment has them but production."""
+"""The API docs and schema are for developers: only a developer's machine has them.
+
+The stands are reachable from the internet like the real site, and Swagger UI loads its
+scripts from a CDN without integrity checks (audit h15.2, backlog S19)."""
 
 import json
 from pathlib import Path
@@ -29,10 +32,11 @@ def app_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
 
 
-def test_production_has_no_api_docs_or_schema(app_in) -> None:
+@pytest.mark.parametrize("env", ["production", "staging"])
+def test_the_site_and_the_stands_have_no_api_docs_or_schema(app_in, env: str) -> None:
     # The schema maps every endpoint and error code: nobody outside needs that map of the
-    # real site. The page fallback does not stand in for them either: a clean 404.
-    app = app_in("production")
+    # site. The page fallback does not stand in for them either: a clean 404.
+    app = app_in(env)
     for path in ("/api/docs", "/api/openapi.json"):
         status, _, body = raw_response(app, path)
         assert (status, body) == (404, b'{"detail":"Not Found"}'), path
@@ -40,9 +44,9 @@ def test_production_has_no_api_docs_or_schema(app_in) -> None:
     assert raw_response(app, "/redoc")[::2] == (200, INDEX)
 
 
-@pytest.mark.parametrize("env", ["local", "staging"])
-def test_development_and_stands_keep_api_docs_and_schema(app_in, env: str) -> None:
-    # Developers and the stands' security scan use them (CLAUDE.md, docs/staging.md).
+@pytest.mark.parametrize("env", ["local", "test"])
+def test_a_developers_machine_keeps_api_docs_and_schema(app_in, env: str) -> None:
+    # Developers use them (CLAUDE.md: /api/docs on the local API).
     app = app_in(env)
     status, _, body = raw_response(app, "/api/docs")
     assert status == 200

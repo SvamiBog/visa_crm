@@ -35,12 +35,12 @@ async def test_styles_and_fonts_come_only_from_the_site_itself(client: AsyncClie
 async def test_production_is_indexed_and_served_over_https_only(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setenv("ENV", "production")
-    get_settings.cache_clear()
     try:
-        headers = (await client.get("/api/health")).headers
+        with monkeypatch.context() as production:
+            production.setenv("ENV", "production")
+            get_settings.cache_clear()
+            headers = (await client.get("/api/health")).headers
     finally:
-        monkeypatch.delenv("ENV")
-        get_settings.cache_clear()
+        get_settings.cache_clear()  # back to the tests' own ENV
     assert "x-robots-tag" not in headers
     assert headers["strict-transport-security"].startswith("max-age=31536000")

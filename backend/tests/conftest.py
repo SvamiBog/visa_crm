@@ -7,6 +7,13 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+# Tests run as a developer's machine (ENV=test), whatever the shell or backend/.env say,
+# with a test-only server key for the tests that switch to a stand or production. Set before
+# the app is imported below: app.main builds it on import, and outside development the
+# settings refuse to start without a server key (app/core/config.py).
+os.environ["ENV"] = "test"
+os.environ["SECRET_KEY"] = "test-only-server-key-not-a-secret-0123456789"
+
 import asyncpg
 import pytest
 from alembic import command
