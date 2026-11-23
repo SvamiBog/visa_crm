@@ -27,14 +27,13 @@ from app.core.security import (
     password_needs_rehash,
 )
 from app.core.two_factor import (
-    hash_recovery_code,
     looks_like_recovery_code,
     unseal_secret,
+    use_recovery_code,
     verify_totp,
 )
 from app.models import (
     AuditAction,
-    RecoveryCode,
     Tenant,
     UiTheme,
     User,
@@ -320,19 +319,7 @@ async def login(
 async def _check_second_factor(session: SystemSession, user: User, code: str) -> str | None:
     """The method that matched ("totp" or "recovery_code"), or None."""
     if looks_like_recovery_code(code):
-        recovery = await session.scalar(
-            select(RecoveryCode)
-            .where(
-                RecoveryCode.user_id == user.id,
-                RecoveryCode.code_hash == hash_recovery_code(code),
-                RecoveryCode.used_at.is_(None),
-            )
-            .with_for_update()
-        )
-        if recovery is None:
-            return None
-        recovery.used_at = datetime.now(UTC)
-        return "recovery_code"
+        return "recovery_code" if await use_recovery_code(session, user.id, code) else None
 
     assert user.totp_secret_encrypted is not None
     secret = unseal_secret(user.id, user.totp_secret_encrypted)
