@@ -106,8 +106,10 @@ class ReminderOut(BaseModel):
     employee_id: uuid.UUID | None = None
     employee_name: str | None = None
     limit: int | None = None
-    # Documents not collected (package): how many required ones are still to collect.
+    # Documents not collected (package): how many required ones are still to collect, and
+    # whether the day is the specialist's «Документы до» (else the submission).
     missing: int | None = None
+    documents_due: bool | None = None
     # The passport's removal: the names of the fields that will go (no values), and how
     # many files at checklist items go with them.
     passport_fields: list[str] | None = None
@@ -569,13 +571,18 @@ async def _packages(
     session: AsyncSession, out: _Collector, s: rules.Settings, contact_id: uuid.UUID | None
 ) -> None:
     """Documents still to collect before the submission (the package check, 2.3); a case
-    whose country has no checklist has nothing to collect."""
+    whose country has no checklist has nothing to collect. The day is the specialist's
+    «Документы до» when set (question 26), overdue after it, or the submission when it
+    comes sooner (rules.package_due_on; LEAST skips a missing date). Over with the
+    submission."""
+    due_on = func.least(VisaCase.documents_due_on, VisaCase.submission_on)
     query = (
         select(VisaCase, Contact.full_name)
         .join(Contact, Contact.id == VisaCase.contact_id)
         .where(
             VisaCase.outcome.is_(None),
-            VisaCase.submission_on.between(out.today, out.today + timedelta(days=s.package_days)),
+            due_on <= out.today + timedelta(days=s.package_days),
+            or_(VisaCase.submission_on.is_(None), VisaCase.submission_on >= out.today),
         )
     )
     rows = (await session.execute(_for_contact(query, VisaCase.contact_id, contact_id))).all()
@@ -584,15 +591,22 @@ async def _packages(
         summary = summaries.get(case.id)
         if summary is None:
             continue
-        assert case.submission_on is not None
-        day = rules.package(case.submission_on, summary.ready, out.today, s)
+        day = rules.package(
+            case.submission_on,
+            summary.ready,
+            out.today,
+            s,
+            documents_due_on=case.documents_due_on,
+        )
         if day is not None:
+            due_on = rules.package_due_on(case.submission_on, case.documents_due_on)
             out.add(
                 ReminderKind.PACKAGE,
                 case.id,
                 day,
-                case.submission_on,
+                due_on,
                 missing=summary.missing,
+                documents_due=due_on == case.documents_due_on,
                 **_case_fields(case, name),
             )
 
@@ -602,8 +616,8 @@ async def _results(
 ) -> None:
     """The submission long past and no result entered (CRM audit 2026-11-18): until the
     result is in. The stage does not matter: a case closed without a result before the
-    rule is caught too. The 15 days are a guess, not a deadline: never overdue (owner's
-    answer 2026-11-20)."""
+    rule is caught too. The 14 days (the specialist's answer to question 34) are a guess,
+    not a deadline: never overdue (owner's answer 2026-11-20)."""
     query = (
         select(VisaCase, Contact.full_name)
         .join(Contact, Contact.id == VisaCase.contact_id)

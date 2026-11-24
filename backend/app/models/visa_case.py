@@ -174,6 +174,9 @@ class VisaCase(Base):
     # it back, and when it came (a reminder in between, backlog 1.19).
     questionnaire_due_on: Mapped[date | None] = mapped_column(Date)
     questionnaire_received_on: Mapped[date | None] = mapped_column(Date)
+    # The day the client is to bring the documents («Документы до», question 26): the
+    # reminder of an incomplete package counts from it, else from the submission.
+    documents_due_on: Mapped[date | None] = mapped_column(Date)
 
     # Result: five structured fields instead of one list of hundreds of variants.
     outcome: Mapped[VisaOutcome | None] = mapped_column(_enum(VisaOutcome, "visa_outcome"))

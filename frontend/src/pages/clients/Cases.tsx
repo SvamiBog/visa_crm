@@ -73,6 +73,7 @@ const CASE_FIELDS = [
   "application_email",
   "questionnaire_due_on",
   "questionnaire_received_on",
+  "documents_due_on",
   "decided_on",
   "visa_valid_from",
   "visa_valid_to",
@@ -490,6 +491,11 @@ function CaseBody({
               {c.questionnaire_received_on
                 ? t("cases.questionnaireReceived", { date: date(c.questionnaire_received_on) })
                 : t("cases.questionnaireDue", { date: date(c.questionnaire_due_on) })}
+            </Row>
+          )}
+          {packageCheck && c.documents_due_on && (
+            <Row label={t("cases.documents")}>
+              {t("cases.documentsDue", { date: date(c.documents_due_on) })}
             </Row>
           )}
           <Appointment visaCase={c} />
@@ -1263,6 +1269,9 @@ function CaseEditForm({
   const [questionnaireReceived, setQuestionnaireReceived] = useState(
     c.questionnaire_received_on ?? "",
   );
+  // The day for the documents serves the package check's reminder: shown with its module.
+  const packageCheck = useHasModule("package_check");
+  const [documentsDue, setDocumentsDue] = useState(c.documents_due_on ?? "");
   const numberLabel = useNumberLabel();
   const isVisa = outcome === "visa";
   const decided = outcome === "visa" || outcome === "refusal";
@@ -1294,6 +1303,7 @@ function CaseEditForm({
         result_to_group: offerResultToGroup && resultToGroup,
         questionnaire_due_on: questionnaireDue || null,
         questionnaire_received_on: questionnaireReceived || null,
+        documents_due_on: documentsDue || null,
       }),
     onSuccess: (saved) => {
       putCase(saved);
@@ -1390,6 +1400,27 @@ function CaseEditForm({
           </Field>
         </div>
       </fieldset>
+      {packageCheck && (
+        <fieldset className="module-block">
+          <legend>{t("cases.documents")}</legend>
+          <div className="form-grid">
+            <Field
+              label={t("cases.documentsDueOn")}
+              hint={t("cases.documentsDueHint")}
+              error={errors.at("documents_due_on")}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  type="date"
+                  value={documentsDue}
+                  onChange={(e) => setDocumentsDue(e.target.value)}
+                />
+              )}
+            </Field>
+          </div>
+        </fieldset>
+      )}
       <fieldset className="module-block" ref={resultRef}>
         <legend>{t("cases.result")}</legend>
         {resultAsked > 0 && !outcome && (

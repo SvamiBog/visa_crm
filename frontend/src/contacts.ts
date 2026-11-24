@@ -222,6 +222,8 @@ export type VisaCase = {
   submission_on: string | null;
   questionnaire_due_on: string | null;
   questionnaire_received_on: string | null;
+  // «Документы до»: the day the client is to bring the documents (question 26).
+  documents_due_on: string | null;
   outcome: Outcome | null;
   decided_on: string | null;
   visa_entries: VisaEntries | null;

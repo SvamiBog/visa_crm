@@ -30,7 +30,8 @@ RESULT_PERIOD_MONTHS = {ResultPeriod.MONTH: 1, ResultPeriod.HALF_YEAR: 6, Result
 
 # What a submission group has in common (owner's decision 2026-11-15, docs/decisions.md →
 # «Правка группы подачи»); the result, the questionnaire received and money are each
-# one's own. The result goes on only with its own mark (RESULT_FIELDS).
+# one's own. The result goes on only with its own mark (RESULT_FIELDS). A family brings
+# its documents together, so «Документы до» is the group's (question 26, 2026-11-24).
 GROUP_FIELDS = (
     "destination_id",
     "submission_country_id",
@@ -40,6 +41,7 @@ GROUP_FIELDS = (
     "hall",
     "submission_on",
     "questionnaire_due_on",
+    "documents_due_on",
 )
 # A visa center belongs to its pair of countries, so the place goes as a whole.
 PLACE_FIELDS = ("destination_id", "submission_country_id", "visa_center_id")
