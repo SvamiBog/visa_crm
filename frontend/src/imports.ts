@@ -208,12 +208,12 @@ export function downloadImportTemplate(language: PromptLanguage, fileName: strin
   return apiDownload(`/imports/template?language=${language}`, fileName);
 }
 
-// The export of the workspace (docs/data-format.md → «Выгрузка»). With passwords: the
-// account's password and, with two-factor login on, a code from the app.
+// The export of the workspace (docs/data-format.md → «Выгрузка»), confirmed with the
+// account's password; with the vault's passwords and two-factor login on, also a code.
 export type ExportRequest = {
   language: PromptLanguage;
   with_passwords: boolean;
-  password?: string;
+  password: string;
   code?: string;
 };
 

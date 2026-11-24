@@ -9,8 +9,8 @@ The sample, the check and the import run in the background (app/core/import_jobs
 request starts the run and answers at once; the page asks /imports/jobs/{id} how far it is.
 
 The export gives the workspace back in the same format, a file the import reads again
-(app/core/data_export.py); with passwords only once the owner confirms it with her account's
-password and, with two-factor login on, a code from the app.
+(app/core/data_export.py). The owner confirms every export with her account's password, and
+one with the vault's passwords, with two-factor login on, also with a code from the app.
 
 The reader is app/core/workbook.py, the engine app/core/data_import.py, the cards
 app/core/import_cards.py; the rules are in docs/decisions.md → «Формат данных VisaCRM» and
@@ -22,7 +22,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import Base64Bytes, BaseModel, Field, field_validator, model_validator
+from pydantic import Base64Bytes, BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -236,19 +236,14 @@ class PromptOut(BaseModel):
 
 
 class ExportIn(BaseModel):
-    """The export of the workspace. With passwords: the account's password and, with
-    two-factor login on, a current code from the app (recovery codes do not export)."""
+    """The export of the workspace, confirmed with the account's password: the file holds
+    every client's data (the owner's decision on PR #162). With the vault's passwords and
+    two-factor login on, also a current code from the app (recovery codes do not export)."""
 
     language: Language = "ru"
     with_passwords: bool = False
-    password: str | None = Field(default=None, min_length=1, max_length=MAX_PASSWORD_LENGTH)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
     code: str | None = Field(default=None, max_length=32)
-
-    @model_validator(mode="after")
-    def password_with_passwords(self) -> "ExportIn":
-        if self.with_passwords and self.password is None:
-            raise ValueError("password_required")
-        return self
 
 
 # --- Helpers --------------------------------------------------------------------------
@@ -435,14 +430,17 @@ def _upload_out(upload: Upload) -> UploadOut:
     )
 
 
-async def _confirm_passwords(system: AsyncSession, user: CurrentUser, body: ExportIn) -> None:
-    """The owner herself asks for the passwords: her account's password and, with
-    two-factor login on, a code from the app. Misses count with wrong logins
-    (app/api/auth.py), so a stolen session cannot guess them."""
-    assert body.password is not None
+async def _confirm(system: AsyncSession, user: CurrentUser, body: ExportIn) -> None:
+    """The owner herself asks for the file: her account's password, and for the vault's
+    passwords, with two-factor login on, a code from the app. Misses count with wrong
+    logins (app/api/auth.py), so a stolen session cannot guess them."""
     owner = await system.get_one(User, user.id, with_for_update=True)
     await check_current_password(system, owner, body.password, "export_password")
-    if owner.totp_enabled_at is not None and owner.totp_secret_encrypted is not None:
+    if (
+        body.with_passwords
+        and owner.totp_enabled_at is not None
+        and owner.totp_secret_encrypted is not None
+    ):
         code = body.code or ""
         step = (
             None
@@ -625,12 +623,11 @@ async def export_data(
     body: ExportIn, user: Specialist, system: SystemSession, session: TenantSession
 ) -> Response:
     """The workspace in one file of the format (docs/data-format.md → «Выгрузка»): a copy
-    to keep, to check the CRM against, or to load back. Only the owner; the request is a
-    POST, so nothing of it is in an address. The log gets one event with the counts, and
-    the export with passwords one more: how many passwords were shown."""
+    to keep, to check the CRM against, or to load back. Only the owner, with her account's
+    password; the request is a POST, so nothing of it is in an address. The log gets one
+    event with the counts, and the export with passwords one more: how many were shown."""
     assert user.tenant_id is not None
-    if body.with_passwords:
-        await _confirm_passwords(system, user, body)
+    await _confirm(system, user, body)
     tenant = await session.get_one(Tenant, user.tenant_id)
     made = await export(
         session,

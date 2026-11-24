@@ -380,8 +380,9 @@ const SECRET_CODES = { invalid_current_password: "password", invalid_code: "code
 const SECRET_FIELDS = ["password", "code"] as const;
 
 /** The workspace in one file of the format: a copy to keep, to check the CRM against or to
- * load back (docs/data-format.md → «Выгрузка»). With passwords only after the account's
- * password and, with two-factor login on, a code from the app; that file is not for an AI. */
+ * load back (docs/data-format.md → «Выгрузка»). Confirmed with the account's password; with
+ * the vault's passwords also a code from the app when two-factor login is on, and that file
+ * is not for an AI. */
 function ExportData({ ready }: { ready: boolean }) {
   const { t, i18n } = useTranslation();
   const me = useMe();
@@ -397,7 +398,7 @@ function ExportData({ ready }: { ready: boolean }) {
       exportWorkspace(
         withPasswords
           ? { language, with_passwords: true, password, code: twoFactorOn ? code : undefined }
-          : { language, with_passwords: false },
+          : { language, with_passwords: false, password },
         t(withPasswords ? "import.exportFileWithPasswords" : "import.exportFile"),
       ),
     onSuccess: () => {
@@ -442,37 +443,37 @@ function ExportData({ ready }: { ready: boolean }) {
           {t("import.exportWithPasswords")}
         </label>
         {withPasswords && (
-          <>
-            <div className="alert alert-warn" role="note">
-              {t("import.exportPasswordsWarning")}
-            </div>
-            <div className="form-grid">
-              <PasswordField
-                label={t("auth.currentPassword")}
-                autoComplete="current-password"
-                value={password}
-                onChange={setPassword}
-                error={errors.at("password")}
-              />
-              {twoFactorOn && (
-                <Field label={t("import.exportCode")} error={errors.at("code")}>
-                  {(control) => (
-                    <input
-                      {...control}
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      required
-                      pattern="[0-9 ]{6,7}"
-                      maxLength={7}
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                    />
-                  )}
-                </Field>
-              )}
-            </div>
-          </>
+          <div className="alert alert-warn" role="note">
+            {t("import.exportPasswordsWarning")}
+          </div>
         )}
+        {/* Every export: the file holds every client's data (the owner's decision on
+            PR #162); the code from the app only for the vault's passwords. */}
+        <div className="form-grid">
+          <PasswordField
+            label={t("auth.currentPassword")}
+            autoComplete="current-password"
+            value={password}
+            onChange={setPassword}
+            error={errors.at("password")}
+          />
+          {withPasswords && twoFactorOn && (
+            <Field label={t("import.exportCode")} error={errors.at("code")}>
+              {(control) => (
+                <input
+                  {...control}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  pattern="[0-9 ]{6,7}"
+                  maxLength={7}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              )}
+            </Field>
+          )}
+        </div>
         {errors.general ? <ErrorAlert error={errors.general} /> : null}
         {exporting.isSuccess && (
           <div className="alert alert-ok" role="status">

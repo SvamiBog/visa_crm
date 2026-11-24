@@ -2,9 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
 // «Выгрузка данных» on the import page (backlog 1.21, docs/data-format.md → «Выгрузка»):
-// the workspace in one file, without passwords by default; «С паролями» asks for the
-// account's password (and the code, with two-factor sign-in on) and warns that the file is
-// not for an AI. «Удаление всех данных» in the settings sends the specialist here first.
+// the workspace in one file, confirmed with the account's password, without the vault's
+// passwords by default; «С паролями» also asks for the code (with two-factor sign-in on)
+// and warns that the file is not for an AI. «Удаление всех данных» in the settings sends the specialist here first.
 // Only reads: the export writes nothing but its audit events. A wrong password is left to
 // backend/tests/test_data_export.py: it counts with wrong logins of the shared demo account.
 // Both languages, on a computer and on a phone, where the page must not scroll sideways.
@@ -67,15 +67,18 @@ for (const lang of ["ru", "en"] as const) {
       const password = section.getByLabel(t("auth.currentPassword"), { exact: true });
       const submit = section.getByRole("button", { name: t("import.exportSubmit"), exact: true });
 
-      // Without passwords: nothing to confirm, the file comes at once.
+      // Without the vault's passwords: the account's password only, never the code.
       await expect(withPasswords).not.toBeChecked();
-      await expect(password).toHaveCount(0);
+      await expect(section.getByText(t("import.exportPasswordsWarning"))).toHaveCount(0);
+      await expect(section.getByLabel(t("import.exportCode"))).toHaveCount(0);
+      await password.fill(PASSWORD);
       let downloading = page.waitForEvent("download");
       await submit.click();
       expect((await downloading).suggestedFilename()).toMatch(FILE[lang].plain);
       await expect(section.getByText(t("import.exported"))).toBeVisible();
+      await expect(password).toHaveValue("");
 
-      // With passwords: the warning, the password and, with two-factor sign-in, the code.
+      // With passwords: the warning and, with two-factor sign-in, the code too.
       await withPasswords.check();
       await expect(section.getByText(t("import.exportPasswordsWarning"))).toBeVisible();
       await expect(password).toBeVisible();

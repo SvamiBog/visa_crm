@@ -71,7 +71,8 @@ async def ok(response: Response) -> Any:
 
 
 async def exported(client: AsyncClient, **body: Any) -> Response:
-    response = await client.post(EXPORT, json=body)
+    """An export confirmed with the account's password, as every export is."""
+    response = await client.post(EXPORT, json={"password": PASSWORD, **body})
     assert response.status_code == 200, response.text
     return response
 
@@ -167,7 +168,7 @@ async def test_an_export_of_a_workspace_loads_back_unchanged_and_without_duplica
     assert all(before.values()), before
 
     for language in ("ru", "en"):
-        content = (await exported(client, language=language)).content
+        content = (await exported(client, language=language, password=DEMO_PASSWORD)).content
         book = opened(content)
         if language == "ru":
             assert book.sheetnames == SHEETS
@@ -334,12 +335,37 @@ async def test_without_two_factor_login_the_password_alone_confirms_the_password
     assert sorted(passwords) == ["BkPass1", "Pa55word"]
 
 
+async def test_every_export_asks_for_the_account_password(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """The owner's decision on PR #162: the file holds every client's data, so a session
+    alone does not take it — the account's password does; the code from the app is
+    asked only for the vault's passwords. A wrong password counts as a failed login."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+
+    missing = await client.post(EXPORT, json={})
+    assert missing.status_code == 422, missing.text
+    wrong = await client.post(EXPORT, json={"password": "wrong-password"})
+    assert wrong.status_code == 400 and wrong.json()["detail"] == "invalid_current_password"
+    assert await events(owner_engine, tenant) == []
+    [user] = await rows(
+        owner_engine,
+        "SELECT failed_login_count FROM users WHERE email = 'spec@example.com'",
+    )
+    assert user["failed_login_count"] == 1
+
+    # The right password is enough without passwords, two-factor login on or not.
+    await exported(client)
+    assert [e["action"] for e in await events(owner_engine, tenant)] == ["imports.exported"]
+
+
 async def test_only_the_owner_exports(client: AsyncClient, make_user: MakeUser):
     tenant = await make_user("spec@example.com")
     await make_user("emp@example.com", role="employee", tenant_id=tenant)
     await login(client, "emp@example.com")
 
-    for body in ({}, {"with_passwords": True, "password": PASSWORD}):
+    for body in ({"password": PASSWORD}, {"with_passwords": True, "password": PASSWORD}):
         response = await client.post(EXPORT, json=body)
         assert response.status_code == 403, response.text
 
