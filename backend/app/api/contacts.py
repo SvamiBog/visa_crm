@@ -716,7 +716,7 @@ async def contact_deletion(
 async def delete_contact(contact_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
     """A card made by mistake — a duplicate (owner's decision 2026-11-04). The specialist
     only; a card with client history stays (deleting a client's data on request is
-    roadmap 6.6). Notes, links and unpaid consultations go with it by the foreign keys."""
+    roadmap 6.6). Notes and unpaid consultations go with it by the foreign keys."""
     contact = await _deletable(session, user, contact_id)
     # Locked to the commit: a row of history being saved for the card right now (a case,
     # a file, an account, a trip, a template) is waited for and seen below instead of
