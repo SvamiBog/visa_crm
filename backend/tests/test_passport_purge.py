@@ -4,14 +4,17 @@ it, and the first run after the release removes nothing at once."""
 
 import importlib.util
 import uuid
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import passport_purge
+from app.core.config import get_settings
 from tests.helpers import MakeUser, give_cases, login, workspace_today
 
 PASSPORT = {
@@ -393,3 +396,113 @@ async def test_the_first_run_removes_nothing_and_lists_everything_due(
     listed = await reminders(client)
     assert [(r["contact_id"], r["due_on"]) for r in listed] == [(old["id"], day(14))]
     assert (await questionnaire(client, old))["passport_number"] == "MP1234567"
+
+
+# --- Production: off until PASSPORT_PURGE_FROM ------------------------------------------
+
+Production = Callable[[date | None], None]
+
+
+@pytest.fixture
+def production(monkeypatch: pytest.MonkeyPatch) -> Production:
+    """The removal sees production settings with PASSPORT_PURGE_FROM as given; the rest of
+    the app stays a test site (cookies, docs)."""
+
+    def switch(switched_on_from: date | None) -> None:
+        settings = get_settings().model_copy(
+            update={"env": "production", "passport_purge_from": switched_on_from}
+        )
+        monkeypatch.setattr(passport_purge, "get_settings", lambda: settings)
+
+    return switch
+
+
+async def test_in_production_nothing_is_listed_removed_or_answered_until_switched_on(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, production: Production
+):
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    due = await decided_client(client, 30, "Анна")
+    await entered_days_ago(owner_engine, due["case_id"], 30)
+    soon = await decided_client(client, 6, "Борис")
+    # The release's first run listed someone too.
+    async with owner_engine.begin() as conn:
+        await conn.execute(text(_first_run_sql()))
+
+    # Switched on from tomorrow: still off today.
+    for switched_on_from in (None, workspace_today() + timedelta(days=1)):
+        production(switched_on_from)
+        assert await reminders(client) == []
+        assert await passport_purge.purge_due() == 0
+        for person in (due, soon):
+            for action in ("postpone", "purge"):
+                response = await client.post(f"/api/reminders/passport/{person['id']}/{action}")
+                assert response.status_code == 404, response.text
+                assert response.json()["detail"] == "not_found"
+        assert (await questionnaire(client, due))["passport_number"] == "MP1234567"
+    assert await audit(owner_engine, "contacts.passport_purged") == []
+    assert await audit(owner_engine, "contacts.passport_purge_postponed") == []
+
+
+async def test_switched_on_later_what_is_due_waits_fourteen_days_from_that_day(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, production: Production
+):
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    # Due long ago, and kept by the release's first run until a day now past (in
+    # production: kept until 08.12.2026, the switch comes after it).
+    kept = await decided_client(client, 60, "Анна")
+    await entered_days_ago(owner_engine, kept["case_id"], 60)
+    async with owner_engine.begin() as conn:
+        await conn.execute(text(_first_run_sql()))
+        await conn.execute(
+            text(
+                "UPDATE contacts SET passport_kept_until = :kept, passport_notice_from = :notice "
+                "WHERE id = :id"
+            ),
+            {
+                "kept": workspace_today() - timedelta(days=3),
+                "notice": workspace_today() - timedelta(days=17),
+                "id": kept["id"],
+            },
+        )
+    # Due long ago, never listed.
+    old = await decided_client(client, 40, "Борис")
+    await entered_days_ago(owner_engine, old["case_id"], 40)
+    # Put off until twenty days from now: its own day stays.
+    later = await decided_client(client, 1, "Вера")
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE contacts SET passport_kept_until = :kept WHERE id = :id"),
+            {"kept": workspace_today() + timedelta(days=20), "id": later["id"]},
+        )
+
+    production(workspace_today())
+    assert await passport_purge.purge_due() == 0
+    listed = {r["contact_id"]: r["due_on"] for r in await reminders(client)}
+    assert listed == {kept["id"]: day(14), old["id"]: day(14)}
+    assert (await questionnaire(client, kept))["passport_number"] == "MP1234567"
+
+    # Fourteen days after the switch: those two go, the later one waits for its day.
+    production(workspace_today() - timedelta(days=14))
+    assert await passport_purge.purge_due() == 2
+    assert (await questionnaire(client, kept))["passport_number"] is None
+    assert (await questionnaire(client, old))["passport_number"] is None
+    assert (await questionnaire(client, later))["passport_number"] == "MP1234567"
+
+
+async def test_switched_on_the_buttons_work_as_on_the_stands(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, production: Production
+):
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    person = await decided_client(client, 30, "Анна")
+    await entered_days_ago(owner_engine, person["case_id"], 30)
+    production(workspace_today())
+
+    response = await client.post(f"/api/reminders/passport/{person['id']}/postpone")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"purge_on": day(44)}
+    response = await client.post(f"/api/reminders/passport/{person['id']}/purge")
+    assert response.status_code == 204, response.text
+    assert (await questionnaire(client, person))["passport_number"] is None

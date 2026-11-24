@@ -15,6 +15,11 @@ result was entered, so «Требует внимания» always shows it first
 «Отложить» keeps it POSTPONE_DAYS more; the first run after the release keeps everything
 already due until the release + 14 days (migration 0046).
 
+Where: always on the stands (local, test, staging, PR stands); in production off until
+PASSPORT_PURGE_FROM (owner's decision 2026-11-24: questions about the feature first). Off,
+nothing is removed, listed or answered; the switch day counts as a first run of its own
+(`with_grace`).
+
 The daily run (`keep_purging`, started in app/main.py like the rates) removes what is due
 in each workspace in that workspace's own session.
 """
@@ -35,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import storage
 from app.core.audit import record
 from app.core.clock import today_in
+from app.core.config import get_settings
 from app.core.db import get_sessionmaker, scope_to_system, scope_to_tenant
 from app.core.documents import object_key
 from app.models import AuditAction, CaseStage, Contact, PackageFile, Tenant, VisaCase
@@ -53,6 +59,9 @@ AFTER_DECISION_DAYS = 7
 AFTER_ENTRY_DAYS = 2
 NOTICE_DAYS = 2
 POSTPONE_DAYS = 30
+# Grace after the switch in production: what is already due waits this long (as the
+# release's first run did).
+FIRST_RUN_DAYS = 14
 # Rounds of the daily run: a few a day, so a restart delays a removal by hours at most.
 RUN_EVERY = 6 * 3600  # seconds
 
@@ -89,6 +98,35 @@ def notice_on(purge_day: date, notice_from: date | None) -> date:
     """The day «Требует внимания» starts showing the removal."""
     day = purge_day - timedelta(days=NOTICE_DAYS)
     return min(day, notice_from) if notice_from else day
+
+
+def switched_on(env: str, switched_on_from: date | None, today: date) -> bool:
+    """Always on the stands; in production only from PASSPORT_PURGE_FROM on."""
+    if env != "production":
+        return True
+    return switched_on_from is not None and switched_on_from <= today
+
+
+def with_grace(
+    purge_day: date, notice_from: date | None, switched_on_from: date | None
+) -> tuple[date, date | None]:
+    """The switch in production is a first run of its own: what would go sooner than
+    FIRST_RUN_DAYS after it goes on that day and is listed from the switch, so nothing is
+    removed the day it is switched on (the release's first run kept a client until a day
+    that may be past by then)."""
+    if switched_on_from is None:
+        return purge_day, notice_from
+    grace = switched_on_from + timedelta(days=FIRST_RUN_DAYS)
+    if purge_day >= grace:
+        return purge_day, notice_from
+    return grace, min(notice_from, switched_on_from) if notice_from else switched_on_from
+
+
+def is_on(today: date) -> bool:
+    """Whether the removal works on this site today (the daily run, «Требует внимания» and
+    its buttons)."""
+    settings = get_settings()
+    return switched_on(settings.env, settings.passport_purge_from, today)
 
 
 def postponed_until(purge_day: date, today: date) -> date:
@@ -157,6 +195,7 @@ async def dues(
     if not contacts:
         return []
     zone = ZoneInfo(timezone)
+    switched_on_from = get_settings().passport_purge_from
     decisions: dict[uuid.UUID, list[Decision]] = defaultdict(list)
     in_work: set[uuid.UUID] = set()
     for case in await session.execute(_CASES, {"ids": [c.id for c in contacts]}):
@@ -170,12 +209,13 @@ async def dues(
     for c in contacts:
         day = purge_on(decisions[c.id], open_case=c.id in in_work, kept_until=c.passport_kept_until)
         if day is not None:
+            day, notice_from = with_grace(day, c.passport_notice_from, switched_on_from)
             found.append(
                 Due(
                     contact_id=c.id,
                     contact_name=c.full_name,
                     purge_on=day,
-                    notice_on=notice_on(day, c.passport_notice_from),
+                    notice_on=notice_on(day, notice_from),
                     fields=filled_fields(c.questionnaire),
                     files=c.files,
                 )
@@ -248,6 +288,8 @@ async def _purge_workspace(tenant_id: uuid.UUID, timezone: str) -> int:
     async with get_sessionmaker()() as session:
         scope_to_tenant(session, tenant_id)
         today = today_in(timezone)
+        if not is_on(today):
+            return 0
         for due in await dues(session, timezone):
             if due.purge_on > today:
                 continue

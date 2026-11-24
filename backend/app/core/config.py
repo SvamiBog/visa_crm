@@ -1,3 +1,4 @@
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
@@ -68,6 +69,11 @@ class Settings(BaseSettings):
     # stands), off in production until the owner turns it on with CLIENT_PORTAL=true
     # (owner's decision 2026-11-24, docs/decisions.md → «Портал клиента и вход по коду»).
     client_portal: bool | None = None
+    # Removing passport data after the decision (backlog 2.8, app/core/passport_purge.py):
+    # always on the stands (local, test, staging, PR stands); in production off until this
+    # day, and what is already due then waits 14 days more (owner's decision 2026-11-24,
+    # docs/decisions.md). Set it to the day it is switched on, never to a day long past.
+    passport_purge_from: date | None = None
 
     @field_validator("env", mode="before")
     @classmethod
