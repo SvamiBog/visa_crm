@@ -47,7 +47,6 @@ from app.models import (
     Consultation,
     Contact,
     ContactNote,
-    ContactRelation,
     Country,
     CountryRule,
     Decision,
@@ -736,27 +735,14 @@ async def _workspace(
         if decision != Decision.YES:
             continue
 
-        # A family applies together now and then.
+        # A family applies together now and then: a submission group of their cases, the
+        # cards are not linked (backlog 1.15.11). A wife, a son or a daughter.
         family = [anchor]
         if rng.random() < 0.15 and made["clients"] < clients:
-            for label, reverse in rng.sample(
-                (("жена", "муж"), ("сын", "мать"), ("дочь", "мать")), rng.randrange(1, 3)
-            ):
-                relative_name, _ = person(surname, is_female=label in ("жена", "дочь"))
-                relative = contact(relative_name, first_seen, channel)
+            for kin in rng.sample(("жена", "сын", "дочь"), rng.randrange(1, 3)):
+                relative_name, _ = person(surname, is_female=kin != "сын")
+                family.append(contact(relative_name, first_seen, channel))
                 made["clients"] += 1
-                await session.flush()
-                session.add_all(
-                    [
-                        ContactRelation(
-                            tenant_id=t, contact_id=anchor.id, related_id=relative.id, label=label
-                        ),
-                        ContactRelation(
-                            tenant_id=t, contact_id=relative.id, related_id=anchor.id, label=reverse
-                        ),
-                    ]
-                )
-                family.append(relative)
         await session.flush()
 
         rule = rules.get(code)

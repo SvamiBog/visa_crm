@@ -7,7 +7,6 @@ from app.models.contact import (
     Contact,
     ContactDocument,
     ContactNote,
-    ContactRelation,
     DocumentKind,
     Messenger,
 )
@@ -82,7 +81,6 @@ __all__ = [
     "Contact",
     "ContactDocument",
     "ContactNote",
-    "ContactRelation",
     "ContactTemplate",
     "Country",
     "CountryRule",

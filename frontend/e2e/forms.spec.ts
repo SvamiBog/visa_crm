@@ -86,32 +86,6 @@ const FORMS: Form[] = [
     },
   },
   {
-    // Who is who: one field under each client's name.
-    name: "link to a client",
-    open: async (page, t) => {
-      await openCard(page);
-      const relations = card(page, t("contacts.relations"));
-      const self = page.url().split("/").pop();
-      const linked = (await (await page.request.get(`/api/contacts/${self}`)).json()) as {
-        relations: { related_id: string }[];
-      };
-      const found = await page.request.post("/api/contacts/search", { data: {} });
-      // Oldest first: a demo card, not one other tests make and delete meanwhile.
-      const other = ((await found.json()).items as { id: string; full_name: string }[])
-        .reverse()
-        .find((c) => c.id !== self && !linked.relations.some((r) => r.related_id === c.id));
-      if (!other) throw new Error("The demo has no client to link");
-      await relations.getByRole("button", { name: t("contacts.addRelation"), exact: true }).click();
-      await relations.getByLabel(t("contacts.findContact"), { exact: true }).fill(other.full_name);
-      await relations
-        .getByRole("listitem")
-        .filter({ hasText: other.full_name })
-        .first()
-        .getByRole("button", { name: t("contacts.pick"), exact: true })
-        .click();
-    },
-  },
-  {
     name: "vault account",
     open: async (page, t) => {
       await openCard(page);

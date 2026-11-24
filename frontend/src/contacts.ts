@@ -49,8 +49,6 @@ export type Note = {
   edited_at: string | null;
 };
 
-export type Relation = { related_id: string; full_name: string; label: string | null };
-
 export const DECISIONS = ["yes", "no", "thinking"] as const;
 export type Decision = (typeof DECISIONS)[number];
 
@@ -290,7 +288,6 @@ export type ContactDocument = {
 export type ContactCard = {
   contact: Contact;
   notes: Note[];
-  relations: Relation[];
   consultations: Consultation[];
   questionnaire: Questionnaire;
   hints: Hint[];

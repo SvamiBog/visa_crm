@@ -1,6 +1,7 @@
 """Contacts (backlog 1.2): the card, search, the duplicate guard by phone and warning by
-Telegram, the notes timeline, links between contacts and deleting an empty duplicate.
-Closed by the «clients» module.
+Telegram, the notes timeline and deleting an empty duplicate. Closed by the «clients»
+module. Clients are not linked to each other (backlog 1.15.11): a family filed together is
+a submission group of their cases (app/api/cases.py).
 
 Personal data stays out of URLs and logs: search takes its query in the request body,
 and audit events carry ids and the names of changed fields only.
@@ -46,7 +47,6 @@ from app.models import (
     Contact,
     ContactDocument,
     ContactNote,
-    ContactRelation,
     ContactTemplate,
     Decision,
     LeadChannel,
@@ -250,23 +250,9 @@ class NoteOut(BaseModel):
     edited_at: datetime | None
 
 
-class RelationIn(BaseModel):
-    related_id: uuid.UUID
-    # How the related contact is linked to this one ("муж"); reverse_label is the other way.
-    label: Annotated[str, Field(max_length=100)] | None = None
-    reverse_label: Annotated[str, Field(max_length=100)] | None = None
-
-
-class RelationOut(BaseModel):
-    related_id: uuid.UUID
-    full_name: str
-    label: str | None
-
-
 class ContactCard(BaseModel):
     contact: ContactOut
     notes: list[NoteOut]
-    relations: list[RelationOut]
     consultations: list[ConsultationOut]
     questionnaire: Questionnaire
     # Questionnaire checks against the latest consultation and the cases in work
@@ -361,7 +347,7 @@ def _has(column: Any, term: str) -> Any:
 async def _has_history(session: AsyncSession, contact_id: uuid.UUID) -> bool:
     """What keeps a card from being deleted as a duplicate (owner's decision 2026-11-04):
     a case (with its payments, queue and bookings), a paid consultation, a vault account,
-    a stored file, a trip or a template given to the client. Notes, links and unpaid
+    a stored file, a trip or a template given to the client. Notes and unpaid
     consultations go with the card."""
     history = (
         exists().where(VisaCase.contact_id == contact_id),
@@ -395,16 +381,6 @@ def _note_out(note: ContactNote, author_email: str | None) -> NoteOut:
     )
 
 
-async def _relations(session: AsyncSession, contact_id: uuid.UUID) -> list[RelationOut]:
-    rows = await session.execute(
-        select(ContactRelation.related_id, Contact.full_name, ContactRelation.label)
-        .join(Contact, Contact.id == ContactRelation.related_id)
-        .where(ContactRelation.contact_id == contact_id)
-        .order_by(Contact.full_name)
-    )
-    return [RelationOut(related_id=r, full_name=n, label=lb) for r, n, lb in rows]
-
-
 async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> ContactCard:
     with_cases = "cases" in await effective_modules(session, user)
     consultations = await consultations_of(session, contact.id)
@@ -416,7 +392,6 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
     return ContactCard(
         contact=ContactOut.model_validate(contact),
         notes=await _notes(session, contact.id),
-        relations=await _relations(session, contact.id),
         consultations=consultations,
         questionnaire=Questionnaire.model_validate(contact.questionnaire),
         hints=await hints_for(session, contact),
@@ -751,64 +726,5 @@ async def delete_note(
     note = await _own_note(session, user, contact_id, note_id)
     await session.delete(note)
     _audit(session, AuditAction.CONTACT_NOTE_DELETED, user, contact_id, {"note": str(note_id)})
-    await session.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# --- Links between contacts ----------------------------------------------------------
-
-
-@router.post("/{contact_id}/relations", status_code=status.HTTP_201_CREATED)
-async def link_contacts(
-    contact_id: uuid.UUID, body: RelationIn, user: Member, session: TenantSession
-) -> list[RelationOut]:
-    if body.related_id == contact_id:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "self_link")
-    contact = await _contact(session, contact_id)
-    related = await _contact(session, body.related_id)
-    session.add_all(
-        [
-            ContactRelation(
-                tenant_id=user.tenant_id,
-                contact_id=contact.id,
-                related_id=related.id,
-                label=(body.label or "").strip() or None,
-            ),
-            ContactRelation(
-                tenant_id=user.tenant_id,
-                contact_id=related.id,
-                related_id=contact.id,
-                label=(body.reverse_label or "").strip() or None,
-            ),
-        ]
-    )
-    try:
-        await session.flush()
-    except IntegrityError as error:
-        await session.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "already_linked") from error
-    _audit(session, AuditAction.CONTACT_LINKED, user, contact.id, {"related": str(related.id)})
-    await session.commit()
-    return await _relations(session, contact.id)
-
-
-@router.delete("/{contact_id}/relations/{related_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def unlink_contacts(
-    contact_id: uuid.UUID, related_id: uuid.UUID, user: Member, session: TenantSession
-) -> Response:
-    await _contact(session, contact_id)
-    result = await session.execute(
-        delete(ContactRelation).where(
-            or_(
-                (ContactRelation.contact_id == contact_id)
-                & (ContactRelation.related_id == related_id),
-                (ContactRelation.contact_id == related_id)
-                & (ContactRelation.related_id == contact_id),
-            )
-        )
-    )
-    if result.rowcount == 0:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
-    _audit(session, AuditAction.CONTACT_UNLINKED, user, contact_id, {"related": str(related_id)})
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

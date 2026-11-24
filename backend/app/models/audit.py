@@ -50,6 +50,8 @@ class AuditAction(StrEnum):
     CONTACT_NOTE_ADDED = "contacts.note_added"
     CONTACT_NOTE_EDITED = "contacts.note_edited"
     CONTACT_NOTE_DELETED = "contacts.note_deleted"
+    # Links between clients are gone (backlog 1.15.11) and no longer written; the values
+    # stay so that the log still reads its old entries.
     CONTACT_LINKED = "contacts.linked"
     CONTACT_UNLINKED = "contacts.unlinked"
     # A file of the consent or the contract: details carry its id and kind, not its name.
