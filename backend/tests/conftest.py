@@ -172,7 +172,6 @@ WORKSPACE_TABLES = (
     "contact_templates",
     "document_templates",
     "contact_documents",
-    "contact_relations",
     "contact_notes",
     "contacts",
     "partner_terms",

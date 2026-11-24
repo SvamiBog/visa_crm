@@ -142,28 +142,6 @@ class ContactNote(Base):
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class ContactRelation(Base):
-    """«related is <label> for contact»: family, who brought whom. Stored both ways, each
-    side with its own label ("муж" / "жена"), so each card lists its links."""
-
-    __tablename__ = "contact_relations"
-    __table_args__ = (
-        _same_tenant("contact_relations", "contact_id", "contacts", "CASCADE"),
-        _same_tenant("contact_relations", "related_id", "contacts", "CASCADE"),
-        UniqueConstraint("contact_id", "related_id", name="uq_contact_relations_pair"),
-        CheckConstraint("contact_id <> related_id", name="not_self"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
-    )
-    contact_id: Mapped[uuid.UUID] = mapped_column(index=True)
-    related_id: Mapped[uuid.UUID]
-    label: Mapped[str | None] = mapped_column(String(100))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
 class ContactDocument(Base):
     """A file of the consent or the contract (backlog 1.2). The row describes it; the content
     lives encrypted in the file storage under documents/<tenant>/<id> (app/core/documents.py).

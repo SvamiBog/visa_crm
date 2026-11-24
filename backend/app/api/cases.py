@@ -66,7 +66,6 @@ from app.models import (
     CaseStage,
     Consultation,
     Contact,
-    ContactRelation,
     Country,
     CountryRule,
     Decision,
@@ -113,21 +112,15 @@ BOARD_LIMIT = 500
 class ApplicantIn(BaseModel):
     """An existing contact, or a new one by name: a family member without a card yet,
     their surname, given name and patronymic apart as on the card (the surname or the
-    given name is enough). `label` says who the new person is to the card's contact
-    ("дочь")."""
+    given name is enough). Who they are to the client is not asked: clients are not
+    linked to each other (backlog 1.15.11), the specialist notes it if she needs to."""
 
     contact_id: uuid.UUID | None = None
     last_name: NamePart | None = None
     first_name: NamePart | None = None
     middle_name: NamePart | None = None
-    label: Annotated[str, Field(max_length=100)] | None = None
 
     _name_parts = field_validator(*NAME_PARTS)(tidy)
-
-    @field_validator("label")
-    @classmethod
-    def blank_is_none(cls, value: str | None) -> str | None:
-        return (value or "").strip() or None
 
     @model_validator(mode="after")
     def one_of(self) -> "ApplicantIn":
@@ -474,8 +467,9 @@ async def _one_out(session: AsyncSession, case: VisaCase) -> CaseOut:
 async def _new_contact(
     session: AsyncSession, user: CurrentUser, anchor: Contact, applicant: ApplicantIn
 ) -> Contact:
-    """A family member gets their own card, linked to the card the case was started from.
-    They came the same way, so the channel and the partner are copied."""
+    """A family member gets their own card. They came the same way as the client the case
+    was started from, so the channel and the partner are copied; the family itself is the
+    submission group of their cases."""
     contact = Contact(
         tenant_id=user.tenant_id,
         **name_fields(applicant.last_name, applicant.first_name, applicant.middle_name),
@@ -485,31 +479,12 @@ async def _new_contact(
     )
     session.add(contact)
     await session.flush()
-    session.add_all(
-        [
-            ContactRelation(
-                tenant_id=user.tenant_id,
-                contact_id=anchor.id,
-                related_id=contact.id,
-                label=applicant.label,
-            ),
-            ContactRelation(tenant_id=user.tenant_id, contact_id=contact.id, related_id=anchor.id),
-        ]
-    )
     record(
         session,
         AuditAction.CONTACT_CREATED,
         actor=user,
         target_type="contact",
         target_id=contact.id,
-    )
-    record(
-        session,
-        AuditAction.CONTACT_LINKED,
-        actor=user,
-        target_type="contact",
-        target_id=anchor.id,
-        details={"related": str(contact.id)},
     )
     return contact
 
@@ -946,16 +921,18 @@ async def _fill_group(session: AsyncSession, user: CurrentUser, case: VisaCase) 
 
 
 @router.get("/cases/{case_id}/group-candidates")
-async def group_candidates(case_id: uuid.UUID, session: TenantSession) -> list[GroupMember]:
-    """Cases of the contact's family and links that can join this case's group."""
+async def group_candidates(
+    case_id: uuid.UUID, contact_id: uuid.UUID, session: TenantSession
+) -> list[GroupMember]:
+    """The cases of the client the specialist found by name (`contact_id`, an id only)
+    that can join this case's group. Clients are not linked to each other (backlog
+    1.15.11), so the family member is looked up, not offered. The case's own client is
+    never offered: one person is not filed twice in a family."""
     case = await _case(session, case_id)
-    related = select(ContactRelation.related_id).where(
-        ContactRelation.contact_id == case.contact_id
-    )
     query = (
         select(VisaCase, Contact.full_name)
         .join(Contact, Contact.id == VisaCase.contact_id)
-        .where(VisaCase.contact_id.in_(related))
+        .where(VisaCase.contact_id == contact_id, VisaCase.contact_id != case.contact_id)
         .order_by(VisaCase.number.desc())
     )
     if case.group_id is not None:

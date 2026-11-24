@@ -53,7 +53,7 @@ async def test_contact_card_with_normalized_phone(client: AsyncClient, make_user
     card = (await client.get(f"{BASE}/{contact['id']}")).json()
     assert card["contact"]["birth_date"] == "1990-10-14"
     assert card["contact"]["contract_number"] == "127"
-    assert card["notes"] == [] and card["relations"] == []
+    assert card["notes"] == []
 
 
 async def test_the_name_is_entered_in_parts(client: AsyncClient, make_user: MakeUser):
@@ -341,30 +341,28 @@ async def test_clients_module_is_required(
     assert (await client.post(f"{BASE}/search", json={"query": ""})).status_code == 403
 
 
-async def test_family_links_show_on_both_cards(client: AsyncClient, make_user: MakeUser):
+async def test_clients_are_not_linked_to_each_other(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Owner's decision 2026-11-24 (backlog 1.15.11): no links between clients at all. The
+    specialist notes who is who in the notes; a family filed together is a submission
+    group. The card has no links, their API is gone, and so is the table with its rows."""
     await as_specialist(client, make_user)
     anna = await create(client)
     sergey = await create(client, last_name="Ковалёв", first_name="Сергей", middle_name=None)
-    response = await client.post(
+
+    assert "relations" not in (await client.get(f"{BASE}/{anna['id']}")).json()
+    # No such endpoint: 404, or 405 once frontend/dist is built (its page takes any GET).
+    gone = (404, 405)
+    linked = await client.post(
         f"{BASE}/{anna['id']}/relations",
         json={"related_id": sergey["id"], "label": "муж", "reverse_label": "жена"},
     )
-    assert response.status_code == 201, response.text
-
-    anna_links = (await client.get(f"{BASE}/{anna['id']}")).json()["relations"]
-    sergey_links = (await client.get(f"{BASE}/{sergey['id']}")).json()["relations"]
-    assert [(r["full_name"], r["label"]) for r in anna_links] == [("Ковалёв Сергей", "муж")]
-    assert [(r["full_name"], r["label"]) for r in sergey_links] == [
-        ("Ковалёва Анна Сергеевна", "жена")
-    ]
-    again = await client.post(f"{BASE}/{anna['id']}/relations", json={"related_id": sergey["id"]})
-    assert again.status_code == 409
-    self_link = await client.post(f"{BASE}/{anna['id']}/relations", json={"related_id": anna["id"]})
-    assert self_link.status_code == 422
-
-    removed = await client.delete(f"{BASE}/{sergey['id']}/relations/{anna['id']}")
-    assert removed.status_code == 204
-    assert (await client.get(f"{BASE}/{anna['id']}")).json()["relations"] == []
+    assert linked.status_code in gone
+    unlinked = await client.delete(f"{BASE}/{sergey['id']}/relations/{anna['id']}")
+    assert unlinked.status_code in gone
+    async with owner_engine.connect() as conn:
+        assert await conn.scalar(text("SELECT to_regclass('public.contact_relations')")) is None
 
 
 async def test_log_has_ids_but_no_personal_data(client: AsyncClient, make_user: MakeUser):
@@ -482,21 +480,20 @@ async def test_a_telegram_that_is_not_a_nick_is_not_a_duplicate(
 
 
 async def test_an_empty_duplicate_card_can_be_deleted(client: AsyncClient, make_user: MakeUser):
-    """Owner's decision 2026-11-04: a card made by mistake goes, with its notes, links and
-    unpaid consultations; the log keeps the fact by id."""
+    """Owner's decision 2026-11-04: a card made by mistake goes, with its notes and unpaid
+    consultations; the log keeps the fact by id."""
     await as_specialist(client, make_user)
     anna = await create(client, phone="+375290001234")
     duplicate = await create(client, first_name="Аня", middle_name=None)
     url = f"{BASE}/{duplicate['id']}"
     await client.post(f"{url}/notes", json={"body": "дубль"})
-    await client.post(f"{url}/relations", json={"related_id": anna["id"], "label": "дубль"})
     held = await client.post(f"{url}/consultations", json={"held_on": "2026-10-10"})
     assert held.status_code == 201, held.text
     assert (await client.get(url)).json()["can_delete"] is True
 
     assert (await client.delete(url)).status_code == 204
     assert (await client.get(url)).status_code == 404
-    assert (await client.get(f"{BASE}/{anna['id']}")).json()["relations"] == []
+    assert (await client.get(f"{BASE}/{anna['id']}")).status_code == 200
     events = (await client.get("/api/audit")).json()["events"]
     deleted = [e for e in events if e["action"] == "contacts.deleted"]
     assert [e["target_id"] for e in deleted] == [duplicate["id"]]
