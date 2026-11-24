@@ -32,10 +32,13 @@ import {
 } from "../../contacts";
 import { formatSize, readBase64 } from "../../files";
 import { byId } from "../../reference";
+import { contentLines } from "../../deletion";
 import { deferDelete, useDeleting } from "../../undo";
+import { useWorkspace } from "../../workspace";
 import { AttentionList } from "../cabinet/Attention";
 import { ContactVault } from "../vault/Vault";
 import { Cases } from "./Cases";
+import { useMoney } from "./Finance";
 import { ContactForm } from "./ContactForm";
 import { PassportCard } from "./Passport";
 import { ContactTemplates } from "./ContactTemplates";
@@ -72,6 +75,10 @@ function BackToList() {
   );
 }
 
+/** The card's own things the question before its deletion counts, after its cases and
+ * consultations. */
+const CARD_COUNTED = ["notes", "vault_entries", "documents", "trips", "templates"] as const;
+
 /** A block of the card. Side by side the card has two columns; in one column the work
  * comes first — contact, cases, notes — and the reference blocks after it (styles.css). */
 function Slot({ name, children }: { name: string; children: ReactNode }) {
@@ -85,6 +92,8 @@ export function ContactPage() {
   const { id = "" } = useParams();
   const { t } = useTranslation();
   const confirm = useConfirm();
+  const money = useMoney();
+  const base = useWorkspace().data?.base_currency ?? "";
   const queryClient = useQueryClient();
   const card = useQuery({
     queryKey: contactKey(id),
@@ -128,7 +137,8 @@ export function ContactPage() {
     const state = openedFromIndex(location.state) ? FROM_INDEX : null;
     navigate(location.pathname, { replace: true, state });
   }, [card.data, location.state, location.pathname, navigate]);
-  // A duplicate made by mistake: the API refuses a card with client history.
+  // The card goes with all the client's history (decisions.md → «Удаление кейса и
+  // карточки со всем содержимым»).
   const remove = useMutation({
     mutationFn: () => apiDelete(`/contacts/${id}`),
     onSuccess: () => {
@@ -137,28 +147,48 @@ export function ContactPage() {
       navigate("/app/clients");
     },
   });
-  // The question names what goes with this card and what stays, read when «Удалить
-  // карточку» is pressed (pilot remark 1.15.13). A card that has got client history since
-  // it was opened is refused before the question, as the API would refuse it after, and
-  // shown again without the button. The button stays enabled while the question is open,
-  // so the focus can go back to it.
+  // The question lists everything that goes with this card, read when «Удалить
+  // карточку» is pressed (pilot remark 1.15.13): its cases with what they hold, then the
+  // card's own consultations, accounts, files and the rest. The button stays enabled
+  // while the question is open, so the focus can go back to it.
   const ask = useMutation({
     mutationFn: async (name: string) => {
       const what = await apiGet<ContactDeletion>(`/contacts/${id}/deletion`);
-      if (what.has_history) throw new ApiError(409, "contact_has_history");
+      const numbers = what.cases.map((number) => t("cases.number", { number })).join(", ");
       const items = [
-        ...(["consultations", "notes"] as const)
-          .filter((key) => what[key] > 0)
-          .map((key) => t(`contacts.deletedWith.${key}`, { n: what[key] })),
+        ...(what.cases.length > 0
+          ? [
+              t(what.cases.length === 1 ? "contacts.deletedWith.case" : "contacts.deletedWith.cases", {
+                numbers,
+              }),
+            ]
+          : []),
+        ...contentLines(what, t, (amount) => `${money(amount)} ${base}`),
+        ...(what.consultations > 0
+          ? [
+              what.paid_consultations > 0
+                ? t("contacts.deletedWith.consultationsPaid", {
+                    n: what.consultations,
+                    paid: what.paid_consultations,
+                  })
+                : t("contacts.deletedWith.consultations", { n: what.consultations }),
+            ]
+          : []),
+        ...CARD_COUNTED.filter((key) => what[key] > 0).map((key) =>
+          t(`contacts.deletedWith.${key}`, { n: what[key] }),
+        ),
         ...(["passport", "questionnaire"] as const)
           .filter((key) => what[key])
           .map((key) => t(`contacts.deletedWith.${key}`)),
       ];
-      const message =
-        items.length > 0
-          ? t("contacts.confirmDeleteCardWith", { name, items: items.join(", ") })
-          : t("contacts.confirmDeleteCard", { name });
-      return confirm({ message, action: t("contacts.deleteCard") });
+      return confirm({
+        message: t(items.length > 0 ? "contacts.confirmDeleteCardWith" : "contacts.confirmDeleteCard", {
+          name,
+        }),
+        items,
+        note: t("contacts.deleteCardNote"),
+        action: t("contacts.deleteCard"),
+      });
     },
     onMutate: () => remove.reset(),
     onSuccess: (yes) => {

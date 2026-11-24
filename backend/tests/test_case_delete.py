@@ -1,7 +1,10 @@
-"""Deleting a case opened by mistake — a duplicate (pilot fix 1, docs/decisions.md →
-«Пилот: правки визовика (2026-11-19)», T1): the specialist only; a case with money stays;
-everything else of the case goes with it; its number is never given again; a family
-group is rebuilt without it."""
+"""Deleting a case (pilot fix 1, docs/decisions.md → «Пилот: правки визовика (2026-11-19)»,
+T1; owner's decision 2026-11-24 → «Удаление кейса и карточки со всем содержимым»): the
+specialist only; the case goes at once with everything it holds, its money too, after a
+question that names it all; vault accounts and templates stay with the client; its number
+is never given again; a family group is rebuilt without it."""
+
+from decimal import Decimal
 
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -29,6 +32,8 @@ async def rows_of(owner_engine: AsyncEngine, case_id: str) -> dict[str, int]:
         "package_items",
         "bookings",
         "case_finances",
+        "case_payments",
+        "case_expenses",
         "employee_cases",
     )
     async with owner_engine.connect() as conn:
@@ -50,7 +55,7 @@ async def test_a_duplicate_case_is_deleted(client: AsyncClient, make_user: MakeU
     url = f"/api/cases/{duplicate['id']}"
 
     summary = (await client.get(f"{url}/deletion")).json()
-    assert summary["has_money"] is False
+    assert (summary["payments"], summary["payments_total"]) == (0, "0.00")
 
     assert (await client.delete(url)).status_code == 204
     assert (await client.get(url)).status_code == 404
@@ -62,8 +67,9 @@ async def test_a_duplicate_case_is_deleted(client: AsyncClient, make_user: MakeU
     events = (await client.get("/api/audit")).json()["events"]
     deleted = [e for e in events if e["action"] == "cases.deleted"]
     assert [e["target_id"] for e in deleted] == [duplicate["id"]]
-    assert deleted[0]["details"]["contact"] == naumik["id"]
-    assert "Naumik" not in str(deleted[0]["details"])
+    details = deleted[0]["details"]
+    assert (details["contact"], details["number"]) == (naumik["id"], duplicate["number"])
+    assert "Naumik" not in str(details)
 
 
 async def test_what_goes_with_the_case(
@@ -107,17 +113,17 @@ async def test_what_goes_with_the_case(
 
     summary = (await client.get(f"/api/cases/{poland['id']}/deletion")).json()
     assert summary == summary | {
-        "has_money": False,
+        "payments": 0,
         "queue_entries": 1,
         "package_items": 1,
         "bookings": 1,
-        "outcome": True,
+        "outcomes": 1,
         "employees": 1,
         # The price goes too, and the client's balance with it (backlog 1.15.12).
-        "terms": True,
+        "terms": 1,
     }
     france_goes = (await client.get(f"/api/cases/{france['id']}/deletion")).json()
-    assert (france_goes["attempts"], france_goes.get("terms")) == (1, False)
+    assert (france_goes["attempts"], france_goes["terms"]) == (1, 0)
 
     for case in (france, poland):
         assert (await client.delete(f"/api/cases/{case['id']}")).status_code == 204
@@ -137,47 +143,87 @@ async def test_only_the_specialist_deletes_a_case(
     assert (await client.get(f"/api/cases/{case['id']}")).status_code == 200
 
 
-async def test_a_case_with_money_is_not_deleted(
+async def test_a_case_is_deleted_with_its_money(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
+    """Owner's decision 2026-11-24: money no longer holds a case. The question names the
+    payments with their sum in the base currency, the expenses, the talon (the registrar's
+    balance changes) and the partner payout marked as paid; the case goes with all of them,
+    while the vault account given for it stays with the client."""
     await as_specialist(client, make_user)
+    codes = await countries(client)
+    ivan = await registrar(client, codes, currency="EUR")  # Poland: 60 EUR
     anna = await new_contact(client)
-    paid, spent, talon = [await one_case(client, anna["id"]) for _ in range(3)]
-    payment = await client.post(
-        f"/api/cases/{paid['id']}/payments",
-        json={"paid_on": "2026-05-15", "amount": "150", "currency": "BYN"},
-    )
-    assert payment.status_code == 201, payment.text
+    case = await one_case(client, anna["id"], registrar_id=ivan["id"])
+    url = f"/api/cases/{case['id']}"
+    for amount, currency in (("150", "BYN"), ("100", "EUR")):
+        payment = await client.post(
+            f"{url}/payments",
+            json={"paid_on": "2026-05-15", "amount": amount, "currency": currency},
+        )
+        assert payment.status_code == 201, payment.text
     expense = await client.post(
-        f"/api/cases/{spent['id']}/expenses",
+        f"{url}/expenses",
         json={"spent_on": "2026-05-15", "amount": "10", "currency": "BYN", "description": "Фото"},
     )
     assert expense.status_code == 201, expense.text
-    fee = await client.patch(
-        f"/api/cases/{talon['id']}/finance",
-        json={"registrar_fee_amount": "60", "registrar_fee_currency": "BYN"},
+    paid = await client.post(
+        f"/api/registrars/{ivan['id']}/payments",
+        json={"paid_on": "2026-05-01", "amount": "60", "method": "cash", "talons": 1},
     )
-    assert fee.status_code == 200, fee.text
-
-    for case, field in ((paid, "payments"), (spent, "expenses"), (talon, "registrar_fee")):
-        summary = (await client.get(f"/api/cases/{case['id']}/deletion")).json()
-        assert summary["has_money"] is True and summary[field] in (1, True)
-        refused = await client.delete(f"/api/cases/{case['id']}")
-        assert refused.status_code == 409 and refused.json()["detail"] == "case_has_money"
-        assert (await client.get(f"/api/cases/{case['id']}")).status_code == 200
-
-    # Each taken off in the case finances first, the case goes (backlog 1.15.12).
-    [row] = (await client.get(f"/api/cases/{paid['id']}/finance")).json()["payments"]
-    assert (await client.delete(f"/api/payments/{row['id']}")).status_code in (200, 204)
-    assert (await client.delete(f"/api/cases/{paid['id']}")).status_code == 204
-    [row] = (await client.get(f"/api/cases/{spent['id']}/finance")).json()["expenses"]
-    assert (await client.delete(f"/api/expenses/{row['id']}")).status_code in (200, 204)
-    assert (await client.delete(f"/api/cases/{spent['id']}")).status_code == 204
-    off = await client.patch(
-        f"/api/cases/{talon['id']}/finance", json={"registrar_fee_amount": None}
+    assert paid.status_code == 201, paid.text
+    charged = await client.post(
+        f"/api/registrars/{ivan['id']}/talons", json={"case_id": case["id"]}
     )
-    assert off.status_code == 200, off.text
-    assert (await client.delete(f"/api/cases/{talon['id']}")).status_code == 204
+    assert charged.status_code == 201 and charged.json()["balance"] == "0.00"
+    terms = {"price": "500", "partner_terms": "fixed", "partner_fixed": "50"}
+    partner = await client.patch(f"{url}/finance", json=terms | {"partner_paid_on": "2026-06-01"})
+    assert partner.status_code == 200, partner.text
+    mail = await client.post(
+        "/api/dictionaries/vault-systems", json={"name": "Почта", "kind": "email"}
+    )
+    assert mail.status_code == 201, mail.text
+    account = await client.post(
+        "/api/vault/entries",
+        json={
+            "system_id": mail.json()["id"],
+            "contact_id": anna["id"],
+            "case_id": case["id"],
+            "login": "anna",
+        },
+    )
+    assert account.status_code == 201, account.text
+    payments_base = sum(
+        Decimal(p["amount_base"]) for p in (await client.get(f"{url}/finance")).json()["payments"]
+    )
+
+    summary = (await client.get(f"{url}/deletion")).json()
+    assert summary == summary | {
+        "payments": 2,
+        "payments_total": f"{payments_base:.2f}",
+        "expenses": 1,
+        "talons": 1,
+        "partner_payouts": 1,
+        "terms": 1,
+        "vault_entries": 1,
+        "templates": 0,
+    }
+
+    assert (await client.delete(url)).status_code == 204
+    assert (await client.get(url)).status_code == 404
+    assert set((await rows_of(owner_engine, case["id"])).values()) == {0}
+    # The talon left the registrar's balance; the payment for it is an advance now.
+    ledger = (await client.get(ledger_url(ivan))).json()
+    assert (ledger["paid"], ledger["charged"], ledger["balance"]) == ("60.00", "0.00", "60.00")
+    # The account stays with the client, no longer tied to the case.
+    async with owner_engine.connect() as conn:
+        kept = (
+            await conn.execute(
+                text("SELECT contact_id, case_id FROM vault_entries WHERE id = :e"),
+                {"e": account.json()["id"]},
+            )
+        ).one()
+    assert (str(kept.contact_id), kept.case_id) == (anna["id"], None)
 
 
 def the_form(finance: dict, **changes) -> dict:
@@ -233,7 +279,7 @@ async def test_a_talon_taken_off_stays_off_and_the_case_goes(
     partner = await client.patch(f"{url}/finance", json=terms | {"partner_paid_on": "2026-06-01"})
     assert partner.status_code == 200, partner.text
     summary = (await client.get(f"{url}/deletion")).json()
-    assert (summary["registrar_fee"], summary["partner_paid"]) == (True, True)
+    assert (summary["talons"], summary["partner_payouts"]) == (1, 1)
 
     # The talon's amount emptied in the form.
     off = await client.patch(
@@ -253,7 +299,7 @@ async def test_a_talon_taken_off_stays_off_and_the_case_goes(
     again = await client.patch(f"{url}/finance", json=the_form(finance, partner_paid_on=None))
     assert again.status_code == 200, again.text
     assert again.json()["registrar_fee_amount"] is None
-    assert (await client.get(f"{url}/deletion")).json()["has_money"] is False
+    assert (await client.get(f"{url}/deletion")).json()["talons"] == 0
     assert (await client.delete(url)).status_code == 204
     ledger = (await client.get(ledger_url(ivan))).json()
     assert (ledger["balance"], ledger["talons"], ledger["missing"]) == ("60.00", 0, 0)
@@ -281,7 +327,6 @@ async def test_a_talon_paid_before_the_crm_is_taken_off_too(
     )
     assert settled.status_code == 200, settled.text
     assert (await client.get(ledger_url(ivan))).json()["charged"] == "0.00"
-    assert (await client.delete(url)).status_code == 409
 
     off = await client.patch(
         f"{url}/finance", json=the_form(settled.json(), registrar_fee_amount=None)
@@ -295,7 +340,7 @@ async def test_a_talon_paid_before_the_crm_is_taken_off_too(
     assert (await client.get(ledger_url(ivan))).json()["balance"] == "0.00"
 
 
-async def test_a_registrar_without_a_talon_does_not_hold_the_case(
+async def test_a_registrar_without_a_talon_is_not_named_as_a_talon(
     client: AsyncClient, make_user: MakeUser
 ):
     """The registrar chosen in the case's form is not money: only a talon is."""
@@ -305,37 +350,9 @@ async def test_a_registrar_without_a_talon_does_not_hold_the_case(
     anna = await new_contact(client)
     case = await one_case(client, anna["id"], registrar_id=ivan["id"])
     summary = (await client.get(f"/api/cases/{case['id']}/deletion")).json()
-    assert (summary["has_money"], summary["registrar_fee"]) == (False, False)
+    assert summary["talons"] == 0
     assert (await client.delete(f"/api/cases/{case['id']}")).status_code == 204
     assert (await client.get(ledger_url(ivan))).json()["missing"] == 0
-
-
-async def test_a_case_whose_partner_was_paid_is_not_deleted(
-    client: AsyncClient, make_user: MakeUser
-):
-    """Owner's answer 2026-11-20: a partner payout marked as paid holds the case like a
-    payment does; agreed terms without the mark do not."""
-    await as_specialist(client, make_user)
-    anna = await new_contact(client)
-    case = await one_case(client, anna["id"])
-    url = f"/api/cases/{case['id']}"
-    terms = {"price": "500", "partner_terms": "fixed", "partner_fixed": "50"}
-    assert (await client.patch(f"{url}/finance", json=terms)).status_code == 200
-    summary = (await client.get(f"{url}/deletion")).json()
-    assert (summary["partner_paid"], summary["has_money"]) == (False, False)
-
-    paid = await client.patch(f"{url}/finance", json={"partner_paid_on": "2026-06-01"})
-    assert paid.status_code == 200, paid.text
-    summary = (await client.get(f"{url}/deletion")).json()
-    assert (summary["partner_paid"], summary["has_money"]) == (True, True)
-    refused = await client.delete(url)
-    assert refused.status_code == 409 and refused.json()["detail"] == "case_has_money"
-    assert (await client.get(url)).status_code == 200
-
-    # The mark taken off, the case goes.
-    unpaid = await client.patch(f"{url}/finance", json={"partner_paid_on": None})
-    assert unpaid.status_code == 200, unpaid.text
-    assert (await client.delete(url)).status_code == 204
 
 
 async def test_another_specialist_cannot_delete_a_case(client: AsyncClient, make_user: MakeUser):
@@ -430,3 +447,37 @@ async def test_an_import_numbers_past_a_deleted_case(
             )
         ).all()
     assert numbers and min(numbers) == 2
+
+
+async def test_a_deleted_card_takes_its_cases_out_of_their_groups(
+    client: AsyncClient, make_user: MakeUser
+):
+    """Owner's decision 2026-11-24: a card goes with its cases. Each of them leaves its
+    family group as a deleted case does, is logged as deleted, and its number is not given
+    again."""
+    await as_specialist(client, make_user)
+    anna = await new_contact(client)
+    codes = await countries(client)
+    family = await client.post(
+        f"{CONTACTS}/{anna['id']}/cases",
+        json={
+            "destination_id": codes["PL"],
+            "submission_country_id": codes["BY"],
+            "applicants": [{"contact_id": anna["id"]}, {"first_name": "Сергей"}],
+        },
+    )
+    assert family.status_code == 201, family.text
+    hers, his = family.json()
+    # Her newest case has the highest number: it must not be given again.
+    france = await one_case(client, anna["id"], "FR")
+
+    summary = (await client.get(f"{CONTACTS}/{anna['id']}/deletion")).json()
+    assert summary["cases"] == [hers["number"], france["number"]]
+    assert (await client.delete(f"{CONTACTS}/{anna['id']}")).status_code == 204
+
+    left = (await client.get(f"/api/cases/{his['id']}")).json()
+    assert (left["group_id"], left["group"]) == (None, [])
+    events = (await client.get("/api/audit")).json()["events"]
+    deleted = {e["target_id"] for e in events if e["action"] == "cases.deleted"}
+    assert deleted == {hers["id"], france["id"]}
+    assert (await one_case(client, his["contact_id"], "FR"))["number"] == france["number"] + 1

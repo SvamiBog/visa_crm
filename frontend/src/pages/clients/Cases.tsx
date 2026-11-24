@@ -46,11 +46,12 @@ import { Appointment, useNumberLabel } from "./Appointment";
 import { CaseAccess } from "./CaseAccess";
 import { CaseBookings } from "./Bookings";
 import { ContactSearch } from "./ContactSearch";
-import { CaseFinance } from "./Finance";
+import { CaseFinance, useMoney } from "./Finance";
 import { CasePackage } from "./Package";
 import { useCaseName } from "./ui";
 import { flushPending } from "../../undo";
-import { useHasModule } from "../../workspace";
+import { useHasModule, useWorkspace } from "../../workspace";
+import { contentLines, type CaseContents } from "../../deletion";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
 // the structured visa result and the submission group.
@@ -504,38 +505,21 @@ function CaseBody({
   );
 }
 
-/** What goes with a case (GET /cases/{id}/deletion); a case with money stays. */
-type CaseDeletion = {
-  has_money: boolean;
-  payments: number;
-  expenses: number;
-  registrar_fee: boolean;
-  partner_paid: boolean;
-  attempts: number;
-  queue_entries: number;
-  package_items: number;
-  bookings: number;
-  outcome: boolean;
-  employees: number;
-  /** The price or the partner's terms, no money moved: they go with the case. */
-  terms: boolean;
+/** What goes with a case and what stays (GET /cases/{id}/deletion). */
+type CaseDeletion = CaseContents & {
   group_members: number;
+  /** Given to the client for this case: they stay on the card. */
+  vault_entries: number;
+  templates: number;
 };
 
-const DELETED_WITH_CASE = [
-  "attempts",
-  "queue_entries",
-  "package_items",
-  "bookings",
-  "employees",
-] as const;
+const KEPT_ON_CARD = ["vault_entries", "templates"] as const;
 
-/** «Удалить кейс»: a case opened by mistake, a duplicate (pilot fix 1). The specialist
- * only; the question lists what goes with the case, and a case with money is refused
- * before it is asked, naming the money that holds it and how to take it off (the API
- * refuses it too). A payment or an expense just deleted, still offering «Отменить», is
- * sent first, so it does not hold the case (1.15.12). The refusal reaches `onError` as a
- * ready message. */
+/** «Удалить кейс»: the specialist only. The case goes at once with everything it holds,
+ * its money too (decisions.md → «Удаление кейса и карточки со всем содержимым»); the
+ * question lists all of it, and what stays on the client's card. A payment or an
+ * expense just deleted, still offering «Отменить», is sent first, so its deletion does
+ * not fail on a case gone. A failure reaches `onError`. */
 function DeleteCase({
   visaCase: c,
   onError,
@@ -548,37 +532,25 @@ function DeleteCase({
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const refresh = useRefreshCards();
+  const money = useMoney();
+  const base = useWorkspace().data?.base_currency ?? "";
   const remove = useMutation({
     mutationFn: async () => {
       await flushPending();
       const what = await apiGet<CaseDeletion>(`/cases/${c.id}/deletion`);
-      // Refused before the question, as the API would refuse it after.
-      if (what.has_money) {
-        const money = [
-          ...(["payments", "expenses"] as const)
-            .filter((key) => what[key] > 0)
-            .map((key) => t(`cases.keptBy.${key}`, { n: what[key] })),
-          ...(["registrar_fee", "partner_paid"] as const)
-            .filter((key) => what[key])
-            .map((key) => t(`cases.keptBy.${key}`)),
-        ];
-        onError(t("cases.keptByMoney", { number: c.number, items: money.join(", ") }));
-        return false;
-      }
-      const items = [
-        ...DELETED_WITH_CASE.filter((key) => what[key] > 0).map((key) =>
-          t(`cases.deletedWith.${key}`, { n: what[key] }),
-        ),
-        ...(what.outcome ? [t("cases.deletedWith.outcome")] : []),
-        ...(what.terms ? [t("cases.deletedWith.terms")] : []),
-      ];
-      const message = [
-        items.length > 0
-          ? t("cases.confirmDeleteWith", { number: c.number, items: items.join(", ") })
-          : t("cases.confirmDelete", { number: c.number }),
+      const items = contentLines(what, t, (amount) => `${money(amount)} ${base}`);
+      const kept = KEPT_ON_CARD.filter((key) => what[key] > 0).map((key) =>
+        t(`cases.kept.${key}`, { n: what[key] }),
+      );
+      const note = [
+        ...(kept.length > 0 ? [t("cases.keptOnCard", { items: kept.join(", ") })] : []),
         ...(what.group_members > 0 ? [t("cases.deleteLeavesGroup")] : []),
+        t("cases.cannotRestore"),
       ].join(" ");
-      if (!(await confirm({ message, action: t("cases.delete") }))) return false;
+      const message = t(items.length > 0 ? "cases.confirmDeleteWith" : "cases.confirmDelete", {
+        number: c.number,
+      });
+      if (!(await confirm({ message, items, note, action: t("cases.delete") }))) return false;
       await apiDelete<void>(`/cases/${c.id}`);
       return true;
     },

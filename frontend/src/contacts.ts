@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "./api";
 import type { PurposeKind } from "./checklists";
+import type { CaseContents } from "./deletion";
 import type { BookingType, IdentifierType } from "./reference";
 
 // Contacts (backend/app/api/contacts.py). Search goes in a POST body: names and phones
@@ -295,16 +296,23 @@ export type ContactCard = {
   cases: VisaCase[] | null;
   /** Newest first. */
   documents: ContactDocument[];
-  /** The specialist may delete a card without client history: a duplicate. */
+  /** The specialist may delete any card, with all the client's history. */
   can_delete: boolean;
 };
 
 /** What goes with a card, for the question before it is deleted
- * (GET /contacts/{id}/deletion). A card with client history stays. */
-export type ContactDeletion = {
-  has_history: boolean;
+ * (GET /contacts/{id}/deletion): its cases' contents summed, then its own things. */
+export type ContactDeletion = CaseContents & {
+  /** Numbers of the client's cases, in order. */
+  cases: number[];
   consultations: number;
+  paid_consultations: number;
   notes: number;
+  vault_entries: number;
+  /** Consent and contract files. */
+  documents: number;
+  trips: number;
+  templates: number;
   passport: boolean;
   questionnaire: boolean;
 };

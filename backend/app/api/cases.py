@@ -8,12 +8,14 @@ events carry ids and the names of changed fields only.
 
 import uuid
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import (
+    ColumnElement,
     Date,
     and_,
     any_,
@@ -39,6 +41,7 @@ from app.api.deps import (
     require_specialist,
     workspace_today,
 )
+from app.core import import_jobs
 from app.core.audit import record
 from app.core.cases import (
     PLACE_FIELDS,
@@ -54,6 +57,7 @@ from app.core.cases import (
 )
 from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
+from app.core.finance import money
 from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
 from app.models import (
     ApplicationAttempt,
@@ -66,6 +70,7 @@ from app.models import (
     CaseStage,
     Consultation,
     Contact,
+    ContactTemplate,
     Country,
     CountryRule,
     Decision,
@@ -78,6 +83,7 @@ from app.models import (
     Tenant,
     UserRole,
     VacIdentifierType,
+    VaultEntry,
     VisaCase,
     VisaCenter,
     VisaEntries,
@@ -1020,26 +1026,111 @@ async def leave_group(case_id: uuid.UUID, user: Specialist, session: TenantSessi
 # --- Deleting a case -----------------------------------------------------------------
 
 
-class CaseDeletion(BaseModel):
-    """What goes with the case, for the confirmation; a case with money stays."""
+class CaseContents(BaseModel):
+    """What cases hold, for the question before they are deleted: they go at once with all
+    of it (owner's decision 2026-11-24). Counts; the payments' sum is in the workspace's
+    base currency."""
 
-    has_money: bool
     payments: int
+    payments_total: Decimal
     expenses: int
-    registrar_fee: bool
-    # A partner payout marked as paid is money too (owner's answer 2026-11-20).
-    partner_paid: bool
+    # Talons a registrar charged: his balance changes when they go.
+    talons: int
+    # Partner payouts marked as paid.
+    partner_payouts: int
     attempts: int
     queue_entries: int
     package_items: int
     bookings: int
-    outcome: bool
+    outcomes: int
     employees: int
-    # The price, the prepayment, the consultation credit or the partner's terms, with no
+    # Cases with a price, a prepayment, a consultation credit or the partner's terms and no
     # money moved: they go too, and the client's balance with them (backlog 1.15.12).
-    terms: bool
+    terms: int
+
+
+class CaseDeletion(CaseContents):
+    """What goes with one case and what stays."""
+
     # The other cases of its submission group: they stay, the case leaves the group.
     group_members: int
+    # Given to the client for this case: they stay with the client.
+    vault_entries: int
+    templates: int
+
+
+async def case_contents(session: AsyncSession, cases: ColumnElement[bool]) -> CaseContents:
+    """What the cases matching `cases` hold (one case, or all of a client's)."""
+    ids = select(VisaCase.id).where(cases)
+
+    async def count(model: Any, *where: ColumnElement[bool]) -> int:
+        query = select(func.count()).select_from(model).where(model.case_id.in_(ids), *where)
+        return await session.scalar(query) or 0
+
+    total = await session.scalar(
+        select(func.sum(CasePayment.amount_base)).where(CasePayment.case_id.in_(ids))
+    )
+    outcomes = await session.scalar(
+        select(func.count()).select_from(VisaCase).where(cases, VisaCase.outcome.is_not(None))
+    )
+    return CaseContents(
+        payments=await count(CasePayment),
+        payments_total=money(total or Decimal(0)),
+        expenses=await count(CaseExpense),
+        talons=await count(CaseFinance, CaseFinance.registrar_fee_amount.is_not(None)),
+        partner_payouts=await count(CaseFinance, CaseFinance.partner_paid_on.is_not(None)),
+        attempts=await count(ApplicationAttempt),
+        queue_entries=await count(WaitingListEntry),
+        package_items=await count(PackageItem),
+        bookings=await count(Booking),
+        outcomes=outcomes or 0,
+        employees=await count(EmployeeCase),
+        terms=await count(
+            CaseFinance,
+            or_(
+                CaseFinance.price.is_not(None),
+                CaseFinance.prepayment.is_not(None),
+                CaseFinance.consultation_credit > 0,
+                CaseFinance.partner_terms.in_([PartnerTermsType.PERCENT, PartnerTermsType.FIXED]),
+            ),
+        ),
+    )
+
+
+def refuse_while_importing(tenant_id: uuid.UUID | None) -> None:
+    """An import writing cards now could put back what a deletion takes away, or stop on a
+    case deleted under it."""
+    if any(job.kind == "import" for job in import_jobs.running(tenant_id)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "import_running")
+
+
+async def delete_cases(session: AsyncSession, user: CurrentUser, cases: list[VisaCase]) -> None:
+    """Delete the cases with everything they hold, by the foreign keys (ON DELETE CASCADE):
+    payments, expenses, the finances with the talon and the partner payout, attempts, the
+    waiting list, package marks, bookings, employees' grants. Vault accounts and templates
+    given for them stay with the client (SET NULL); none of the rows that go holds a
+    stored file. Each case leaves its group and is logged; the highest number is kept, so
+    it is never given again (migration 0038)."""
+    if not cases:
+        return
+    for case in cases:
+        group_id = case.group_id
+        if group_id is not None:
+            await _leave(session, user, case)
+        _audit(
+            session,
+            AuditAction.CASE_DELETED,
+            user,
+            case,
+            {"number": case.number} | ({"group": str(group_id)} if group_id else {}),
+        )
+    highest = max(case.number for case in cases)
+    await session.execute(
+        update(Tenant)
+        .where(Tenant.id == user.tenant_id)
+        .values(max_deleted_case_number=func.greatest(Tenant.max_deleted_case_number, highest))
+    )
+    await session.execute(delete(VisaCase).where(VisaCase.id.in_([case.id for case in cases])))
 
 
 async def _deletable(session: AsyncSession, user: CurrentUser, case_id: uuid.UUID) -> VisaCase:
@@ -1050,82 +1141,34 @@ async def _deletable(session: AsyncSession, user: CurrentUser, case_id: uuid.UUI
     return case
 
 
-async def _what_goes(session: AsyncSession, case: VisaCase) -> CaseDeletion:
-    async def count(model: Any) -> int:
-        return await session.scalar(select(func.count()).where(model.case_id == case.id)) or 0
-
-    payments, expenses = await count(CasePayment), await count(CaseExpense)
-    finance = await session.get(CaseFinance, case.id)
-    registrar_fee = finance is not None and finance.registrar_fee_amount is not None
-    partner_paid = finance is not None and finance.partner_paid_on is not None
-    terms = finance is not None and (
-        finance.price is not None
-        or finance.prepayment is not None
-        or finance.consultation_credit > 0
-        or finance.partner_terms in (PartnerTermsType.PERCENT, PartnerTermsType.FIXED)
-    )
-    group_members = 0
-    if case.group_id is not None:
-        group_members = (
-            await session.scalar(
-                select(func.count()).where(
-                    VisaCase.group_id == case.group_id, VisaCase.id != case.id
-                )
-            )
-            or 0
-        )
-    return CaseDeletion(
-        has_money=bool(payments or expenses or registrar_fee or partner_paid),
-        payments=payments,
-        expenses=expenses,
-        registrar_fee=registrar_fee,
-        partner_paid=partner_paid,
-        attempts=await count(ApplicationAttempt),
-        queue_entries=await count(WaitingListEntry),
-        package_items=await count(PackageItem),
-        bookings=await count(Booking),
-        outcome=case.outcome is not None,
-        employees=await count(EmployeeCase),
-        terms=terms,
-        group_members=group_members,
-    )
-
-
 @router.get("/cases/{case_id}/deletion")
 async def case_deletion(case_id: uuid.UUID, user: Member, session: TenantSession) -> CaseDeletion:
-    """What the confirmation lists before a case is deleted."""
+    """What the question before a case is deleted names: what goes with it and what stays."""
     case = await _deletable(session, user, case_id)
-    return await _what_goes(session, case)
+    contents = await case_contents(session, VisaCase.id == case.id)
+
+    async def count(*where: ColumnElement[bool]) -> int:
+        return await session.scalar(select(func.count()).where(*where)) or 0
+
+    group_members = 0
+    if case.group_id is not None:
+        group_members = await count(VisaCase.group_id == case.group_id, VisaCase.id != case.id)
+    return CaseDeletion(
+        **contents.model_dump(),
+        group_members=group_members,
+        vault_entries=await count(VaultEntry.case_id == case.id),
+        templates=await count(ContactTemplate.case_id == case.id),
+    )
 
 
 @router.delete("/cases/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_case(case_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
-    """A case opened by mistake — a duplicate (pilot fix 1, docs/decisions.md). The
-    specialist only. A case with money (payments, expenses, a talon, a partner payout
-    marked as paid) stays until they are deleted or unmarked: the money must not vanish
-    from the books unnoticed. The rest of the case —
-    attempts, the queue, package marks, bookings, the result, employees' grants — goes with
-    it by the foreign keys (ON DELETE CASCADE); vault accounts and templates given to the
-    client stay with the client. None of them holds a stored file. The number is not given
-    again (migration 0038), and a group the case was in is rebuilt without it."""
+    """A case goes at once with everything it holds, its money too (pilot fix 1; owner's
+    decision 2026-11-24 → «Удаление кейса и карточки со всем содержимым»). The specialist
+    only; the question before it names all of it (case_deletion). A group the case was in
+    is rebuilt without it."""
     case = await _deletable(session, user, case_id)
-    if (await _what_goes(session, case)).has_money:
-        raise HTTPException(status.HTTP_409_CONFLICT, "case_has_money")
-    group_id = case.group_id
-    if group_id is not None:
-        await _leave(session, user, case)
-    _audit(
-        session,
-        AuditAction.CASE_DELETED,
-        user,
-        case,
-        {"number": case.number} | ({"group": str(group_id)} if group_id else {}),
-    )
-    await session.execute(
-        update(Tenant)
-        .where(Tenant.id == case.tenant_id)
-        .values(max_deleted_case_number=func.greatest(Tenant.max_deleted_case_number, case.number))
-    )
-    await session.execute(delete(VisaCase).where(VisaCase.id == case.id))
+    refuse_while_importing(user.tenant_id)
+    await delete_cases(session, user, [case])
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1596,13 +1596,45 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   background: var(--c-backdrop);
 }
 
+/* A long list of what goes with a client's card scrolls inside the window, which never
+   grows past the screen. */
+.confirm[open] {
+  display: flex;
+  max-height: calc(100dvh - 32px);
+}
+
 .confirm-body {
   padding: 20px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
 }
 
 .confirm-text {
   margin: 0 0 20px;
   line-height: 1.5;
+}
+
+.confirm-text:has(+ .confirm-details) {
+  margin-bottom: 8px;
+}
+
+.confirm-details {
+  min-height: 0;
+  margin-bottom: 20px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.confirm-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.confirm-note {
+  margin: 12px 0 0;
+  color: var(--c-muted);
 }
 
 .confirm-actions {

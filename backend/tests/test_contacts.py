@@ -1,5 +1,5 @@
 import asyncio
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api import contacts
-from app.core import storage
+from app.core import import_jobs, storage
 from tests.helpers import MakeUser, give_cases, login, workspace_today
 from tests.test_cases import open_case
 from tests.test_documents import _all_waiting, upload
@@ -482,8 +482,35 @@ async def test_a_telegram_that_is_not_a_nick_is_not_a_duplicate(
     assert response.status_code == 201, response.text
 
 
+# What the question before a deletion names for a card with nothing on it.
+NOTHING_GOES = {
+    "cases": [],
+    "payments": 0,
+    "payments_total": "0.00",
+    "expenses": 0,
+    "talons": 0,
+    "partner_payouts": 0,
+    "attempts": 0,
+    "queue_entries": 0,
+    "package_items": 0,
+    "bookings": 0,
+    "outcomes": 0,
+    "employees": 0,
+    "terms": 0,
+    "consultations": 0,
+    "paid_consultations": 0,
+    "notes": 0,
+    "vault_entries": 0,
+    "documents": 0,
+    "trips": 0,
+    "templates": 0,
+    "passport": False,
+    "questionnaire": False,
+}
+
+
 async def test_an_empty_duplicate_card_can_be_deleted(client: AsyncClient, make_user: MakeUser):
-    """Owner's decision 2026-11-04: a card made by mistake goes, with its notes and unpaid
+    """Owner's decision 2026-11-04: a card made by mistake goes, with its notes and
     consultations; the log keeps the fact by id."""
     await as_specialist(client, make_user)
     anna = await create(client, phone="+375290001234")
@@ -508,13 +535,7 @@ async def test_the_question_names_what_goes_with_the_card(client: AsyncClient, m
     this card — its consultations, notes, passport data and questionnaire answers."""
     await as_specialist(client, make_user)
     empty = await create(client, first_name="Пустая", middle_name=None)
-    assert (await client.get(f"{BASE}/{empty['id']}/deletion")).json() == {
-        "has_history": False,
-        "consultations": 0,
-        "notes": 0,
-        "passport": False,
-        "questionnaire": False,
-    }
+    assert (await client.get(f"{BASE}/{empty['id']}/deletion")).json() == NOTHING_GOES
 
     duplicate = await create(
         client, first_name="Аня", middle_name=None, passport={"passport_number": "MP1234567"}
@@ -522,18 +543,16 @@ async def test_the_question_names_what_goes_with_the_card(client: AsyncClient, m
     url = f"{BASE}/{duplicate['id']}"
     for body in ("дубль", "звонила с другого номера"):
         assert (await client.post(f"{url}/notes", json={"body": body})).status_code == 201
-    # Unpaid, though it has a fee: a paid one would keep the card.
+    # Unpaid, though it has a fee.
     held = await client.post(
         f"{url}/consultations",
         json={"held_on": "2026-10-10", "fee_amount": "50", "fee_currency": "BYN"},
     )
     assert held.status_code == 201, held.text
-    assert (await client.get(f"{url}/deletion")).json() == {
-        "has_history": False,
+    assert (await client.get(f"{url}/deletion")).json() == NOTHING_GOES | {
         "consultations": 1,
         "notes": 2,
         "passport": True,
-        "questionnaire": False,
     }
 
     answered = await client.put(
@@ -553,13 +572,26 @@ async def test_the_question_names_what_goes_with_the_card(client: AsyncClient, m
     assert (await client.get(f"{url}/deletion")).status_code == 404
 
 
-async def test_a_card_with_client_history_is_not_deleted(client: AsyncClient, make_user: MakeUser):
-    await as_specialist(client, make_user)
-    with_case = await create(client, first_name="Кейс")
-    assert (await open_case(client, with_case["id"])).status_code == 201
-    paid = await create(client, first_name="Оплата")
+async def test_a_card_is_deleted_with_its_whole_history(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Owner's decision 2026-11-24: a card with client history goes at once too. The
+    question names everything that goes with it: its cases with their money, the paid
+    consultation, the vault accounts, the stored files and the trips; the files leave the
+    storage, the log keeps the facts by id."""
+    tenant_id = await as_specialist(client, make_user)
+    anna = await create(client, first_name="Анна")
+    url = f"{BASE}/{anna['id']}"
+    opened = await open_case(client, anna["id"])
+    assert opened.status_code == 201, opened.text
+    [case] = opened.json()
+    payment = await client.post(
+        f"/api/cases/{case['id']}/payments",
+        json={"paid_on": "2026-05-15", "amount": "150", "currency": "BYN"},
+    )
+    assert payment.status_code == 201, payment.text
     held = await client.post(
-        f"{BASE}/{paid['id']}/consultations",
+        f"{url}/consultations",
         json={
             "held_on": "2026-10-10",
             "fee_amount": "50",
@@ -569,52 +601,102 @@ async def test_a_card_with_client_history_is_not_deleted(client: AsyncClient, ma
         },
     )
     assert held.status_code == 201, held.text
-    with_account = await create(client, first_name="Сейф")
     mail = await client.post(
         "/api/dictionaries/vault-systems", json={"name": "Почта", "kind": "email"}
     )
     assert mail.status_code == 201, mail.text
     account = await client.post(
         "/api/vault/entries",
-        json={"system_id": mail.json()["id"], "contact_id": with_account["id"], "login": "x"},
+        json={"system_id": mail.json()["id"], "contact_id": anna["id"], "login": "x"},
     )
     assert account.status_code == 201, account.text
+    stored = await upload(client, anna["id"])
+    assert stored.status_code == 201, stored.text
+    # A trip of the 90/180 calculator, a module of a later stage: written straight in.
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO trips (id, tenant_id, contact_id, country_id, entered_on, left_on) "
+                "SELECT gen_random_uuid(), :t, :c, id, '2026-01-01', '2026-01-05' "
+                "FROM countries WHERE code = 'PL'"
+            ),
+            {"t": tenant_id, "c": anna["id"]},
+        )
+    assert (await client.get(url)).json()["can_delete"] is True
 
-    for contact in (with_case, paid, with_account):
-        url = f"{BASE}/{contact['id']}"
-        assert (await client.get(url)).json()["can_delete"] is False
-        # The question is refused before it is asked, as the deletion would be.
-        assert (await client.get(f"{url}/deletion")).json()["has_history"] is True
-        response = await client.delete(url)
-        assert response.status_code == 409
-        assert response.json()["detail"] == "contact_has_history"
+    assert (await client.get(f"{url}/deletion")).json() == NOTHING_GOES | {
+        "cases": [case["number"]],
+        "payments": 1,
+        "payments_total": "150.00",
+        "consultations": 1,
+        "paid_consultations": 1,
+        "vault_entries": 1,
+        "documents": 1,
+        "trips": 1,
+    }
+    assert len(storage.MEMORY) == 1
+
+    assert (await client.delete(url)).status_code == 204
+    assert (await client.get(url)).status_code == 404
+    assert storage.MEMORY == {}
+    async with owner_engine.connect() as conn:
+        for table in ("visa_cases", "consultations", "vault_entries", "contact_documents", "trips"):
+            left = await conn.scalar(
+                text(f"SELECT count(*) FROM {table} WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+            assert left == 0, table
+    events = (await client.get("/api/audit")).json()["events"]
+    [deleted] = [e for e in events if e["action"] == "contacts.deleted"]
+    assert deleted["target_id"] == anna["id"]
+    assert deleted["details"] == {"cases": 1, "files": 1}
+    assert [e["target_id"] for e in events if e["action"] == "cases.deleted"] == [case["id"]]
+
+
+async def test_a_storage_failure_does_not_keep_the_card(
+    client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+):
+    """The rows are gone when the storage fails: what is left there is ciphertext no row
+    refers to, logged by id."""
+    await as_specialist(client, make_user)
+    contact = await create(client)
+    stored = await upload(client, contact["id"])
+    assert stored.status_code == 201, stored.text
+
+    async def failing_delete(key: str) -> None:
+        raise storage.StorageFailed("ReadTimeoutError")
+
+    monkeypatch.setattr(storage, "delete_object", failing_delete)
+    assert (await client.delete(f"{BASE}/{contact['id']}")).status_code == 204
+    assert (await client.get(f"{BASE}/{contact['id']}")).status_code == 404
+
+
+async def test_a_card_is_not_deleted_while_an_import_runs(
+    client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+):
+    """An import writing cards now could put back what the deletion takes away."""
+    tenant_id = await as_specialist(client, make_user)
+    contact = await create(client)
+    opened = await open_case(client, contact["id"])
+    assert opened.status_code == 201, opened.text
+    [case] = opened.json()
+
+    def an_import(tenant: UUID) -> list[import_jobs.ImportJob]:
+        assert str(tenant) == str(tenant_id)
+        return [import_jobs.ImportJob(uuid4(), tenant, "import", "clients.xlsx")]
+
+    monkeypatch.setattr(import_jobs, "running", an_import)
+    for url in (f"{BASE}/{contact['id']}", f"/api/cases/{case['id']}"):
+        busy = await client.delete(url)
+        assert (busy.status_code, busy.json()) == (409, {"detail": "import_running"})
         assert (await client.get(url)).status_code == 200
 
 
-async def test_a_card_with_a_stored_file_is_not_deleted(client: AsyncClient, make_user: MakeUser):
-    """Deleting a card never leaves a file in the storage that no row refers to: a card
-    with a file stays until the file is deleted, which removes its object too."""
-    await as_specialist(client, make_user)
-    contact = await create(client)
-    url = f"{BASE}/{contact['id']}"
-    stored = await upload(client, contact["id"])
-    assert stored.status_code == 201, stored.text
-    assert (await client.get(f"{url}/deletion")).json()["has_history"] is True
-    refused = await client.delete(url)
-    assert (refused.status_code, refused.json()["detail"]) == (409, "contact_has_history")
-    assert len(storage.MEMORY) == 1
-
-    removed = await client.delete(f"{url}/documents/{stored.json()['id']}")
-    assert removed.status_code == 204, removed.text
-    assert storage.MEMORY == {}
-    assert (await client.delete(url)).status_code == 204
-
-
-async def test_history_saved_while_the_card_is_deleted_keeps_it(
+async def test_history_saved_while_the_card_is_deleted_goes_with_it(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
     """A trip saved at the moment the card is deleted (a file, an account or a case
-    alike): the deletion waits for it and refuses, instead of taking it along unseen."""
+    alike): the deletion waits for it and takes it along, so a file saved that moment
+    leaves the storage too."""
     tenant_id = await as_specialist(client, make_user)
     contact = await create(client)
     trips = text("SELECT count(*) FROM trips WHERE contact_id = :c")
@@ -631,10 +713,9 @@ async def test_history_saved_while_the_card_is_deleted_keeps_it(
         reached = await _all_waiting(conn, 1)
     assert reached, "the deletion never waited for the trip"
     response = await answer
-    assert response.status_code == 409
-    assert response.json()["detail"] == "contact_has_history"
+    assert response.status_code == 204
     async with owner_engine.connect() as conn:
-        assert await conn.scalar(trips, {"c": contact["id"]}) == 1
+        assert await conn.scalar(trips, {"c": contact["id"]}) == 0
 
 
 async def test_only_the_specialist_deletes_a_card(

@@ -7,6 +7,7 @@ Personal data stays out of URLs and logs: search takes its query in the request 
 and audit events carry ids and the names of changed fields only.
 """
 
+import logging
 import uuid
 from datetime import UTC, date, datetime
 from typing import Annotated, Any
@@ -19,7 +20,14 @@ from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.cases import CaseOut, cases_of
+from app.api.cases import (
+    CaseContents,
+    CaseOut,
+    case_contents,
+    cases_of,
+    delete_cases,
+    refuse_while_importing,
+)
 from app.api.client_status import (
     TABS,
     Sort,
@@ -32,10 +40,12 @@ from app.api.client_status import (
 from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
+from app.core import storage
 from app.core.audit import record
 from app.core.data_values import TELEGRAM_NICK, telegram_nick
 from app.core.days import Day
 from app.core.db import BIGINT_MAX
+from app.core.documents import object_key
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
 from app.core.phone import normalize_phone, phone_search_digits
@@ -59,6 +69,8 @@ from app.models import (
     VisaCase,
     VisaOutcome,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/contacts", tags=["contacts"], dependencies=[Depends(require_module("clients"))]
@@ -344,22 +356,6 @@ def _has(column: Any, term: str) -> Any:
     return column.icontains(term, autoescape=True)
 
 
-async def _has_history(session: AsyncSession, contact_id: uuid.UUID) -> bool:
-    """What keeps a card from being deleted as a duplicate (owner's decision 2026-11-04):
-    a case (with its payments, queue and bookings), a paid consultation, a vault account,
-    a stored file, a trip or a template given to the client. Notes and unpaid
-    consultations go with the card."""
-    history = (
-        exists().where(VisaCase.contact_id == contact_id),
-        exists().where(Consultation.contact_id == contact_id, Consultation.fee_paid),
-        exists().where(VaultEntry.contact_id == contact_id),
-        exists().where(ContactDocument.contact_id == contact_id),
-        exists().where(Trip.contact_id == contact_id),
-        exists().where(ContactTemplate.contact_id == contact_id),
-    )
-    return bool(await session.scalar(select(or_(*history))))
-
-
 async def _notes(session: AsyncSession, contact_id: uuid.UUID) -> list[NoteOut]:
     rows = await session.execute(
         select(ContactNote, User.email)
@@ -397,7 +393,7 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
         hints=await hints_for(session, contact),
         cases=await cases_of(session, contact.id) if with_cases else None,
         documents=await documents_of(session, contact.id),
-        can_delete=user.role == UserRole.SPECIALIST and not await _has_history(session, contact.id),
+        can_delete=user.role == UserRole.SPECIALIST,
     )
 
 
@@ -671,14 +667,21 @@ async def update_contact(
     return ContactOut.model_validate(contact)
 
 
-class ContactDeletion(BaseModel):
-    """What the confirmation names before a card is deleted (pilot remark 1.15.13)."""
+class ContactDeletion(CaseContents):
+    """What the question before a card is deleted names (pilot remark 1.15.13): everything
+    that goes with it, since a card with client history goes at once too (owner's decision
+    2026-11-24). The counts of its cases are summed over all of them."""
 
-    # Client history keeps the card: the deletion would be refused.
-    has_history: bool
-    # Unpaid ones: a paid consultation is history.
+    # Numbers of the client's cases, in order.
+    cases: list[int]
     consultations: int
+    paid_consultations: int
     notes: int
+    vault_entries: int
+    # Consent and contract files: they leave the storage too.
+    documents: int
+    trips: int
+    templates: int
     # Kept on the card itself: the passport's data page and the questionnaire answers.
     passport: bool
     questionnaire: bool
@@ -699,14 +702,24 @@ async def contact_deletion(
     """What goes with the card, for the question before it is deleted."""
     contact = await _deletable(session, user, contact_id)
 
-    async def count(model: Any) -> int:
-        return await session.scalar(select(func.count()).where(model.contact_id == contact.id)) or 0
+    async def count(model: Any, *where: Any) -> int:
+        query = select(func.count()).select_from(model)
+        return await session.scalar(query.where(model.contact_id == contact.id, *where)) or 0
 
+    numbers = await session.scalars(
+        select(VisaCase.number).where(VisaCase.contact_id == contact.id).order_by(VisaCase.number)
+    )
     questionnaire = Questionnaire.model_validate(contact.questionnaire)
     return ContactDeletion(
-        has_history=await _has_history(session, contact.id),
+        **(await case_contents(session, VisaCase.contact_id == contact.id)).model_dump(),
+        cases=list(numbers),
         consultations=await count(Consultation),
+        paid_consultations=await count(Consultation, Consultation.fee_paid),
         notes=await count(ContactNote),
+        vault_entries=await count(VaultEntry),
+        documents=await count(ContactDocument),
+        trips=await count(Trip),
+        templates=await count(ContactTemplate),
         passport=has_passport(questionnaire),
         questionnaire=has_answers(questionnaire),
     )
@@ -714,19 +727,46 @@ async def contact_deletion(
 
 @router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contact(contact_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
-    """A card made by mistake — a duplicate (owner's decision 2026-11-04). The specialist
-    only; a card with client history stays (deleting a client's data on request is
-    roadmap 6.6). Notes and unpaid consultations go with it by the foreign keys."""
+    """A card goes at once with all the client's history (owner's decisions 2026-11-04 and
+    2026-11-24 → «Удаление кейса и карточки со всем содержимым»): the cases as delete_case
+    takes them, consultations, notes, vault accounts, consent and contract files, trips and
+    templates given to the client, by the foreign keys. The specialist only; the question
+    before it names all of it (contact_deletion). The files leave the storage after the
+    commit."""
+    assert user.tenant_id is not None
     contact = await _deletable(session, user, contact_id)
-    # Locked to the commit: a row of history being saved for the card right now (a case,
-    # a file, an account, a trip, a template) is waited for and seen below instead of
-    # going with the card unseen, and one saved later finds the card gone.
+    refuse_while_importing(user.tenant_id)
+    # Locked to the commit: a row being saved for the card right now (a case, a file, an
+    # account, a trip, a template) is waited for and goes with the card, a file with its
+    # object; one saved later finds the card gone.
     await session.execute(select(Contact.id).where(Contact.id == contact.id).with_for_update())
-    if await _has_history(session, contact.id):
-        raise HTTPException(status.HTTP_409_CONFLICT, "contact_has_history")
+    cases = list(
+        await session.scalars(
+            select(VisaCase).where(VisaCase.contact_id == contact.id).order_by(VisaCase.number)
+        )
+    )
+    files = list(
+        await session.scalars(
+            select(ContactDocument.id).where(ContactDocument.contact_id == contact.id)
+        )
+    )
+    await delete_cases(session, user, cases)
     await session.execute(delete(Contact).where(Contact.id == contact.id))
-    _audit(session, AuditAction.CONTACT_DELETED, user, contact.id)
+    _audit(
+        session,
+        AuditAction.CONTACT_DELETED,
+        user,
+        contact.id,
+        {"cases": len(cases), "files": len(files)},
+    )
     await session.commit()
+    for document_id in files:
+        try:
+            await storage.delete_object(object_key(user.tenant_id, document_id))
+        except (storage.StorageNotConfigured, storage.StorageFailed):
+            # The rows are gone; what is left in the storage is ciphertext nobody refers
+            # to. Ids only in the log.
+            logger.warning("Object of document %s of a deleted card was not removed", document_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
