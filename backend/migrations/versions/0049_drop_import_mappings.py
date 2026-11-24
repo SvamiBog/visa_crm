@@ -16,8 +16,8 @@ Deploy: the previous version names the table only to empty a workspace (app/core
 goes through every model). «Удаление всех данных» asked on it in the moments between this
 migration and the new version taking the traffic answers 500 and works when asked again.
 
-Revision ID: 0047
-Revises: 0046 (the passport purge of backlog 2.8)
+Revision ID: 0049
+Revises: 0048 (the documents' own days, pilot 1.15)
 Create Date: 2026-11-24
 
 """
@@ -28,8 +28,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0047"
-down_revision: str | None = "0046"
+revision: str = "0049"
+down_revision: str | None = "0048"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
