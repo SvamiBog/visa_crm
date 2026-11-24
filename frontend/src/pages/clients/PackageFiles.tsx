@@ -1,6 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ApiError } from "../../api";
+import { ApiError, apiGet } from "../../api";
 import { useMe } from "../../auth";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { formatSize, readBase64 } from "../../files";
@@ -40,6 +41,12 @@ export function ItemFiles({
 }) {
   const { t, i18n } = useTranslation();
   const add = useAddFile(caseId, item.item_id);
+  // Without a file storage (a stand without S3) nothing can be added, as on the card.
+  const workspace = useQuery({
+    queryKey: ["workspace"],
+    queryFn: () => apiGet<{ file_storage: boolean }>("/workspace"),
+  });
+  const fileStorage = workspace.data?.file_storage === true;
   const [inputKey, setInputKey] = useState(0);
   const [error, setError] = useState<unknown>(null);
   const added = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium" });
@@ -71,17 +78,19 @@ export function ItemFiles({
           ))}
         </ul>
       )}
-      <label className="btn btn-sm file-button">
-        {add.isPending ? t("contacts.uploadingDocument") : t("portal.addFile")}
-        <input
-          key={inputKey}
-          type="file"
-          className="visually-hidden"
-          accept={PORTAL_FILE_TYPES}
-          disabled={add.isPending}
-          onChange={(e) => void choose(e.target.files?.[0])}
-        />
-      </label>
+      {fileStorage && (
+        <label className="btn btn-sm file-button">
+          {add.isPending ? t("contacts.uploadingDocument") : t("portal.addFile")}
+          <input
+            key={inputKey}
+            type="file"
+            className="visually-hidden"
+            accept={PORTAL_FILE_TYPES}
+            disabled={add.isPending}
+            onChange={(e) => void choose(e.target.files?.[0])}
+          />
+        </label>
+      )}
       {error !== null && <ErrorAlert error={error} />}
     </div>
   );
