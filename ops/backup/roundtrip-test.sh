@@ -17,6 +17,9 @@
 # Run from the repository root on a host with Docker and the CI Postgres on
 # localhost:5432 (user visacrm, source database visacrm with demo data).
 set -euo pipefail
+# A listing is read into a variable before grep -q looks in it: grep -q stops at the first
+# match, and under pipefail the listing's broken pipe would fail the pipe however the
+# match went.
 
 IMAGE=visacrm-backup:ci
 # Unlike rclone's own S3 server it keeps versions, takes Object Lock and checks each key's
@@ -176,7 +179,8 @@ days=$((($(date -u -d "$until" +%s) - $(date -u +%s)) / 86400))
 [ "$days" -ge 365 ] && [ "$days" -le 366 ] ||
   fail "the monthly copy is locked until $until, not for a year"
 # A daily copy has only the bucket's lock of 30 days (none on the test server).
-if rclone lsjson -M "dest:visacrm-backup/db/daily/$daily" | grep -q object-lock-mode; then
+daily_lock=$(rclone lsjson -M "dest:visacrm-backup/db/daily/$daily")
+if grep -q object-lock-mode <<< "$daily_lock"; then
   fail "the daily copy has a lock of its own"
 fi
 
@@ -192,8 +196,8 @@ if rclone deletefile --s3-versions --s3-bypass-governance-retention \
   "dest:visacrm-backup/db/monthly/$version" 2>/dev/null; then
   fail "the owner deleted the locked monthly copy"
 fi
-rclone lsf --s3-versions dest:visacrm-backup/db/monthly/ | grep -qxF "$version" ||
-  fail "the locked monthly copy is gone"
+monthly_versions=$(rclone lsf --s3-versions dest:visacrm-backup/db/monthly/)
+grep -qxF "$version" <<< "$monthly_versions" || fail "the locked monthly copy is gone"
 
 echo "--- each key of the backup service writes only its own folder"
 printf 'stray' > "$work/stray"
@@ -344,8 +348,8 @@ hidden=$(rclone lsf --s3-versions dest:visacrm-backup/files/tenant-a/ | grep '^d
 if rclone_as files deletefile --s3-versions "dest:visacrm-backup/files/tenant-a/$hidden" 2>/dev/null; then
   fail "the files key deleted a stored version"
 fi
-rclone lsf --s3-versions dest:visacrm-backup/files/tenant-a/ | grep -qxF "$hidden" ||
-  fail "the hidden version of the deleted file is gone"
+files_versions=$(rclone lsf --s3-versions dest:visacrm-backup/files/tenant-a/)
+grep -qxF "$hidden" <<< "$files_versions" || fail "the hidden version of the deleted file is gone"
 
 echo "--- the old single key still makes the copy, but the run fails until it is replaced"
 # A copy is named to the second. The run just above can finish within the second this
