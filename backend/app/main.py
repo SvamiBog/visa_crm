@@ -52,6 +52,7 @@ from app.api.workspace import router as workspace_router
 from app.core.audit import client_address, client_ip
 from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
+from app.core.error_reports import start_error_reports
 from app.core.http_headers import add_security_headers, refuse_cross_site_changes
 from app.core.passport_purge import keep_purging
 from app.core.rates import keep_fresh
@@ -104,6 +105,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # Before the app is built: the SDK hooks into Starlette as it starts. Without
+    # SENTRY_DSN it does not start at all.
+    start_error_reports(settings)
     # The schema maps every endpoint and error code: developers have it, the stands and the
     # real site do not. ReDoc is off everywhere: the site's CSP blocks its scripts.
     docs = settings.api_docs

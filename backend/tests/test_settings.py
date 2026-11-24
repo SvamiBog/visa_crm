@@ -100,3 +100,34 @@ def test_the_app_does_not_start_half_configured(started) -> None:
     # uvicorn imports app.main, which builds the app: the import fails, the server exits.
     with pytest.raises(InvalidSettings, match="SECRET_KEY"):
         create_app()
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "0123456789abcdef@o1.ingest.de.sentry.io/2",  # no scheme
+        "https://o1.ingest.de.sentry.io/2",  # no key
+        "https://0123456789abcdef@o1.ingest.de.sentry.io/project",  # no project number
+        "ftp://0123456789abcdef@o1.ingest.de.sentry.io/2",
+        # Outside Sentry's EU region (docs/decisions.md): the reports stay in the EU.
+        "https://0123456789abcdef@o1.ingest.us.sentry.io/2",
+        "https://0123456789abcdef@o1.ingest.sentry.io/2",
+        "https://0123456789abcdef@de.sentry.io.example.com/2",
+    ],
+)
+def test_a_mistyped_sentry_dsn_stops_the_start_without_quoting_it(started, dsn: str) -> None:
+    # Error reports lost without a word are worse than a deploy that does not come up.
+    with pytest.raises(InvalidSettings, match="SENTRY_DSN") as refused:
+        started(ENV="production", SECRET_KEY=SERVER_KEY, SENTRY_DSN=dsn)
+    assert "0123456789abcdef" not in str(refused.value)
+
+
+@pytest.mark.parametrize("dsn", [None, "", "  "])
+def test_no_sentry_dsn_means_no_error_reports(started, dsn: str | None) -> None:
+    assert started(ENV="production", SECRET_KEY=SERVER_KEY, SENTRY_DSN=dsn).sentry_dsn == ""
+
+
+def test_a_sentry_dsn_is_read_without_its_spaces(started) -> None:
+    dsn = "https://0123456789abcdef@o1.ingest.de.sentry.io/2"
+    settings = started(ENV="production", SECRET_KEY=SERVER_KEY, SENTRY_DSN=f" {dsn}\n")
+    assert settings.sentry_dsn == dsn

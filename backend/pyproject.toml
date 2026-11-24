@@ -18,6 +18,7 @@ dependencies = [
     "defusedxml>=0.7",
     "boto3>=1.35",
     "lxml>=5.3",
+    "sentry-sdk[fastapi]>=2.76,<3",
 ]
 
 [dependency-groups]
@@ -39,7 +40,9 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# G: a log call keeps its values apart from its template (no f-strings, % or format), so the
+# error reports can tell the two apart (app/core/error_reports.py).
+select = ["E", "F", "I", "UP", "B", "SIM", "G"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
