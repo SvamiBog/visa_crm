@@ -37,11 +37,16 @@ async function money(page: Page): Promise<Money> {
   return (await (await page.request.get(MONEY)).json()) as Money;
 }
 
+// The demo's own clients (Telegram demo_<n>_<m>). Other specs make cards of their own with
+// a single case and delete them while this one runs (passport-purge.spec.ts): the newest
+// card of the whole index may be gone by the time its finances are opened.
+const DEMO = "demo_";
+
 /** A demo card with a single case, so its finances are the first on the page; the first
  * such card (finance-currency.spec.ts borrows the last one). */
 async function cardWithOneCase(page: Page): Promise<string> {
-  const found = await page.request.post("/api/contacts/search", { data: {} });
-  expect(found.ok()).toBe(true);
+  const found = await page.request.post("/api/contacts/search", { data: { query: DEMO } });
+  expect(found.ok(), await found.text()).toBe(true);
   for (const { id } of (await found.json()).items as { id: string }[]) {
     const card = (await (await page.request.get(`/api/contacts/${id}`)).json()) as {
       cases: unknown[] | null;
