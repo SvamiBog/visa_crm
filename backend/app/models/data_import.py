@@ -1,7 +1,7 @@
 """Import of the specialist's spreadsheets (backlog 1.14, 1.21): the runs with their
 reports and which records each spreadsheet row became, so a repeated import updates them
 instead of adding duplicates. The old import's remembered column mappings went with it
-(migration 0046).
+(migration 0047).
 """
 
 import uuid
