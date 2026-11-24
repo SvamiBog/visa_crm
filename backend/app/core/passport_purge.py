@@ -1,9 +1,10 @@
 """The passport's data is removed a week after the decision (backlog 2.8; docs/decisions.md →
 «Удаление паспортных данных после решения», owner's decision 2026-11-24).
 
-What goes: the fields of PURGED_FIELDS in the contact's questionnaire, and the documents
-the client uploaded (none are kept yet: `purge_client_uploads` is where the client portal
-will remove its files). Everything else stays for the next trip: the name, the date of
+What goes: the fields of PURGED_FIELDS in the contact's questionnaire, and the files at the
+checklist items of the client's cases (the client portal, backlog 2.9: uploaded by the
+client or added by the specialist; the package marks stay). A client with such files and
+no passport data is due all the same. Everything else stays for the next trip: the name, the date of
 birth, the nationality and sex, contacts, the vault, the consent and the contract, trips,
 visas, cases, payments, notes and the package.
 
@@ -27,14 +28,16 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import ARRAY, bindparam, exists, or_, select, text
+from sqlalchemy import ARRAY, bindparam, delete, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
 from app.core.audit import record
 from app.core.clock import today_in
 from app.core.db import get_sessionmaker, scope_to_system, scope_to_tenant
-from app.models import AuditAction, CaseStage, Contact, Tenant, VisaCase
+from app.core.documents import object_key
+from app.models import AuditAction, CaseStage, Contact, PackageFile, Tenant, VisaCase
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +108,16 @@ class Due:
     purge_on: date
     notice_on: date
     fields: list[str]
+    # Files at the checklist items of the client's cases (the client portal).
+    files: int = 0
+
+
+@dataclass(frozen=True)
+class Purged:
+    fields: list[str]
+    # Storage keys of the files whose rows went: removed from the storage after the commit
+    # (remove_objects).
+    objects: list[str]
 
 
 _CASES = text("SELECT * FROM passport_purge_cases(:ids)").bindparams(
@@ -118,14 +131,24 @@ async def dues(
     """The clients of the session's workspace whose passport has a removal day. The cases
     are read through passport_purge_cases: an employee's session does not see the cases
     not given to them, and those still count (migration 0046)."""
+    files = (
+        select(func.count(PackageFile.id))
+        .join(VisaCase, VisaCase.id == PackageFile.case_id)
+        .where(VisaCase.contact_id == Contact.id)
+        .scalar_subquery()
+    )
     query = select(
         Contact.id,
         Contact.full_name,
         Contact.questionnaire,
         Contact.passport_kept_until,
         Contact.passport_notice_from,
+        files.label("files"),
     ).where(
-        or_(*(Contact.questionnaire[field].astext.is_not(None) for field in PURGED_FIELDS)),
+        or_(
+            *(Contact.questionnaire[field].astext.is_not(None) for field in PURGED_FIELDS),
+            files > 0,
+        ),
         exists().where(VisaCase.contact_id == Contact.id, VisaCase.outcome.is_not(None)),
     )
     if contact_id is not None:
@@ -154,25 +177,49 @@ async def dues(
                     purge_on=day,
                     notice_on=notice_on(day, c.passport_notice_from),
                     fields=filled_fields(c.questionnaire),
+                    files=c.files,
                 )
             )
     return found
 
 
-async def purge_client_uploads(session: AsyncSession, contact_id: uuid.UUID) -> None:
-    """The documents the client uploaded. None are kept yet: the client portal will remove
-    its files (package_files) here, in the same transaction as the passport."""
+async def purge_client_uploads(session: AsyncSession, contact_id: uuid.UUID) -> list[str]:
+    """The files at the checklist items of the client's cases (the client portal), in the
+    same transaction as the passport; returns their storage keys. An employee's session
+    takes only the cases given to them: the rest go with the next daily run."""
+    rows = (
+        await session.execute(
+            delete(PackageFile)
+            .where(
+                PackageFile.case_id.in_(
+                    select(VisaCase.id).where(VisaCase.contact_id == contact_id)
+                )
+            )
+            .returning(PackageFile.tenant_id, PackageFile.id)
+        )
+    ).all()
+    return [object_key(tenant_id, file_id) for tenant_id, file_id in rows]
 
 
-async def purge_contact(session: AsyncSession, contact: Contact) -> list[str]:
-    """Remove the passport's fields and the client's uploads; returns the fields removed.
-    The caller writes the audit event and commits."""
+async def purge_contact(session: AsyncSession, contact: Contact) -> Purged:
+    """Remove the passport's fields and the client's files. The caller writes the audit
+    event, commits, then removes the objects (remove_objects)."""
     fields = filled_fields(contact.questionnaire)
     contact.questionnaire = {**contact.questionnaire, **dict.fromkeys(PURGED_FIELDS)}
     contact.passport_kept_until = None
     contact.passport_notice_from = None
-    await purge_client_uploads(session, contact.id)
-    return fields
+    return Purged(fields, await purge_client_uploads(session, contact.id))
+
+
+async def remove_objects(keys: Iterable[str]) -> None:
+    """Remove the stored files whose rows are gone, after the commit."""
+    for key in keys:
+        try:
+            await storage.delete_object(key)
+        except (storage.StorageNotConfigured, storage.StorageFailed):
+            # No row refers to it: what is left is ciphertext nobody can open through the
+            # app. The key holds ids only.
+            logger.warning("Object %s of a removed file was not removed", key)
 
 
 async def purge_due() -> int:
@@ -197,6 +244,7 @@ async def purge_due() -> int:
 
 async def _purge_workspace(tenant_id: uuid.UUID, timezone: str) -> int:
     removed = 0
+    objects: list[str] = []
     async with get_sessionmaker()() as session:
         scope_to_tenant(session, tenant_id)
         today = today_in(timezone)
@@ -206,7 +254,7 @@ async def _purge_workspace(tenant_id: uuid.UUID, timezone: str) -> int:
             contact = await locked_due(session, timezone, due.contact_id)
             if contact is None or contact[1].purge_on > today:
                 continue  # put off or removed by hand meanwhile
-            fields = await purge_contact(session, contact[0])
+            purged = await purge_contact(session, contact[0])
             record(
                 session,
                 AuditAction.PASSPORT_PURGED,
@@ -214,10 +262,12 @@ async def _purge_workspace(tenant_id: uuid.UUID, timezone: str) -> int:
                 tenant_id=tenant_id,
                 target_type="contact",
                 target_id=contact[0].id,
-                details={"fields": fields},
+                details={"fields": purged.fields, "files": len(purged.objects)},
             )
+            objects += purged.objects
             removed += 1
         await session.commit()
+    await remove_objects(objects)
     return removed
 
 
@@ -231,7 +281,7 @@ async def locked_due(
     if contact is None:
         return None
     found = await dues(session, timezone, contact.id)
-    if not found or not found[0].fields:
+    if not found or not (found[0].fields or found[0].files):
         return None
     return contact, found[0]
 

@@ -176,6 +176,13 @@ jobs:
       DEMO_PASSWORD: ci-demo-password
       # Outside ENV=local|test the app does not start without a server key (backlog S19).
       SECRET_KEY: ci-only-server-key-not-a-secret-0123456789
+      # Files go to a throwaway S3 server of this run, as on the stands (the client portal
+      # of backlog 2.9 takes uploads only with a storage): not secrets either.
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: visacrm-files
+      S3_ACCESS_KEY: ci-access
+      S3_SECRET_KEY: ci-secret-key
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -187,6 +194,16 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
+      - name: A local S3 server for the files
+        run: |
+          # The same server as the backup job (ops/backup/roundtrip-test.sh), pinned there.
+          docker run -d --name files-s3 --network host -v /data -v /iam \
+            -e ROOT_ACCESS_KEY="$S3_ACCESS_KEY" -e ROOT_SECRET_KEY="$S3_SECRET_KEY" \
+            versity/versitygw:v1.5.0@sha256:7d56e0a6c246f00e2385ba4fe84065981959be1d822648f88a155c82e0e0652d \
+            --port 127.0.0.1:9000 --iam-dir /iam posix /data
+          for i in $(seq 1 30); do curl -s -o /dev/null "$S3_ENDPOINT" && break; sleep 1; done
+          AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY" \
+            aws --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION" s3 mb "s3://$S3_BUCKET"
       - name: Start the app with demo data
         run: |
           (cd frontend && npm ci && npm run build)

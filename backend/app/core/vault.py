@@ -17,7 +17,7 @@ from cryptography.exceptions import InvalidTag
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import documents, storage, templates
+from app.core import documents, portal, storage, templates
 from app.core.crypto import (
     KEY_SIZE,
     decrypt,
@@ -28,7 +28,15 @@ from app.core.crypto import (
     unseal,
 )
 from app.core.two_factor import totp_secret_aad
-from app.models import ContactDocument, DocumentTemplate, Tenant, User, VaultEntry
+from app.models import (
+    ClientLink,
+    ContactDocument,
+    DocumentTemplate,
+    PackageFile,
+    Tenant,
+    User,
+    VaultEntry,
+)
 
 
 def tenant_key_aad(tenant_id: uuid.UUID) -> bytes:
@@ -106,7 +114,7 @@ _FileCrypt = Callable[[bytes, uuid.UUID, uuid.UUID, bytes], bytes]
 # and how it is sealed.
 _FILES: tuple[
     tuple[
-        type[ContactDocument] | type[DocumentTemplate],
+        type[ContactDocument] | type[DocumentTemplate] | type[PackageFile],
         Callable[[uuid.UUID, uuid.UUID], str],
         _FileCrypt,
         _FileCrypt,
@@ -115,6 +123,7 @@ _FILES: tuple[
 ] = (
     (ContactDocument, documents.object_key, documents.open_document, documents.seal_document),
     (DocumentTemplate, templates.object_key, templates.open_template, templates.seal_template),
+    (PackageFile, documents.object_key, documents.open_document, documents.seal_document),
 )
 
 
@@ -189,6 +198,21 @@ async def rekey_workspace(session: AsyncSession, tenant_id: uuid.UUID) -> Rekeye
                 updated_at=VaultEntry.updated_at,
             )
         )
+    # The client portal's links (backlog 2.9): kept to be copied again.
+    links = (
+        await session.execute(
+            select(ClientLink.id, ClientLink.token_sealed, ClientLink.code_sealed).where(
+                ClientLink.tenant_id == tenant_id
+            )
+        )
+    ).all()
+    for link_id, blob, code_blob in links:
+        token = portal.open_link_token(old, tenant_id, link_id, blob)
+        values = {"token_sealed": portal.seal_link_token(new, tenant_id, link_id, token)}
+        if code_blob is not None:
+            code = portal.open_code(old, tenant_id, link_id, code_blob)
+            values["code_sealed"] = portal.seal_code(new, tenant_id, link_id, code)
+        await session.execute(update(ClientLink).where(ClientLink.id == link_id).values(**values))
     tenant.vault_key_encrypted = seal(new, aad)
     await session.flush()
     return Rekeyed(vault_entries=len(entries), files=files)

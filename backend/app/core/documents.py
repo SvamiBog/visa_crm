@@ -39,11 +39,12 @@ class DocumentError(ValueError):
         self.code = code
 
 
-def content_type_of(data: bytes) -> str:
-    """The file's type by its signature; DocumentError for anything else."""
+def content_type_of(data: bytes, max_bytes: int = MAX_BYTES) -> str:
+    """The file's type by its signature; DocumentError for anything else. The client
+    portal takes larger files (app/core/portal.py)."""
     if not data:
         raise DocumentError("file_empty")
-    if len(data) > MAX_BYTES:
+    if len(data) > max_bytes:
         raise DocumentError("document_too_large")
     # A PDF header may follow a few junk bytes (the format allows up to 1024).
     if b"%PDF-" in data[:1024]:

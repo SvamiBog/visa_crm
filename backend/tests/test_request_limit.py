@@ -66,7 +66,9 @@ def test_only_the_routes_that_take_a_file_get_the_upload_limit():
     components = spec["components"]["schemas"]
     uploads = []
     for path, operations in spec["paths"].items():
-        concrete = re.sub(r"\{[^}]+\}", str(uuid.uuid4()), path)
+        # A portal link's token has its own shape (app/core/portal.py).
+        concrete = path.replace("{token}", "t" * 43)
+        concrete = re.sub(r"\{[^}]+\}", str(uuid.uuid4()), concrete)
         for method, operation in operations.items():
             content = operation.get("requestBody", {}).get("content", {})
             schema = next(iter(content.values()))["schema"] if content else {}
@@ -75,8 +77,10 @@ def test_only_the_routes_that_take_a_file_get_the_upload_limit():
             if expected:
                 uploads.append(f"{method.upper()} {path}")
     assert sorted(uploads) == [
+        "POST /api/cases/{case_id}/package/{item_id}/files",
         "POST /api/contacts/{contact_id}/documents",
         "POST /api/imports/uploads",
+        "POST /api/portal/{token}/items/{item_id}/files",
         "POST /api/templates",
         "PUT /api/templates/{template_id}/file",
     ]

@@ -40,6 +40,7 @@ from app.api.client_status import (
 from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
+from app.api.package_files import remove_objects
 from app.core import storage
 from app.core.audit import record
 from app.core.data_values import TELEGRAM_NICK, telegram_nick
@@ -750,7 +751,7 @@ async def delete_contact(contact_id: uuid.UUID, user: Member, session: TenantSes
             select(ContactDocument.id).where(ContactDocument.contact_id == contact.id)
         )
     )
-    await delete_cases(session, user, cases)
+    portal_keys = await delete_cases(session, user, cases)
     await session.execute(delete(Contact).where(Contact.id == contact.id))
     _audit(
         session,
@@ -767,6 +768,7 @@ async def delete_contact(contact_id: uuid.UUID, user: Member, session: TenantSes
             # The rows are gone; what is left in the storage is ciphertext nobody refers
             # to. Ids only in the log.
             logger.warning("Object of document %s of a deleted card was not removed", document_id)
+    await remove_objects(portal_keys, "deleted card")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

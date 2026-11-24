@@ -12,7 +12,7 @@ the state only: no document names or dates.
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,10 +29,15 @@ from app.core.package import ItemStatus, Summary, item_status, reference_day, su
 from app.models import (
     AuditAction,
     ChecklistItem,
+    FileSource,
+    FileStatus,
     OwnChecklistItem,
+    PackageFile,
     PackageItem,
     PackageItemState,
     PurposeKind,
+    ReturnReason,
+    User,
     VisaCase,
     VisaPurpose,
 )
@@ -59,6 +64,22 @@ class Mark(BaseModel):
     document_date: Day | None = None
 
 
+class PackageFileOut(BaseModel):
+    """A file at the item (backlog 2.9): from the client's portal or added from the case."""
+
+    id: uuid.UUID
+    file_name: str
+    content_type: str
+    size_bytes: int
+    source: FileSource
+    status: FileStatus
+    return_reason: ReturnReason | None
+    return_note: str | None
+    uploaded_by_email: str | None
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
 class PackageItemOut(BaseModel):
     item_id: uuid.UUID
     own: bool
@@ -69,6 +90,8 @@ class PackageItemOut(BaseModel):
     state: PackageItemState | None
     document_date: date | None
     status: ItemStatus
+    # Newest first.
+    files: list[PackageFileOut] = []
 
 
 class PackageOut(BaseModel):
@@ -85,7 +108,7 @@ class PackageOut(BaseModel):
 # --- Helpers -------------------------------------------------------------------------
 
 
-async def _case(session: AsyncSession, user: CurrentUser, case_id: uuid.UUID) -> VisaCase:
+async def case_of(session: AsyncSession, user: CurrentUser, case_id: uuid.UUID) -> VisaCase:
     """RLS hides other workspaces' rows, so their ids are simply not found. The package is
     a section of the client's card: reading or marking it opens the card for an employee's
     daily limit (Т.14), before anything is read or changed."""
@@ -144,6 +167,76 @@ def _status(item: Item, mark: PackageItem | None, on: date) -> ItemStatus:
     return item_status(mark.state, mark.document_date, item.max_age_days, on)
 
 
+def file_out(file: PackageFile, uploaded_by_email: str | None) -> PackageFileOut:
+    return PackageFileOut(
+        id=file.id,
+        file_name=file.file_name,
+        content_type=file.content_type,
+        size_bytes=file.size_bytes,
+        source=file.source,
+        status=file.status,
+        return_reason=file.return_reason,
+        return_note=file.return_note,
+        uploaded_by_email=uploaded_by_email,
+        created_at=file.created_at,
+        reviewed_at=file.reviewed_at,
+    )
+
+
+async def files_of(session: AsyncSession, case_id: uuid.UUID) -> dict[uuid.UUID, list[PackageFile]]:
+    """The case's files by the item they are at, newest first."""
+    files: dict[uuid.UUID, list[PackageFile]] = defaultdict(list)
+    query = (
+        select(PackageFile)
+        .where(PackageFile.case_id == case_id)
+        .order_by(PackageFile.created_at.desc(), PackageFile.id.desc())
+    )
+    for f in await session.scalars(query):
+        files[f.checklist_item_id or f.own_item_id].append(f)
+    return files
+
+
+async def checklist_item(session: AsyncSession, case: VisaCase, item_id: uuid.UUID) -> Item:
+    """An item the case gets; any other id is not found."""
+    checklist = (await _checklists(session, [case]))[case.id]
+    item = next((i for i in checklist if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    return item
+
+
+async def checklist_of(session: AsyncSession, case: VisaCase) -> list[Item]:
+    return (await _checklists(session, [case]))[case.id]
+
+
+async def mark_of(session: AsyncSession, case: VisaCase, item: Item) -> PackageItem:
+    """The case's mark for the item, a new one (not yet added state) when there is none."""
+    mark = (await _marks(session, [case.id]))[case.id].get(item.id)
+    if mark is None:
+        own = isinstance(item, OwnChecklistItem)
+        mark = PackageItem(
+            tenant_id=case.tenant_id,
+            case_id=case.id,
+            checklist_item_id=None if own else item.id,
+            own_item_id=item.id if own else None,
+        )
+        session.add(mark)
+    return mark
+
+
+async def marks_of(session: AsyncSession, case: VisaCase) -> dict[uuid.UUID, PackageItem]:
+    return (await _marks(session, [case.id]))[case.id]
+
+
+async def check_document_date(
+    session: AsyncSession, case: VisaCase, document_date: date | None
+) -> None:
+    """A document cannot be issued later than today: a mistyped year would pass as fresh."""
+    today = await workspace_today(session, case.tenant_id)
+    if document_date is not None and document_date > today:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "document_date_in_future")
+
+
 def _out(item: Item, mark: PackageItem | None, on: date) -> PackageItemOut:
     return PackageItemOut(
         item_id=item.id,
@@ -178,16 +271,30 @@ async def package_summaries(
     return summaries
 
 
+async def _emails(session: AsyncSession, ids: set[uuid.UUID | None]) -> dict[uuid.UUID, str]:
+    ids.discard(None)
+    if not ids:
+        return {}
+    return dict((await session.execute(select(User.id, User.email).where(User.id.in_(ids)))).all())
+
+
 # --- Endpoints -----------------------------------------------------------------------
 
 
 @router.get("/cases/{case_id}/package")
 async def get_package(case_id: uuid.UUID, user: Member, session: TenantSession) -> PackageOut:
-    case = await _case(session, user, case_id)
+    case = await case_of(session, user, case_id)
     on = reference_day(case.submission_on, await workspace_today(session, case.tenant_id))
     marks = (await _marks(session, [case.id]))[case.id]
     checklist = (await _checklists(session, [case]))[case.id]
-    items = [_out(i, marks.get(i.id), on) for i in checklist]
+    files = await files_of(session, case.id)
+    emails = await _emails(session, {f.uploaded_by for fs in files.values() for f in fs})
+    items = [
+        _out(i, marks.get(i.id), on).model_copy(
+            update={"files": [file_out(f, emails.get(f.uploaded_by)) for f in files.get(i.id, [])]}
+        )
+        for i in checklist
+    ]
     summary = summarize((i.required, i.status) for i in items)
     return PackageOut(
         on=on,
@@ -206,25 +313,11 @@ async def mark_item(
     """Mark a document of the case's checklist; only items the case gets can be marked."""
     if body.document_date is not None and body.state != PackageItemState.PRESENT:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "document_date_needs_present")
-    case = await _case(session, user, case_id)
+    case = await case_of(session, user, case_id)
     today = await workspace_today(session, case.tenant_id)
-    # A document cannot be issued later than today: a mistyped year would pass as fresh.
-    if body.document_date is not None and body.document_date > today:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "document_date_in_future")
-    checklist = (await _checklists(session, [case]))[case.id]
-    item = next((i for i in checklist if i.id == item_id), None)
-    if item is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
-    mark = (await _marks(session, [case.id]))[case.id].get(item.id)
-    if mark is None:
-        own = isinstance(item, OwnChecklistItem)
-        mark = PackageItem(
-            tenant_id=case.tenant_id,
-            case_id=case.id,
-            checklist_item_id=None if own else item.id,
-            own_item_id=item.id if own else None,
-        )
-        session.add(mark)
+    await check_document_date(session, case, body.document_date)
+    item = await checklist_item(session, case, item_id)
+    mark = await mark_of(session, case, item)
     mark.state = body.state
     mark.document_date = body.document_date
     await session.flush()

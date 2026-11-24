@@ -21,6 +21,7 @@ from app.core import import_jobs, import_uploads, storage
 from app.core.audit import record
 from app.core.erase import erase_workspace
 from app.core.modules import MODULES
+from app.core.portal_notice import DEFAULT_AUTHORITY
 from app.core.security import MAX_PASSWORD_LENGTH
 from app.core.two_factor import looks_like_recovery_code, unseal_secret, verify_totp
 from app.models import AuditAction, Tenant, User, UserRole
@@ -74,6 +75,62 @@ async def workspace(
 async def modules() -> list[ModuleOut]:
     """All product modules in menu order (names are translated in the UI)."""
     return [ModuleOut(key=m.key, block=m.block, stage=m.stage) for m in MODULES]
+
+
+class ControllerIn(BaseModel):
+    """The specialist as the controller of her clients' data, for the notice of the client
+    portal (backlog 2.9)."""
+
+    name: Annotated[str, Field(min_length=1, max_length=200)]
+    address: Annotated[str, Field(min_length=1, max_length=300)]
+    email: Annotated[
+        str, Field(min_length=3, max_length=320, pattern=r"^[^@\s?&#%,;]+@[^@\s?&#%,;]+$")
+    ]
+    supervisory_authority: Annotated[str, Field(max_length=300)] | None = None
+
+
+class ControllerOut(BaseModel):
+    name: str | None
+    address: str | None
+    email: str | None
+    supervisory_authority: str | None
+    # Shown in the notice while supervisory_authority is empty.
+    supervisory_authority_default: str
+
+
+def _controller_out(tenant: Tenant) -> ControllerOut:
+    return ControllerOut(
+        name=tenant.controller_name,
+        address=tenant.controller_address,
+        email=tenant.controller_email,
+        supervisory_authority=tenant.supervisory_authority,
+        supervisory_authority_default=DEFAULT_AUTHORITY,
+    )
+
+
+@router.get("/workspace/controller")
+async def get_controller(
+    user: Annotated[CurrentUser, Depends(require_tenant_user)], session: TenantSession
+) -> ControllerOut:
+    tenant = await session.get_one(Tenant, user.tenant_id)
+    return _controller_out(tenant)
+
+
+@router.put("/workspace/controller")
+async def put_controller(
+    body: ControllerIn,
+    user: Annotated[CurrentUser, Depends(require_specialist)],
+    session: TenantSession,
+) -> ControllerOut:
+    tenant = await session.get_one(Tenant, user.tenant_id)
+    tenant.controller_name = body.name.strip()
+    tenant.controller_address = body.address.strip()
+    tenant.controller_email = body.email.strip()
+    authority = (body.supervisory_authority or "").strip()
+    tenant.supervisory_authority = authority or None
+    record(session, AuditAction.WORKSPACE_CONTROLLER_UPDATED, actor=user)
+    await session.commit()
+    return _controller_out(tenant)
 
 
 class EraseIn(BaseModel):

@@ -58,6 +58,18 @@ class AuditAction(StrEnum):
     CONTACT_DOCUMENT_ADDED = "contacts.document_added"
     CONTACT_DOCUMENT_OPENED = "contacts.document_opened"
     CONTACT_DOCUMENT_DELETED = "contacts.document_deleted"
+    # The client portal of a case (backlog 2.9): details carry ids and channels only.
+    PORTAL_LINK_ISSUED = "portal.link_issued"
+    PORTAL_LINK_REVOKED = "portal.link_revoked"
+    PORTAL_CODE_ISSUED = "portal.code_issued"
+    PORTAL_SIGNED_IN = "portal.signed_in"
+    PORTAL_CONSENT_GIVEN = "portal.consent_given"
+    PORTAL_FILE_UPLOADED = "portal.file_uploaded"
+    PORTAL_FILE_ACCEPTED = "portal.file_accepted"
+    PORTAL_FILE_RETURNED = "portal.file_returned"
+    PORTAL_FILE_OPENED = "portal.file_opened"
+    PORTAL_FILE_DELETED = "portal.file_deleted"
+
     CONTACT_TEMPLATE_ADDED = "contacts.template_added"
     CONTACT_TEMPLATE_OPENED = "contacts.template_opened"
     CONTACT_TEMPLATE_REMOVED = "contacts.template_removed"
@@ -122,6 +134,8 @@ class AuditAction(StrEnum):
     # All the workspace's data deleted by the specialist (app/core/erase.py): the number of
     # files only.
     WORKSPACE_ERASED = "workspace.erased"
+    # The specialist's details as the data controller, for the client portal (2.9).
+    WORKSPACE_CONTROLLER_UPDATED = "workspace.controller_updated"
     # The base currency changed and what is kept in it counted again
     # (app/core/base_currency.py): the two currency codes and row counts only.
     BASE_CURRENCY_CHANGED = "workspace.base_currency_changed"
