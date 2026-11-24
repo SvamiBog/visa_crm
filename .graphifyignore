@@ -1,0 +1,3 @@
+# What graphify leaves out of the code graph (gitignore syntax; CLAUDE.md → «graphify»).
+# The /graphify skill's own docs describe the tool, not VisaCRM.
+.claude/skills/graphify/
