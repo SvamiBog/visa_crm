@@ -34,8 +34,9 @@ type Card = { can_delete: boolean; cases: unknown[] | null };
 
 type Found = { id: string; telegram: string | null };
 
-/** A card that can still be deleted (no history), a card with a case and its money, and
-    a card whose Telegram is a username, so it shows «Написать в Telegram». */
+/** A card with «Удалить карточку» (the specialist may delete any), a card with a case
+    and its money, and a card whose Telegram is a username, so it shows «Написать в
+    Telegram». */
 async function demoCards(
   page: Page,
 ): Promise<{ plain: string; withCase: string; chat: string }> {
@@ -53,7 +54,7 @@ async function demoCards(
     if (!withCase && card.cases?.length) withCase = id;
     if (plain && withCase && chat) return { plain, withCase, chat };
   }
-  throw new Error("The demo has no card without history, with a case or with a Telegram");
+  throw new Error("The demo has no deletable card, card with a case or with a Telegram");
 }
 
 /** Buttons of the page (not the menu) that sit in one row closer than MIN_GAP. */

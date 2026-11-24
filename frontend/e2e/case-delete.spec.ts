@@ -1,16 +1,15 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-// A case opened by mistake, a duplicate (pilot fix 1, docs/decisions.md → «Пилот: правки
-// визовика (2026-11-19)»): «Создать кейсы» sends one request however fast it is pressed
-// and the form closes after it; «Удалить кейс» asks in the site's window, naming the
-// case, and the case goes only after the red button. A case with money is refused before
-// the question, naming the money: here a partner payout marked as paid. The money taken
-// off in the case finances, the case goes (backlog 1.15.12): a talon taken off is not
-// filled in again from the registrar's price list, and a payment deleted a moment ago,
-// still offering «Отменить», does not hold the case. The list's prepayment and the
-// partner's terms emptied in the finances stay empty too (owner's answer 2026-11-24).
-// Both languages.
+// Deleting a case (pilot fix 1, docs/decisions.md → «Пилот: правки визовика
+// (2026-11-19)»; owner's decision 2026-11-24 → «Удаление кейса и карточки со всем
+// содержимым»): «Создать кейсы» sends one request however fast it is pressed and the form
+// closes after it; «Удалить кейс» asks in the site's window, naming the case and listing
+// what goes with it, its money too, and the case goes only after the red button. A talon
+// taken off in the finances is not filled in again from the registrar's price list
+// (backlog 1.15.12), and a payment deleted a moment ago, still offering «Отменить», is sent
+// first instead of being named. The list's prepayment and the partner's terms emptied in
+// the finances stay empty too (owner's answer 2026-11-24). Both languages.
 
 type Lang = "ru" | "en";
 
@@ -114,18 +113,19 @@ async function testPurpose(request: APIRequestContext): Promise<string> {
   return made!.id;
 }
 
-/** A case of a failed run: its money taken off first, as the site asks. */
+/** A case of a failed run goes with its money. */
 async function removeCase(request: APIRequestContext, caseId: string): Promise<void> {
-  const finance = await request.get(`/api/cases/${caseId}/finance`);
-  if (finance.ok()) {
-    for (const p of ((await finance.json()) as { payments: { id: string }[] }).payments) {
-      await request.delete(`/api/payments/${p.id}`);
-    }
-    await request.patch(`/api/cases/${caseId}/finance`, {
-      data: { partner_paid_on: null, registrar_fee_amount: null },
-    });
-  }
   await request.delete(`/api/cases/${caseId}`);
+}
+
+/** The payments' sum as the question writes it (useMoney in src/pages/clients/Finance.tsx). */
+function moneyText(lang: Lang, amount: string, currency: string): string {
+  const number = Number(amount);
+  const text = new Intl.NumberFormat(lang, {
+    minimumFractionDigits: Number.isInteger(number) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(number);
+  return `${text} ${currency}`;
 }
 
 for (const [index, lang] of (["ru", "en"] as const).entries()) {
@@ -149,8 +149,7 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
     });
 
     test.afterEach(async ({ page }) => {
-      // A case left by a failed run would stay on the demo card; its money holds it, so
-      // the money goes first.
+      // A case left by a failed run would stay on the demo card.
       if (made) await removeCase(page.request, made);
       made = null;
     });
@@ -185,10 +184,9 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
     }
 
     test("a talon taken off in the finances stays off and the case goes", async ({ page }) => {
-      // The refusal names the talon and the paid payout and says how to take them off.
       // The talon is taken off first, the payout's date on the next save: the talon is
-      // not filled in again from the price list, and the case goes. The registrar was
-      // paid for the talon: his payment stays, as an advance.
+      // not filled in again from the price list, and the question no longer names it.
+      // The registrar was paid for the talon: his payment stays, as an advance.
       await removeRegistrar(page.request, REGISTRAR[lang]);
       const created = await page.request.post("/api/dictionaries/registrars", {
         data: { name: REGISTRAR[lang], kind: "individual", currency: "EUR" },
@@ -231,11 +229,6 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
       await page.goto(`/app/clients/${contactId}`, { waitUntil: "networkidle" });
       const panel = casePanel(page, kept.number);
       const remove = panel.getByRole("button", { name: t("cases.delete"), exact: true });
-      await remove.click();
-      const refusal = panel.getByRole("alert");
-      await expect(refusal).toContainText(t("cases.keptBy.registrar_fee"));
-      await expect(refusal).toContainText(t("cases.keptBy.partner_paid"));
-      await expect(page.getByRole("dialog")).toHaveCount(0);
 
       // The talon's amount emptied: the form says where it goes, and it goes.
       const finance = panel.locator("section.finance");
@@ -263,7 +256,9 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
 
       await remove.click();
       const ask = page.getByRole("dialog");
-      await expect(ask).toContainText(t("cases.deletedWith.terms"));
+      await expect(ask.locator(".confirm-list li")).toHaveText([
+        t("cases.deletedWith.terms", { n: 1 }),
+      ]);
       await ask.getByRole("button", { name: t("cases.delete"), exact: true }).click();
       await expect(panel).toHaveCount(0);
       expect((await page.request.get(`/api/cases/${kept.id}`)).status()).toBe(404);
@@ -384,7 +379,7 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
       }
     });
 
-    test("a payment deleted a moment ago does not hold the case", async ({ page }) => {
+    test("a payment deleted a moment ago is sent first, not named", async ({ page }) => {
       // «Удалено · Отменить» keeps the payment for a few seconds; «Удалить кейс» pressed
       // in that time sends its deletion first instead of naming it.
       const contactId = await demoCard(page, 6 + index);
@@ -403,6 +398,7 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
       await panel.getByRole("button", { name: t("cases.delete"), exact: true }).click();
       const ask = page.getByRole("dialog");
       await expect(ask).toContainText(t("cases.number", { number: kept.number }));
+      await expect(ask.locator(".confirm-list")).toHaveCount(0);
       await expect(panel.getByRole("alert")).toHaveCount(0);
       await ask.getByRole("button", { name: t("cases.delete"), exact: true }).click();
       await expect(panel).toHaveCount(0);
@@ -410,24 +406,18 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
       made = null;
     });
 
-    test("a case whose partner payout is marked paid is not deleted", async ({ page }) => {
-      // Owner's answer 2026-11-20: the paid payout holds the case like a payment, and the
-      // refusal names it instead of asking. Other demo cards than the test above uses.
+    test("a case with money is deleted after the question names it", async ({ page }) => {
+      // Owner's decision 2026-11-24: money no longer holds a case. The question lists the
+      // payments with their sum, the partner payout marked as paid and the terms, says the
+      // case cannot be restored, and the red button deletes it with all of them. Other
+      // demo cards than the tests above use.
       const contactId = await demoCard(page, 2 + index);
-      const opened = await page.request.post(
-        `/api/contacts/${contactId}/cases?allow_case_in_work=true`,
-        {
-          data: {
-            destination_id: await countryId(page, "PL"),
-            submission_country_id: await countryId(page, "BY"),
-            applicants: [{ contact_id: contactId }],
-          },
-        },
-      );
-      expect(opened.ok(), await opened.text()).toBe(true);
-      const [kept] = (await opened.json()) as { id: string; number: number }[];
-      made = kept.id;
-      const paid = await page.request.patch(`/api/cases/${kept.id}/finance`, {
+      const kept = await openCase(page, contactId);
+      const paid = await page.request.post(`/api/cases/${kept.id}/payments`, {
+        data: { paid_on: "2026-06-01", amount: "100", currency: "BYN" },
+      });
+      expect(paid.ok(), await paid.text()).toBe(true);
+      const partner = await page.request.patch(`/api/cases/${kept.id}/finance`, {
         data: {
           price: "500",
           partner_terms: "fixed",
@@ -435,16 +425,36 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
           partner_paid_on: "2026-06-01",
         },
       });
-      expect(paid.ok(), await paid.text()).toBe(true);
+      expect(partner.ok(), await partner.text()).toBe(true);
+      const what = (await (await page.request.get(`/api/cases/${kept.id}/deletion`)).json()) as {
+        payments_total: string;
+      };
+      const { base_currency: base } = (await (await page.request.get("/api/workspace")).json()) as {
+        base_currency: string;
+      };
 
       await page.goto(`/app/clients/${contactId}`, { waitUntil: "networkidle" });
-      const panel = page.locator("article.case-panel").filter({
-        has: page.getByRole("heading", { name: t("cases.number", { number: kept.number }) }),
-      });
+      const panel = casePanel(page, kept.number);
       await panel.getByRole("button", { name: t("cases.delete"), exact: true }).click();
-      await expect(panel.getByRole("alert")).toContainText(t("cases.keptBy.partner_paid"));
-      await expect(page.getByRole("dialog")).toHaveCount(0);
-      expect((await page.request.get(`/api/cases/${kept.id}`)).status()).toBe(200);
+      const ask = page.getByRole("dialog");
+      await expect(ask.locator(".confirm-text")).toHaveText(
+        t("cases.confirmDeleteWith", { number: kept.number }),
+      );
+      await expect(ask.locator(".confirm-list li")).toHaveText([
+        t("cases.deletedWith.payments", {
+          n: 1,
+          total: moneyText(lang, what.payments_total, base),
+        }),
+        t("cases.deletedWith.partner_payouts", { n: 1 }),
+        t("cases.deletedWith.terms", { n: 1 }),
+      ]);
+      await expect(ask.locator(".confirm-note")).toHaveText(t("cases.cannotRestore"));
+      await expect(panel.getByRole("alert")).toHaveCount(0);
+
+      await ask.getByRole("button", { name: t("cases.delete"), exact: true }).click();
+      await expect(panel).toHaveCount(0);
+      expect((await page.request.get(`/api/cases/${kept.id}`)).status()).toBe(404);
+      made = null;
     });
 
     test("a case opened twice by mistake is deleted after the question", async ({ page }) => {

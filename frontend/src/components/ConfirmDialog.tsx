@@ -15,6 +15,10 @@ import { useTranslation } from "react-i18next";
 export type ConfirmOptions = {
   /** The whole question, already translated. */
   message: string;
+  /** A list under the question: what goes with a deletion, one line each. */
+  items?: string[];
+  /** A quieter line under them: what stays, and that it cannot be undone. */
+  note?: string;
   /** The button that does it, named for the action: «Удалить», «Выключить». */
   action: string;
   /** Red for what deletes, switches off or blocks; blue for what only guards a slip. */
@@ -74,6 +78,8 @@ function ConfirmDialog({
 }) {
   const { t } = useTranslation();
   const textId = useId();
+  const detailsId = useId();
+  const hasItems = (request.items?.length ?? 0) > 0;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const actionRef = useRef<HTMLButtonElement>(null);
@@ -98,6 +104,7 @@ function ConfirmDialog({
       ref={dialogRef}
       className="confirm"
       aria-labelledby={textId}
+      aria-describedby={hasItems || request.note ? detailsId : undefined}
       onCancel={() => onAnswer(false)}
       onClick={(event) => {
         // The body fills the dialog, so only a press on the backdrop lands on it.
@@ -108,6 +115,18 @@ function ConfirmDialog({
         <p id={textId} className="confirm-text">
           {request.message}
         </p>
+        {(hasItems || request.note) && (
+          <div id={detailsId} className="confirm-details">
+            {hasItems && (
+              <ul className="confirm-list">
+                {request.items!.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+            {request.note && <p className="confirm-note">{request.note}</p>}
+          </div>
+        )}
         <div className="confirm-actions">
           <button ref={cancelRef} type="button" className="btn" onClick={() => onAnswer(false)}>
             {request.cancel ?? t("common.cancel")}

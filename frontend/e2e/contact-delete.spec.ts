@@ -1,14 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-// «Удалить карточку» asks first and says what will happen to this very card (pilot remark
-// 1.15.13): what goes with it, counted, that its entries in the audit log stay, that it
-// cannot be restored. The red «Удалить карточку» and «Отмена»; «Отмена» and Escape keep
-// the card and send nothing. A card that has got client history meanwhile is refused
-// before the question. Both languages, on a phone.
+// «Удалить карточку» asks first and lists what goes with this very card (pilot remark
+// 1.15.13; owner's decision 2026-11-24 → «Удаление кейса и карточки со всем содержимым»):
+// a card with client history goes too, so the list names its cases and their money as
+// well as its own consultations, notes and the rest, counted; under it, that the card's
+// entries in the audit log stay and that it cannot be restored. The red «Удалить
+// карточку» and «Отмена»; «Отмена» and Escape keep the card and send nothing. Both
+// languages, on a phone.
 //
 // Nothing here is deleted or changed: other specs open the newest or the oldest card
-// while this one runs, so it asks on a demo card and refuses. The deletion itself, after
+// while this one runs, so it asks on demo cards and refuses. The deletion itself, after
 // the red button, is in confirm-undo.spec.ts on a card that test makes for itself, and
 // what the API deletes with a card in backend/tests/test_contacts.py.
 
@@ -26,16 +28,18 @@ const PASSWORD = process.env.DEMO_PASSWORD ?? "";
 const DEMO = "demo_";
 
 type Deletion = {
-  has_history: boolean;
+  cases: number[];
+  payments: number;
+  payments_total: string;
   consultations: number;
-  notes: number;
-  passport: boolean;
-  questionnaire: boolean;
+  paid_consultations: number;
 };
 
-/** The newest demo card that can be deleted and has something to go with it: the oldest
- * demo cards get cases for a while in case-delete.spec.ts. */
-async function deletableCard(page: Page): Promise<{ id: string; name: string; what: Deletion }> {
+type Found = { id: string; name: string; what: Deletion };
+
+/** The newest demo card the test wants: the oldest demo cards get cases for a while in
+ * case-delete.spec.ts, which would change what their question lists. */
+async function demoCard(page: Page, wanted: (what: Deletion) => boolean): Promise<Found> {
   const found = await page.request.post("/api/contacts/search", { data: { query: DEMO } });
   expect(found.ok(), await found.text()).toBe(true);
   for (const { id, full_name } of (await found.json()).items as {
@@ -45,9 +49,19 @@ async function deletableCard(page: Page): Promise<{ id: string; name: string; wh
     const response = await page.request.get(`/api/contacts/${id}/deletion`);
     expect(response.ok(), await response.text()).toBe(true);
     const what = (await response.json()) as Deletion;
-    if (!what.has_history && what.consultations > 0) return { id, name: full_name, what };
+    if (wanted(what)) return { id, name: full_name, what };
   }
-  throw new Error("The demo has no card without history that has a consultation");
+  throw new Error("The demo has no such card");
+}
+
+/** The payments' sum as the question writes it (useMoney in src/pages/clients/Finance.tsx). */
+function moneyText(lang: Lang, amount: string, currency: string): string {
+  const number = Number(amount);
+  const text = new Intl.NumberFormat(lang, {
+    minimumFractionDigits: Number.isInteger(number) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(number);
+  return `${text} ${currency}`;
 }
 
 for (const lang of ["ru", "en"] as const) {
@@ -70,19 +84,17 @@ for (const lang of ["ru", "en"] as const) {
       await page.setViewportSize({ width: 390, height: 900 });
     });
 
-    test("the question says what goes with the card and «Cancel» keeps it", async ({
+    test("the question lists what goes with the card and «Cancel» keeps it", async ({
       page,
     }) => {
-      const { id, name, what } = await deletableCard(page);
-      const items = [
-        ...(["consultations", "notes"] as const)
-          .filter((key) => what[key] > 0)
-          .map((key) => t(`contacts.deletedWith.${key}`, { n: what[key] })),
-        ...(["passport", "questionnaire"] as const)
-          .filter((key) => what[key])
-          .map((key) => t(`contacts.deletedWith.${key}`)),
-      ];
-      const question = t("contacts.confirmDeleteCardWith", { name, items: items.join(", ") });
+      const { id, name, what } = await demoCard(page, (w) => w.consultations > 0);
+      const consultations =
+        what.paid_consultations > 0
+          ? t("contacts.deletedWith.consultationsPaid", {
+              n: what.consultations,
+              paid: what.paid_consultations,
+            })
+          : t("contacts.deletedWith.consultations", { n: what.consultations });
       const sent: string[] = [];
       page.on("request", (request) => {
         if (request.method() === "DELETE") sent.push(new URL(request.url()).pathname);
@@ -94,11 +106,14 @@ for (const lang of ["ru", "en"] as const) {
         .getByRole("button", { name: t("contacts.deleteCard"), exact: true });
       const ask = page.getByRole("dialog");
       await button.click();
-      await expect(ask.locator(".confirm-text")).toHaveText(question);
-      // Not the generic question: this card's consultations are named and counted.
-      await expect(ask).toContainText(
-        t("contacts.deletedWith.consultations", { n: what.consultations }),
+      await expect(ask.locator(".confirm-text")).toHaveText(
+        t("contacts.confirmDeleteCardWith", { name }),
       );
+      // Not the generic question: this card's consultations are named and counted.
+      await expect(ask.locator(".confirm-list li").filter({ hasText: consultations })).toHaveCount(
+        1,
+      );
+      await expect(ask.locator(".confirm-note")).toHaveText(t("contacts.deleteCardNote"));
       const remove = ask.getByRole("button", { name: t("contacts.deleteCard"), exact: true });
       await expect(remove).toHaveClass(/btn-danger/);
       const cancel = ask.getByRole("button", { name: t("common.cancel"), exact: true });
@@ -118,23 +133,29 @@ for (const lang of ["ru", "en"] as const) {
       expect(((await card.json()) as { can_delete: boolean }).can_delete).toBe(true);
     });
 
-    test("a card that has got client history meanwhile is refused without the question", async ({
-      page,
-    }) => {
-      const { id } = await deletableCard(page);
-      // As if a case had been opened for the client in another tab since the card loaded.
-      await page.route(`**/api/contacts/${id}/deletion`, async (route) => {
-        const response = await route.fetch();
-        await route.fulfill({ response, json: { ...(await response.json()), has_history: true } });
-      });
+    test("a card with cases names them and the money they hold", async ({ page }) => {
+      const { id, what } = await demoCard(page, (w) => w.cases.length > 0 && w.payments > 0);
+      const { base_currency: base } = (await (await page.request.get("/api/workspace")).json()) as {
+        base_currency: string;
+      };
+      const numbers = what.cases.map((number) => t("cases.number", { number })).join(", ");
+
       await page.goto(`/app/clients/${id}`);
       await page
         .locator(".page-header")
         .getByRole("button", { name: t("contacts.deleteCard"), exact: true })
         .click();
-      await expect(
-        page.getByRole("alert").filter({ hasText: t("errors.contact_has_history") }),
-      ).toBeVisible();
+      const items = page.getByRole("dialog").locator(".confirm-list li");
+      // The cases first, then what they hold, money first.
+      const cases = what.cases.length === 1 ? "contacts.deletedWith.case" : "contacts.deletedWith.cases";
+      await expect(items.nth(0)).toHaveText(t(cases, { numbers }));
+      await expect(items.nth(1)).toHaveText(
+        t("cases.deletedWith.payments", {
+          n: what.payments,
+          total: moneyText(lang, what.payments_total, base),
+        }),
+      );
+      await page.keyboard.press("Escape");
       await expect(page.getByRole("dialog")).toHaveCount(0);
       expect((await page.request.get(`/api/contacts/${id}`)).status()).toBe(200);
     });
