@@ -43,6 +43,39 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export async function apiDownload(path: string, fileName: string): Promise<void> {
   const response = await fetch(`/api${path}`, { credentials: "include" });
   if (!response.ok) throw await failure(response);
+  await save(response, fileName);
+}
+
+/** A file the API makes from what is posted: the body stays out of the address (a
+ * password, a code). Saved under the name the API gives, else the fallback. */
+export async function apiPostDownload(
+  path: string,
+  body: unknown,
+  fallbackName: string,
+): Promise<void> {
+  const response = await fetch(`/api${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw await failure(response);
+  await save(response, givenName(response) ?? fallbackName);
+}
+
+/** The UTF-8 name of Content-Disposition (RFC 6266), as the API writes it. */
+function givenName(response: Response): string | null {
+  const header = response.headers.get("Content-Disposition") ?? "";
+  const match = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+async function save(response: Response, fileName: string): Promise<void> {
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = url;

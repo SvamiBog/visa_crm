@@ -393,12 +393,15 @@ class WorkbookImport:
         ):
             rows = await s.execute(select(model.id, model.name))
             self.lists[t] = {normalize(name): item_id for item_id, name in rows}
-        self.lists[ValueType.SYSTEM] = {
-            normalize(name): item_id
-            for item_id, name in await s.execute(
-                select(VaultSystem.id, VaultSystem.name).where(VaultSystem.is_active)
-            )
-        }
+        self.lists[ValueType.SYSTEM] = {}
+        # Every system, switched off too: an export's row keeps its account where it is.
+        self.system_names: dict[uuid.UUID, str] = {}
+        for item_id, name, active in await s.execute(
+            select(VaultSystem.id, VaultSystem.name, VaultSystem.is_active)
+        ):
+            self.system_names[item_id] = normalize(name)
+            if active:
+                self.lists[ValueType.SYSTEM][normalize(name)] = item_id
         countries: dict[str, uuid.UUID] = {}
         self.country_codes: dict[uuid.UUID, str] = {}
         for cid, code, name_ru, name_en in await s.execute(
@@ -1181,8 +1184,11 @@ class WorkbookImport:
             changed = True
         changed |= self._outcome(r, case)
         changed |= self._stage(r, case)
-        if (opened := v.get("opened_on")) is not None and case.created_at != _midnight(opened):
-            case.created_at = _midnight(opened)
+        # «Дата открытия» is the day in the specialist's time zone, as the export writes
+        # it: a case opened at 22:30 UTC is already the next day in Minsk, and keeps its time.
+        opened = v.get("opened_on")
+        if opened is not None and case.created_at.astimezone(self.zone).date() != opened:
+            case.created_at = self._opened_at(opened)
             self.dated.discard(case.id)
             changed = True
         if (family := v.get("family")) is not None:
@@ -1196,6 +1202,15 @@ class WorkbookImport:
         if key is not None:
             self._remember(r, key, case)
         self._made_id = case.id
+
+    def _opened_at(self, day: date) -> datetime:
+        """«Дата открытия» as a moment: midnight UTC, as the import has always put it, unless
+        that is still the day before in the specialist's time zone (west of UTC): then her
+        own midnight, so the same file finds the same day again."""
+        at = _midnight(day)
+        if at.astimezone(self.zone).date() == day:
+            return at
+        return datetime.combine(day, time.min, self.zone).astimezone(UTC)
 
     def _consultation_of(self, r: _Row) -> Consultation | None:
         """The consultation the case came from; a family's cases share the consultation
@@ -1358,8 +1373,14 @@ class WorkbookImport:
         finance = self.finances.get(case.id)
         made = finance is None
         if finance is None:
+            # As the database starts one: an export's empty cells of a case without money
+            # then change nothing, and no empty finances are made.
             finance = CaseFinance(
-                case_id=case.id, tenant_id=self.tenant_id, currency=self.base, rate=Decimal(1)
+                case_id=case.id,
+                tenant_id=self.tenant_id,
+                currency=self.base,
+                rate=Decimal(1),
+                consultation_credit=Decimal(0),
             )
         held = finance_hints.held(finance)
         # The file has the price in the base currency (docs/data-format.md): a case priced
@@ -1772,6 +1793,14 @@ class WorkbookImport:
     async def _accounts(self, r: _Row) -> None:
         v = r.values
         system = self._find(ValueType.SYSTEM, v["system"])
+        # A system switched off since the export: its row keeps the account in it.
+        kept = self.vault.get(_uuid(v.get("code")))  # type: ignore[arg-type]
+        if (
+            system is None
+            and kept is not None
+            and self.system_names.get(kept.system_id) == normalize(v["system"])
+        ):
+            system = kept.system_id
         if system is None:
             self.report.seen_unknown(ValueType.SYSTEM, normalize(v["system"]), v["system"])
             raise SkipRow("unknown_system", "system")

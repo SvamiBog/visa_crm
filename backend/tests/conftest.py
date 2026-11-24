@@ -145,7 +145,6 @@ WORKSPACE_TABLES = (
     "employee_cases",
     "import_rows",
     "import_runs",
-    "import_mappings",
     "user_recovery_codes",
     "email_changes",
     "user_sessions",

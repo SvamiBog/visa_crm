@@ -10,7 +10,7 @@ from app.models.contact import (
     DocumentKind,
     Messenger,
 )
-from app.models.data_import import ImportKind, ImportMapping, ImportRow, ImportRun
+from app.models.data_import import ImportKind, ImportRow, ImportRun
 from app.models.dictionaries import (
     Hall,
     LeadChannel,
@@ -93,7 +93,6 @@ __all__ = [
     "ExchangeRate",
     "Hall",
     "ImportKind",
-    "ImportMapping",
     "ImportRow",
     "ImportRun",
     "LeadChannel",

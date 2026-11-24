@@ -298,6 +298,10 @@ function EventDetails({ event }: { event: AuditEvent }) {
   // Consent and contract files: which paper (the file name is not logged).
   if (kind && event.action.startsWith("contacts.document_")) return <>{t(`contacts.${kind}`)}</>;
   if (reason) return <>{t(`audit.reason.${reason}`, { defaultValue: reason })}</>;
+  // An export with passwords: how many were written to the file, never which.
+  if (event.action === "vault.passwords_exported") {
+    return <>{t("audit.passwords", { count: Number(event.details.count) })}</>;
+  }
   if (name && email) return <>{`${name} · ${email}`}</>;
   if (email) return <>{email}</>;
   if (name && event.target_type) {

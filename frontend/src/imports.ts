@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiDelete, apiDownload, apiGet, apiPost } from "./api";
+import { apiDelete, apiDownload, apiGet, apiPost, apiPostDownload } from "./api";
 
 // Импорт в формате VisaCRM (backlog 1.21, 1.22, docs/data-format.md): the template and the
 // prompt for the AI, then the workbook it makes. The file is uploaded once and waits on the
@@ -206,4 +206,19 @@ export function fetchImportPrompt(language: PromptLanguage): Promise<string> {
 
 export function downloadImportTemplate(language: PromptLanguage, fileName: string): Promise<void> {
   return apiDownload(`/imports/template?language=${language}`, fileName);
+}
+
+// The export of the workspace (docs/data-format.md → «Выгрузка»). With passwords: the
+// account's password and, with two-factor login on, a code from the app.
+export type ExportRequest = {
+  language: PromptLanguage;
+  with_passwords: boolean;
+  password?: string;
+  code?: string;
+};
+
+/** Every record of the workspace in one file of the format, saved under the name the
+ * server gives (the date, and «с паролями» when they are in it). */
+export function exportWorkspace(body: ExportRequest, fallbackName: string): Promise<void> {
+  return apiPostDownload("/imports/export", body, fallbackName);
 }

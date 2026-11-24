@@ -404,6 +404,11 @@ function EraseData() {
     <section className="card form-card">
       <h2 className="h2">{t("settings.erase")}</h2>
       <p className="muted small">{t("settings.eraseHint")}</p>
+      {/* A full copy first: the export loads into VisaCRM again and opens in any table. */}
+      <p className="small">
+        {t("settings.eraseExportFirst")}{" "}
+        <Link to="/app/import#export">{t("settings.eraseExportLink")}</Link>
+      </p>
       {erase.isSuccess && !asking && (
         <div className="alert alert-ok" role="status">
           {t("settings.erased")}

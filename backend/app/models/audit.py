@@ -98,10 +98,14 @@ class AuditAction(StrEnum):
     REMINDER_SETTINGS_UPDATED = "reminders.settings_updated"
     # A spreadsheet import: counts only (app/api/imports.py).
     IMPORT_COMPLETED = "imports.completed"
+    # The workspace exported to a file of the format: rows by sheet only.
+    DATA_EXPORTED = "imports.exported"
     VAULT_ENTRY_CREATED = "vault.entry_created"
     VAULT_ENTRY_UPDATED = "vault.entry_updated"
     VAULT_ENTRY_DELETED = "vault.entry_deleted"
     VAULT_PASSWORD_REVEALED = "vault.password_revealed"
+    # The passwords of the vault written to an export: how many, never which.
+    VAULT_PASSWORDS_EXPORTED = "vault.passwords_exported"
     # Reference data; target_type names the reference (country, vac_operator, …).
     REFERENCE_CREATED = "reference.created"
     REFERENCE_UPDATED = "reference.updated"
