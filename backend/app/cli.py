@@ -12,6 +12,8 @@ reset-two-factor EMAIL turn off 2FA for a user who lost the phone and recovery c
 seed-demo              fill the staging stand with demo specialists and clients
                        (docs/staging.md; refuses in production)
 wait-db                wait until the database answers (start.sh, before the migrations)
+check-error-reports    send one test report to Sentry from this server
+                       (docs/operations.md)
 """
 
 import argparse
@@ -28,6 +30,7 @@ from app.core.config import get_settings
 from app.core.crypto import generate_master_key, master_keys
 from app.core.db import get_engine, get_sessionmaker, scope_to_system, wait_for_database
 from app.core.demo import DemoRefused, DemoSettings, already_seeded, check_settings, seed
+from app.core.error_reports import send_test_report
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
 from app.core.storage import StorageFailed
 from app.core.two_factor import reset_two_factor, upgrade_legacy_recovery_codes
@@ -207,6 +210,7 @@ def main() -> None:
     wait = commands.add_parser("wait-db", help="wait until the database answers")
     # Within Railway's five-minute healthcheck window, with time left for the migrations.
     wait.add_argument("--timeout", type=float, default=180, help="seconds")
+    commands.add_parser("check-error-reports", help="send one test report to Sentry")
     args = parser.parse_args()
 
     if args.command == "generate-master-key":
@@ -253,6 +257,12 @@ def main() -> None:
         if not asyncio.run(wait_for_database(url, timeout=args.timeout)):
             sys.exit(f"The database did not answer in {args.timeout:.0f} s")
         print("The database answers")
+    elif args.command == "check-error-reports":
+        settings = get_settings()
+        event_id = send_test_report(settings)
+        if event_id is None:
+            sys.exit("SENTRY_DSN is not set: error reports are off")
+        print(f"Sent test report {event_id} ({settings.env}): ErrorReportCheck in Sentry Issues")
     elif args.command == "reset-two-factor":
         email = args.email.strip().lower()
         asyncio.run(reset_user_two_factor(email))
