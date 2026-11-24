@@ -97,6 +97,43 @@ async def test_purpose_has_a_kind_for_shared_lists(client: AsyncClient, make_use
     assert channel.status_code == 201 and "kind" not in channel.json()
 
 
+# The lists the page adds to without choosing a place: a new entry goes to the end.
+ORDERED_LISTS = [("purposes", {}), ("channels", {}), ("vault-systems", {"kind": "other"})]
+
+
+@pytest.mark.parametrize(("kind", "extra"), ORDERED_LISTS)
+async def test_a_new_entry_goes_to_the_end_of_its_list(
+    client: AsyncClient, make_user: MakeUser, kind: str, extra: dict
+):
+    await as_specialist(client, make_user)
+    first = (await client.post(f"{BASE}/{kind}", json={"name": "Б", **extra})).json()
+    assert first["sort_order"] == 0
+    await client.patch(f"{BASE}/{kind}/{first['id']}", json={"sort_order": 5})
+
+    added = await client.post(f"{BASE}/{kind}", json={"name": "А", **extra})
+    assert added.status_code == 201, added.text
+    assert added.json()["sort_order"] == 6
+    assert [e["name"] for e in (await client.get(f"{BASE}/{kind}")).json()] == ["Б", "А"]
+
+
+@pytest.mark.parametrize(("kind", "extra"), ORDERED_LISTS)
+async def test_a_list_at_the_highest_order_still_takes_new_entries(
+    client: AsyncClient, make_user: MakeUser, kind: str, extra: dict
+):
+    """1.15.14: an entry at the highest order (999) left no «next» place, and the page's
+    «last + 1» got a bare 422 instead of the entry or «name taken»."""
+    await as_specialist(client, make_user)
+    top = (await client.post(f"{BASE}/{kind}", json={"name": "Последняя", **extra})).json()
+    raised = await client.patch(f"{BASE}/{kind}/{top['id']}", json={"sort_order": 999})
+    assert raised.json()["sort_order"] == 999
+
+    added = await client.post(f"{BASE}/{kind}", json={"name": "Новая", **extra})
+    assert added.status_code == 201, added.text
+    assert added.json()["sort_order"] == 999
+    again = await client.post(f"{BASE}/{kind}", json={"name": "Новая", **extra})
+    assert again.status_code == 409 and again.json()["detail"] == "name_taken"
+
+
 async def test_employee_reads_but_does_not_edit(client: AsyncClient, make_user: MakeUser):
     tenant_id = await as_specialist(client, make_user)
     await add_purpose(client)

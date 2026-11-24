@@ -185,10 +185,9 @@ function SimpleList({ name }: { name: "purposes" | "channels" }) {
 
   const add = useMutation({
     mutationFn: () =>
+      // No order: the API puts a new entry at the end of the list (backlog 1.15.14).
       apiPost<Entry>(`${BASE}/${name}`, {
         name: newName.trim(),
-        // New entries go to the end of the list.
-        sort_order: Math.max(-1, ...(list.data ?? []).map((e) => e.sort_order)) + 1,
         ...(withKind ? { kind: newKind || null } : {}),
       }),
     onSuccess: () => {
@@ -388,7 +387,6 @@ function VaultSystems() {
         <SystemForm
           key={editing === "new" ? "new" : editing.id}
           system={editing === "new" ? undefined : editing}
-          nextOrder={Math.max(-1, ...(list.data ?? []).map((s) => s.sort_order)) + 1}
           onClose={() => setEditing(null)}
         />
       )}
@@ -441,15 +439,7 @@ function VaultSystems() {
   );
 }
 
-function SystemForm({
-  system,
-  nextOrder,
-  onClose,
-}: {
-  system?: VaultSystem;
-  nextOrder: number;
-  onClose: () => void;
-}) {
+function SystemForm({ system, onClose }: { system?: VaultSystem; onClose: () => void }) {
   const { t } = useTranslation();
   const refresh = useRefresh("vault-systems");
   const [name, setName] = useState(system?.name ?? "");
@@ -475,9 +465,10 @@ function SystemForm({
         password_symbols: symbols.replace(/\s/g, ""),
         is_active: active,
       };
+      // No order: the API puts a new system at the end of the list (backlog 1.15.14).
       return system
         ? apiPatch<VaultSystem>(`${BASE}/vault-systems/${system.id}`, body)
-        : apiPost<VaultSystem>(`${BASE}/vault-systems`, { ...body, sort_order: nextOrder });
+        : apiPost<VaultSystem>(`${BASE}/vault-systems`, body);
     },
     onSuccess: () => {
       void refresh();
