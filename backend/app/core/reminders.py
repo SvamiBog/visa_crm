@@ -37,6 +37,8 @@ class ReminderKind(StrEnum):
     PACKAGE = "package"
     # The submission is long past and no result is entered (CRM audit 2026-11-18).
     RESULT = "result"
+    # The passport's data goes soon after the decision (backlog 2.8, app/core/passport_purge.py).
+    PASSPORT_PURGE = "passport_purge"
     # An employee went over a daily limit (backlog Т.14); for the specialist only.
     CARD_LIMIT = "card_limit"
     PASSWORD_LIMIT = "password_limit"

@@ -12,8 +12,8 @@ parents by (id, tenant_id), and the tables with a case or a client under employe
 an employee sees the portal of the cases given to them only. The workspace gets the
 specialist's details as the data controller, named in the notice.
 
-Revision ID: 0046
-Revises: 0045
+Revision ID: 0047
+Revises: 0046
 Create Date: 2026-11-24
 
 """
@@ -24,8 +24,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0046"
-down_revision: str | None = "0045"
+revision: str = "0047"
+down_revision: str | None = "0046"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

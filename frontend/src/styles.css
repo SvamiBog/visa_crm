@@ -3182,6 +3182,7 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
 .attention-side {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 

@@ -74,6 +74,11 @@ class AuditAction(StrEnum):
     CONTACT_TEMPLATE_OPENED = "contacts.template_opened"
     CONTACT_TEMPLATE_REMOVED = "contacts.template_removed"
     QUESTIONNAIRE_UPDATED = "contacts.questionnaire_updated"
+    # The passport's data removed after the decision (backlog 2.8): by the daily run (no
+    # actor), by «Удалить сейчас», or put off by «Отложить»; details: field names, a date.
+    PASSPORT_PURGED = "contacts.passport_purged"
+    PASSPORT_PURGED_MANUALLY = "contacts.passport_purged_manually"
+    PASSPORT_PURGE_POSTPONED = "contacts.passport_purge_postponed"
     # A trip for the 90/180 calculator: details carry ids, not countries or dates.
     TRIP_ADDED = "contacts.trip_added"
     TRIP_UPDATED = "contacts.trip_updated"

@@ -28,6 +28,7 @@ from app.core.finance import to_base
 from app.core.modules import DEFAULT_MODULES
 from app.core.names import split_full_name, split_latin_name
 from app.core.passwords import PasswordRules, generate_password
+from app.core.questionnaire import Questionnaire
 from app.core.security import generate_temporary_password, hash_password
 from app.core.subscription import amount_due
 from app.core.two_factor import seal_secret
@@ -837,7 +838,49 @@ async def _workspace(
                 talons[registrar.id].append((talon_on, fee))
     _registrar_payments(session, registrars, talons, today, rng)
     await session.flush()
+    await _passports_to_remove(session, t, rng)
     return made
+
+
+# Clients whose passport goes in two days (backlog 2.8), up to this many: «Требует
+# внимания» shows them with «Отложить на 30 дней» and «Удалить сейчас».
+PASSPORTS_TO_REMOVE = 4
+
+
+async def _passports_to_remove(
+    session: AsyncSession, tenant_id: uuid.UUID, rng: random.Random
+) -> None:
+    """A made-up passport for a few clients with a decision and no case in work. Their
+    results were entered now, so each passport goes in two days."""
+    in_work = select(VisaCase.contact_id).where(
+        VisaCase.tenant_id == tenant_id, VisaCase.stage != CaseStage.RESULT
+    )
+    decided = select(VisaCase.contact_id).where(
+        VisaCase.tenant_id == tenant_id, VisaCase.outcome.is_not(None)
+    )
+    contacts = (
+        await session.scalars(
+            select(Contact)
+            .where(
+                Contact.tenant_id == tenant_id,
+                Contact.id.in_(decided),
+                Contact.id.not_in(in_work),
+            )
+            .order_by(Contact.full_name, Contact.id)
+            .limit(PASSPORTS_TO_REMOVE)
+        )
+    ).all()
+    for contact in contacts:
+        issued = date(2020, 1, 1) + timedelta(days=rng.randrange(0, 1500))
+        contact.questionnaire = Questionnaire(
+            passport_number=f"DM{rng.randrange(1_000_000, 9_999_999)}",
+            passport_issued_on=issued,
+            passport_expires_on=issued + timedelta(days=3652),
+            passport_issued_by="МВД Республики Беларусь",
+            nationality="BY",
+            personal_number=f"{rng.randrange(1_000_000, 9_999_999)}A{rng.randrange(100, 999)}PB1",
+            birth_place="г. Минск",
+        ).model_dump(mode="json")
 
 
 def _submission(stage: CaseStage, today: date, since: date, rng: random.Random) -> date | None:

@@ -385,6 +385,7 @@ async def test_only_the_app_role_runs_the_functions_that_read_past_the_policies(
         "employee_sees_contact(uuid)",
         "last_case_number()",
         "contact_phone_taken(text,uuid)",
+        "passport_purge_cases(uuid[])",
     } <= {name for name, _, _ in functions}
     assert [name for name, public, app in functions if public or not app] == []
 

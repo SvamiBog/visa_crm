@@ -19,6 +19,7 @@ from app.core.db import scope_to_system
 from app.core.demo import (
     ADMIN_EMAIL,
     ALLOWED_ENVS,
+    PASSPORTS_TO_REMOVE,
     DemoRefused,
     DemoSettings,
     _user,
@@ -197,6 +198,12 @@ async def test_demo_workspaces_work_like_real_ones(
     )
     checklist = (await client.get(f"/api/checklists/{poland}")).json()
     assert len(checklist["shared"]) == 8 and len(checklist["own"]) == 2
+    # A few decided clients have a passport that goes in two days (backlog 2.8).
+    purges = [
+        r for r in (await client.get("/api/reminders")).json() if r["kind"] == "passport_purge"
+    ]
+    assert 0 < len(purges) <= PASSPORTS_TO_REMOVE
+    assert all(r["days_left"] == 2 and r["passport_fields"] for r in purges)
 
     # The demo employee sees some of the clients: those of the cases given to them.
     client.cookies.clear()

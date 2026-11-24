@@ -53,6 +53,7 @@ from app.core.audit import client_address, client_ip
 from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
 from app.core.http_headers import add_security_headers, refuse_cross_site_changes
+from app.core.passport_purge import keep_purging
 from app.core.rates import keep_fresh
 from app.core.request_limit import RequestLimit
 from app.core.server_errors import UnexpectedErrors
@@ -91,10 +92,14 @@ async def signed_in(scope: Scope) -> bool:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # The site keeps the National Bank's rates itself: requests never ask the bank.
     rates = asyncio.create_task(keep_fresh())
+    # The passport's data goes a week after the decision (backlog 2.8), checked a few times
+    # a day in the same process: no cron service runs the app's code.
+    purges = asyncio.create_task(keep_purging())
     yield
-    rates.cancel()
-    with suppress(asyncio.CancelledError):
-        await rates
+    for task in (rates, purges):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 def create_app() -> FastAPI:
