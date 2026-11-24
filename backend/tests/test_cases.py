@@ -1,5 +1,5 @@
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
@@ -528,6 +528,7 @@ async def test_editing_one_case_changes_the_whole_family(client: AsyncClient, ma
             "submission_on": "2026-12-01",
             "questionnaire_due_on": "2026-11-20",
             "questionnaire_received_on": "2026-11-18",
+            "documents_due_on": "2026-11-25",
             "apply_to_group": True,
         },
     )
@@ -538,6 +539,8 @@ async def test_editing_one_case_changes_the_whole_family(client: AsyncClient, ma
     assert husband["purpose_id"] == purpose["id"] and husband["hall"] == "premium"
     assert husband["submission_on"] == "2026-12-01"
     assert husband["questionnaire_due_on"] == "2026-11-20"
+    # The family brings its documents together (question 26, 2026-11-24).
+    assert husband["documents_due_on"] == "2026-11-25"
     assert husband["stage"] == "documents"
     # Who sent the questionnaire is each one's own.
     assert husband["questionnaire_received_on"] is None
@@ -674,6 +677,38 @@ async def test_other_workspaces_cases_are_not_found(client: AsyncClient, make_us
     assert (await open_case(client, own["id"], purpose_id=purpose["id"])).status_code == 404
     grouped = await client.post(f"/api/cases/{own_case['id']}/group", json={"case_id": case["id"]})
     assert grouped.status_code == 404
+
+
+async def test_the_documents_due_date_stays_in_its_workspace(
+    client: AsyncClient, make_user: MakeUser, sessionmaker: async_sessionmaker[AsyncSession]
+):
+    """Question 26 (the specialist's answer, 2026-11-24): the day she names the client
+    for the documents is the case's own, set and cleared in the case form. Another
+    specialist neither sees nor changes it."""
+    anna = await as_specialist(client, make_user)
+    contact = await new_contact(client)
+    [case] = (await open_case(client, contact["id"])).json()
+    assert case["documents_due_on"] is None
+    due = (workspace_today() + timedelta(days=10)).isoformat()
+    saved = await client.patch(f"/api/cases/{case['id']}", json={"documents_due_on": due})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["documents_due_on"] == due
+    assert (await client.get(f"/api/cases/{case['id']}")).json()["documents_due_on"] == due
+    client.cookies.clear()
+
+    await as_specialist(client, make_user, "bella@example.com")
+    assert (await client.get(f"/api/cases/{case['id']}")).status_code == 404
+    cleared = await client.patch(f"/api/cases/{case['id']}", json={"documents_due_on": None})
+    assert cleared.status_code == 404
+    async with sessionmaker() as session:
+        scope_to_tenant(session, anna)
+        stored = await session.get(VisaCase, UUID(case["id"]))
+        assert stored is not None and stored.documents_due_on.isoformat() == due
+    client.cookies.clear()
+
+    await login(client, "anna@example.com")
+    cleared = await client.patch(f"/api/cases/{case['id']}", json={"documents_due_on": None})
+    assert cleared.status_code == 200 and cleared.json()["documents_due_on"] is None
 
 
 async def test_cases_module_is_required(

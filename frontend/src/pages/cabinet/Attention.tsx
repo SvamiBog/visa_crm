@@ -57,8 +57,10 @@ type Reminder = {
   employee_id: string | null;
   employee_name: string | null;
   limit: number | null;
-  // Documents not collected (package): required ones still to collect.
+  // Documents not collected (package): required ones still to collect, and whether the
+  // day is the case's «Документы до» (else the submission).
   missing: number | null;
+  documents_due: boolean | null;
   // The passport's removal: the fields that will go (no values), and the files at the
   // checklist items of the client's cases that go with them (backlog 2.9).
   passport_fields: string[] | null;
@@ -197,10 +199,14 @@ function ReminderText({ item: r }: { item: Reminder }) {
           })}
         </>
       );
-    case "package":
-      return (
-        <>{t("attention.kind.package", { date: date(r.due_on), count: r.missing ?? 0 })}</>
-      );
+    case "package": {
+      const key = !r.documents_due
+        ? "attention.kind.package"
+        : (r.days_left ?? 0) < 0
+          ? "attention.kind.package_due_overdue"
+          : "attention.kind.package_due";
+      return <>{t(key, { date: date(r.due_on), count: r.missing ?? 0 })}</>;
+    }
     case "result":
       return <>{t("attention.kind.result", { date: date(r.since) })}</>;
     case "passport_purge":

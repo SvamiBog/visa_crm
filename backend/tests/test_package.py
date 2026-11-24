@@ -410,6 +410,67 @@ async def test_an_incomplete_package_is_in_attention_before_the_submission(
     assert await package_reminders(client) == []
 
 
+async def documents_due(client: AsyncClient, case: dict, on: str | None) -> None:
+    response = await client.patch(f"/api/cases/{case['id']}", json={"documents_due_on": on})
+    assert response.status_code == 200, response.text
+
+
+async def test_the_documents_due_date_moves_the_package_reminder(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Question 26 (the specialist's answer, 2026-11-24): she names the client a day for
+    the documents. With «Документы до» set the reminder counts from it — a week and the
+    day before, then overdue until the package is collected or the submission is over.
+    Without it, from the submission as before."""
+    await as_admin(client, make_user)
+    codes = await countries(client)
+    form = await shared(client, codes["PL"], name="Анкета")
+
+    await as_specialist(client, make_user, owner_engine)
+    # The submission is three weeks off and the documents are due in five days.
+    early = await open_case(client, submission_on=day(21))
+    await documents_due(client, early, day(5))
+    # No submission date yet; the documents were due two days ago.
+    late = await open_case(client)
+    await documents_due(client, late, day(-2))
+    # The documents are due in ten days: not yet.
+    quiet = await open_case(client, submission_on=day(30))
+    await documents_due(client, quiet, day(10))
+    # Only the submission, three weeks off: not yet either.
+    await open_case(client, submission_on=day(21))
+    # The slot came sooner than the day named for the documents: the submission rules.
+    sooner = await open_case(client, submission_on=day(3))
+    await documents_due(client, sooner, day(20))
+
+    found = {i["case_id"]: i for i in await package_reminders(client)}
+    assert set(found) == {early["id"], late["id"], sooner["id"]}
+    slot = found.pop(sooner["id"])
+    assert (slot["due_on"], slot["days_left"], slot["documents_due"]) == (day(3), 3, False)
+    await mark(client, sooner, form, state="present")
+    item = found[early["id"]]
+    assert (item["due_on"], item["days_left"], item["documents_due"]) == (day(5), 5, True)
+    assert item["key"] == f"package:{early['id']}:{day(-2)}"
+    overdue = found[late["id"]]
+    assert (overdue["due_on"], overdue["days_left"], overdue["documents_due"]) == (
+        day(-2),
+        -2,
+        True,
+    )
+    assert overdue["key"] == f"package:{late['id']}:{day(-3)}"
+
+    # Cleared, the date gives way to the submission: within the week it counts from it.
+    await documents_due(client, early, None)
+    assert {i["case_id"] for i in await package_reminders(client)} == {late["id"]}
+    moved = await client.patch(f"/api/cases/{early['id']}", json={"submission_on": day(6)})
+    assert moved.status_code == 200, moved.text
+    item = {i["case_id"]: i for i in await package_reminders(client)}[early["id"]]
+    assert (item["due_on"], item["documents_due"]) == (day(6), False)
+
+    # The documents collected: the overdue reminder goes.
+    await mark(client, late, form, state="present")
+    assert [i["case_id"] for i in await package_reminders(client)] == [early["id"]]
+
+
 async def test_upcoming_submissions_show_package_readiness(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
