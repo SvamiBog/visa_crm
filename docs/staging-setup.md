@@ -10,8 +10,8 @@
 ## 1. Проект и окружение
 
 1. **Account Settings → Default Region → EU West (Amsterdam)** — данные стенда тоже должны жить в ЕС.
-2. **New Project → Empty Project.**
-3. Вверху в списке окружений: **+ New Environment → Empty Environment**, имя `staging`. Окружение `production` не трогайте — оно для боевого запуска (deploy.md).
+2. **New Project → Empty Project**: отдельный проект для стендов (у нас «Test Visa CRM»), не проект production. Почему — staging.md, раздел 1.
+3. Вверху в списке окружений: **+ New Environment → Empty Environment**, имя `staging`. Окружение `production`, которое Railway создал вместе с проектом, оставьте пустым: боевой сайт живёт в своём проекте (deploy.md).
 
 Всё дальше делается в окружении `staging`.
 
