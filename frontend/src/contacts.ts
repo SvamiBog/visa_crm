@@ -302,6 +302,16 @@ export type ContactCard = {
   can_delete: boolean;
 };
 
+/** What goes with a card, for the question before it is deleted
+ * (GET /contacts/{id}/deletion). A card with client history stays. */
+export type ContactDeletion = {
+  has_history: boolean;
+  consultations: number;
+  notes: number;
+  passport: boolean;
+  questionnaire: boolean;
+};
+
 // Client index (backend/app/api/client_status.py): every contact is in one tab.
 
 export const TABS = ["all", "work", "consult", "thinking", "archive"] as const;

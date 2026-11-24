@@ -25,6 +25,7 @@ import {
   useContactLists,
   type Consultation,
   type ContactCard,
+  type ContactDeletion,
   type ContactDocument,
   type ContactListItem,
   type DocumentKind,
@@ -136,6 +137,35 @@ export function ContactPage() {
       navigate("/app/clients");
     },
   });
+  // The question names what goes with this card and what stays, read when «Удалить
+  // карточку» is pressed (pilot remark 1.15.13). A card that has got client history since
+  // it was opened is refused before the question, as the API would refuse it after, and
+  // shown again without the button. The button stays enabled while the question is open,
+  // so the focus can go back to it.
+  const ask = useMutation({
+    mutationFn: async (name: string) => {
+      const what = await apiGet<ContactDeletion>(`/contacts/${id}/deletion`);
+      if (what.has_history) throw new ApiError(409, "contact_has_history");
+      const items = [
+        ...(["consultations", "notes"] as const)
+          .filter((key) => what[key] > 0)
+          .map((key) => t(`contacts.deletedWith.${key}`, { n: what[key] })),
+        ...(["passport", "questionnaire"] as const)
+          .filter((key) => what[key])
+          .map((key) => t(`contacts.deletedWith.${key}`)),
+      ];
+      const message =
+        items.length > 0
+          ? t("contacts.confirmDeleteCardWith", { name, items: items.join(", ") })
+          : t("contacts.confirmDeleteCard", { name });
+      return confirm({ message, action: t("contacts.deleteCard") });
+    },
+    onMutate: () => remove.reset(),
+    onSuccess: (yes) => {
+      if (yes) remove.mutate();
+    },
+    onError: () => void queryClient.invalidateQueries({ queryKey: contactKey(id) }),
+  });
 
   if (card.isPending) return <p className="muted">{t("common.loading")}</p>;
   if (card.isError) {
@@ -181,19 +211,14 @@ export function ContactPage() {
               type="button"
               className="btn btn-danger"
               disabled={remove.isPending}
-              onClick={async () => {
-                const yes = await confirm({
-                  message: t("contacts.confirmDeleteCard", { name: contact.full_name }),
-                  action: t("confirm.delete"),
-                });
-                if (yes) remove.mutate();
-              }}
+              onClick={() => ask.mutate(contact.full_name)}
             >
               {t("contacts.deleteCard")}
             </button>
           )}
         </div>
       </header>
+      {ask.isError && <ErrorAlert error={ask.error} />}
       {remove.isError && <ErrorAlert error={remove.error} />}
 
       {editing && (
