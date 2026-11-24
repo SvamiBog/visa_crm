@@ -4,6 +4,7 @@ from typing import Literal, Self
 
 from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sentry_sdk.utils import BadDsn, Dsn
 
 Environment = Literal["local", "test", "staging", "production"]
 # A developer's machine and the tests: plain HTTP, files in memory, mail kept instead of
@@ -12,6 +13,8 @@ DEVELOPMENT: tuple[Environment, ...] = ("local", "test")
 # Outside development the server key must be a real secret: an empty, known or short one is
 # as good as none (audit h03.4, h14.3).
 MIN_SECRET_KEY_LENGTH = 32
+# Sentry's EU data region: its DSNs point at o<N>.ingest.de.sentry.io.
+SENTRY_EU_HOST = ".de.sentry.io"
 
 
 class InvalidSettings(RuntimeError):
@@ -56,11 +59,33 @@ class Settings(BaseSettings):
     # gets this password and authenticator secret.
     demo_password: str = ""
     demo_totp_secret: str = ""
+    # Error reports to Sentry (app/core/error_reports.py, docs/deploy.md): the DSN of the
+    # project. Unset: the SDK does not start and nothing is sent anywhere.
+    sentry_dsn: str = ""
+    # Railway sets it on a deploy from GitHub: the release an error report belongs to.
+    railway_git_commit_sha: str = ""
 
     @field_validator("env", mode="before")
     @classmethod
     def _env_in_any_case(cls, value: object) -> object:
         return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator("sentry_dsn")
+    @classmethod
+    def _sentry_dsn_is_a_dsn(cls, value: str) -> str:
+        # A mistyped DSN stops the start like any other setting: the reports would be lost
+        # without a word. The reason only, never the value.
+        value = value.strip()
+        if value:
+            try:
+                host = Dsn(value).host
+            except (BadDsn, ValueError):
+                raise ValueError("not a Sentry DSN (https://KEY@HOST/PROJECT)") from None
+            # Reports are kept in Sentry's EU region (docs/decisions.md): a DSN of another
+            # region, pasted by mistake, would send them out of the EU.
+            if not host.endswith(SENTRY_EU_HOST):
+                raise ValueError(f"not a DSN of Sentry's EU region (*{SENTRY_EU_HOST})")
+        return value
 
     @model_validator(mode="after")
     def _server_key_outside_development(self) -> Self:

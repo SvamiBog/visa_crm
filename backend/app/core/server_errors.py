@@ -13,6 +13,8 @@ import traceback
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.error_reports import report
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +47,9 @@ class UnexpectedErrors:
         try:
             await self.app(scope, receive, watched)
         except Exception as error:
+            # The error stops here, so the error reports would never see it: reported as
+            # an exception, cut down by app/core/error_reports.py (the log line is not).
+            report(error)
             # The handler's name, not the path: no ids in the log either.
             endpoint = scope.get("endpoint")
             handler = f"{endpoint.__module__}.{endpoint.__qualname__}" if endpoint else "-"
