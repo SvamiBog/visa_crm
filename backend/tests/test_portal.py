@@ -7,7 +7,7 @@ import base64
 import re
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -818,3 +818,101 @@ async def test_erasing_the_workspace_takes_the_portal_files_along(
     async with owner_engine.connect() as conn:
         for table in ("package_files", "client_links", "portal_consents", "portal_notices"):
             assert (await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar() == 0
+
+
+# --- «Требует внимания» and the removal after the decision (with backlog 2.8) --------
+
+
+async def reminders_of(client: AsyncClient) -> list[dict]:
+    response = await client.get("/api/reminders")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_files_from_the_client_wait_in_attention_until_reviewed(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, visitor: AsyncClient
+):
+    case, item, _ = await setup_case(client, make_user, owner_engine)
+    token = await signed_in(client, visitor, case)
+    await consented(visitor, token)
+    first = (await upload(visitor, token, item)).json()
+    second = (await upload(visitor, token, item)).json()
+    [shown] = [r for r in await reminders_of(client) if r["kind"] == "portal_uploads"]
+    assert shown["case_id"] == case["id"] and shown["pending_files"] == 2
+    # A file the specialist added herself waits for nobody.
+    await client.post(
+        f"/api/cases/{case['id']}/package/{item['id']}/files",
+        json={"file_name": "a.pdf", "content": b64(PDF)},
+    )
+    base = f"/api/cases/{case['id']}/package-files"
+    await client.post(f"{base}/{first['id']}/accept", json={})
+    [shown] = [r for r in await reminders_of(client) if r["kind"] == "portal_uploads"]
+    assert shown["pending_files"] == 1
+    await client.post(f"{base}/{second['id']}/return", json={"reason": "unreadable"})
+    assert [r for r in await reminders_of(client) if r["kind"] == "portal_uploads"] == []
+
+    # Another specialist does not see it.
+    await upload(visitor, token, item)
+    await as_specialist(client, make_user, owner_engine, "boris@example.com")
+    assert [r for r in await reminders_of(client) if r["kind"] == "portal_uploads"] == []
+
+
+async def _decided_a_week_ago(client: AsyncClient, owner_engine: AsyncEngine, case: dict) -> None:
+    body = {"stage": "result", "outcome": "visa", "decided_on": None}
+    async with owner_engine.begin() as conn:
+        today = (await conn.execute(text("SELECT current_date"))).scalar()
+    body["decided_on"] = (today - timedelta(days=8)).isoformat()
+    response = await client.patch(f"/api/cases/{case['id']}", json=body)
+    assert response.status_code == 200, response.text
+    async with owner_engine.begin() as conn:
+        await conn.execute(text("SET LOCAL session_replication_role = replica"))
+        await conn.execute(
+            text("UPDATE visa_cases SET decision_entered_at = now() - interval '8 days'")
+        )
+
+
+async def test_the_files_go_a_week_after_the_decision_with_the_passport(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    from app.core import passport_purge
+
+    case, item, _ = await setup_case(client, make_user, owner_engine)
+    added = await client.post(
+        f"/api/cases/{case['id']}/package/{item['id']}/files",
+        json={"file_name": "a.pdf", "content": b64(PDF)},
+    )
+    assert added.status_code == 201
+    await _decided_a_week_ago(client, owner_engine, case)
+    # No passport data in the card: the files alone make the client due.
+    [due] = [r for r in await reminders_of(client) if r["kind"] == "passport_purge"]
+    assert due["contact_id"] == case["contact_id"] and due["uploaded_files"] == 1
+
+    assert await passport_purge.purge_due() == 1
+    async with owner_engine.connect() as conn:
+        assert (await conn.execute(text("SELECT count(*) FROM package_files"))).scalar() == 0
+        details = (
+            await conn.execute(
+                text("SELECT details FROM audit_events WHERE action = 'contacts.passport_purged'")
+            )
+        ).scalar()
+    assert details["files"] == 1
+    assert not any(k.startswith("documents/") for k in MEMORY)
+    # The package marks stay: the case keeps what was collected.
+    [row] = [i for i in (await package(client, case))["items"] if i["item_id"] == item["id"]]
+    assert row["state"] == "present" and row["files"] == []
+
+
+async def test_removing_now_takes_the_files_too(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    case, item, _ = await setup_case(client, make_user, owner_engine)
+    await client.post(
+        f"/api/cases/{case['id']}/package/{item['id']}/files",
+        json={"file_name": "a.pdf", "content": b64(PDF)},
+    )
+    await _decided_a_week_ago(client, owner_engine, case)
+    removed = await client.post(f"/api/reminders/passport/{case['contact_id']}/purge")
+    assert removed.status_code == 204, removed.text
+    async with owner_engine.connect() as conn:
+        assert (await conn.execute(text("SELECT count(*) FROM package_files"))).scalar() == 0
+    assert not any(k.startswith("documents/") for k in MEMORY)

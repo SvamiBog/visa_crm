@@ -2087,5 +2087,7 @@
   "portal.codeStays": "The code stays valid while the client collects documents. «New code» replaces it.",
   "portal.codeBlocked": "The client entered a wrong code five times in a row, and this code no longer works. Give them a new one.",
   "portal.noCode": "No code yet. Press «New code» and pass it on to the client.",
-  "portal.confirmNewCode": "The old code will stop working and the client will need the new one. Issue a new code?"
+  "portal.confirmNewCode": "The old code will stop working and the client will need the new one. Issue a new code?",
+  "attention.kind.portal_uploads": "The client uploaded documents, review them: {{count}}",
+  "attention.passportFiles": "uploaded documents ({{count}})"
 }

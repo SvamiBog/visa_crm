@@ -143,6 +143,8 @@ for (const [lang, width] of [
     // The specialist sees both files waiting: accepts one, returns the other.
     await page.reload();
     await expect(page.getByText(t("portal.waiting", { count: 2 }))).toBeVisible();
+    // «Требует внимания» in the card says so too, until each file is reviewed.
+    await expect(page.getByText(t("attention.kind.portal_uploads", { count: 2 }))).toBeVisible();
     await page.getByRole("button", { name: new RegExp(t("package.show", { count: 0 }).split("(")[0]) }).click();
     const bankRow = caseItem(page, bank);
     await bankRow.getByRole("button", { name: t("portal.accept") }).click();

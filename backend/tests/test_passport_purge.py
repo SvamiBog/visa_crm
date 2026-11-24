@@ -214,7 +214,7 @@ async def test_remove_now_takes_the_passport_and_keeps_the_rest(
 
     events = await audit(owner_engine, "contacts.passport_purged_manually")
     assert [(e["target_id"], e["details"]) for e in events] == [
-        (anna["id"], {"fields": ALL_FIELDS})
+        (anna["id"], {"fields": ALL_FIELDS, "files": 0})
     ]
     # Nothing is left to remove.
     again = await client.post(f"/api/reminders/passport/{anna['id']}/purge")

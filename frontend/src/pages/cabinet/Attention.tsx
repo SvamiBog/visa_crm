@@ -32,6 +32,7 @@ type Kind =
   | "package"
   | "result"
   | "passport_purge"
+  | "portal_uploads"
   | "card_limit"
   | "password_limit";
 
@@ -58,9 +59,20 @@ type Reminder = {
   limit: number | null;
   // Documents not collected (package): required ones still to collect.
   missing: number | null;
-  // The passport's removal: the fields that will go (no values).
+  // The passport's removal: the fields that will go (no values), and the files at the
+  // checklist items of the client's cases that go with them (backlog 2.9).
   passport_fields: string[] | null;
+  uploaded_files: number | null;
+  // Files the client uploaded through the portal that wait for review (backlog 2.9).
+  pending_files: number | null;
 };
+
+/** What a passport removal takes: the fields, then the files (backlog 2.9). */
+function purgeItems(r: Reminder, t: (key: string, values?: Record<string, unknown>) => string) {
+  const items = (r.passport_fields ?? []).map((f) => t(`attention.passportField.${f}`));
+  if (r.uploaded_files) items.push(t("attention.passportFiles", { count: r.uploaded_files }));
+  return items;
+}
 
 
 const remindersKey = (contactId?: string) => ["reminders", contactId ?? "all"] as const;
@@ -196,12 +208,12 @@ function ReminderText({ item: r }: { item: Reminder }) {
         <>
           {t("attention.kind.passport_purge", {
             date: date(r.due_on),
-            fields: (r.passport_fields ?? [])
-              .map((f) => t(`attention.passportField.${f}`))
-              .join(", "),
+            fields: purgeItems(r, t).join(", "),
           })}
         </>
       );
+    case "portal_uploads":
+      return <>{t("attention.kind.portal_uploads", { count: r.pending_files ?? 0 })}</>;
     case "consultation":
       return <>{t("attention.kind.consultation", { date: date(r.due_on) })}</>;
     case "registrar_advance":
@@ -266,7 +278,7 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
   const purgeNow = async (r: Reminder) => {
     const yes = await confirm({
       message: t("attention.passportPurgeConfirm", { name: r.contact_name }),
-      items: (r.passport_fields ?? []).map((f) => t(`attention.passportField.${f}`)),
+      items: purgeItems(r, t),
       note: t("attention.passportPurgeNote"),
       action: t("confirm.delete"),
       tone: "danger",
