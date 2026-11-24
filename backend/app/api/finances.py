@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
+from app.core import finance_hints
 from app.core.audit import record
 from app.core.base_currency import hold_base
 from app.core.days import Day
@@ -94,6 +95,8 @@ class FinanceUpdate(BaseModel):
     charged in the settlements with the registrar) defaults to the day the client was
     queued, else today; a rate not sent is the bank's of that day. A settled talon was
     paid to the registrar outside the settlements (before the CRM): it is not charged.
+    A suggested field cleared (the talon, the prepayment, the consultation credit, the
+    partner's terms) is taken off: the lists no longer fill it in (1.15.12).
     The price, the prepayment and the consultation credit are in `currency` (null: the
     base one); a new currency without a `rate` takes the site's latest one."""
 
@@ -390,9 +393,15 @@ async def first_queued_on(session: AsyncSession, case_id: uuid.UUID) -> date | N
 
 
 async def _suggestions(
-    session: AsyncSession, case: VisaCase, tenant: Tenant, currency: str, today: date
+    session: AsyncSession,
+    case: VisaCase,
+    tenant: Tenant,
+    currency: str,
+    today: date,
+    taken_off: set[str],
 ) -> Suggestions:
-    """`currency`: the case's price currency."""
+    """`currency`: the case's price currency. `taken_off`: the fields the specialist
+    emptied, which the lists do not fill in again (app/core/finance_hints.py)."""
     out = Suggestions()
     prepayments = {
         p.purpose_id: p
@@ -401,7 +410,7 @@ async def _suggestions(
         )
     }
     listed = prepayments.get(case.purpose_id, prepayments.get(None))
-    if listed is not None:
+    if listed is not None and "prepayment" not in taken_off:
         # In its own currency in the list: in each one the case may be priced in, at the
         # site's latest rate, so the form can follow a change of the price's currency.
         prepayment_in = {}
@@ -413,7 +422,7 @@ async def _suggestions(
         out.prepayment_in = prepayment_in
         out.prepayment = prepayment_in.get(currency)
 
-    if case.registrar_id is not None:
+    if case.registrar_id is not None and "registrar_fee_amount" not in taken_off:
         price = await registrar_price_for(session, case)
         if price is not None:
             day = await first_queued_on(session, case.id) or today
@@ -426,7 +435,7 @@ async def _suggestions(
             )
 
     contact = await _get(session, Contact, case.contact_id)
-    if contact.partner_id is not None:
+    if contact.partner_id is not None and "partner_terms" not in taken_off:
         terms = {
             t.country_id: t
             for t in await session.scalars(
@@ -445,7 +454,7 @@ async def _suggestions(
                     out.partner_fixed = None
 
     # The consultation fee counts once: towards the case of the person consulted.
-    if case.consultation_id is not None:
+    if case.consultation_id is not None and "consultation_credit" not in taken_off:
         consultation = await session.get(Consultation, case.consultation_id)
         if (
             consultation is not None
@@ -521,7 +530,12 @@ async def finance_out(session: AsyncSession, case: VisaCase, user: CurrentUser) 
         expenses_total=summary.expenses,
         profit=summary.profit,
         suggestions=await _suggestions(
-            session, case, tenant, currency, await workspace_today(session, tenant.id)
+            session,
+            case,
+            tenant,
+            currency,
+            await workspace_today(session, tenant.id),
+            taken_off=finance_hints.taken_off(finance),
         ),
     )
 
@@ -617,6 +631,7 @@ async def update_finance(
         elif currency is not None and "registrar_fee_rate" not in changes:
             # A new currency without a rate: the site's latest National Bank rate.
             changes["registrar_fee_rate"] = await _rate(currency, tenant.base_currency, None)
+    emptied = await _emptied(session, case, tenant, finance, changes)
     changed = [f for f, v in changes.items() if getattr(finance, f) != v]
     for field, value in changes.items():
         setattr(finance, field, value)
@@ -626,10 +641,41 @@ async def update_finance(
         if finance.registrar_fee_amount is not None and finance.registrar_fee_rate is not None
         else None
     )
+    finance_hints.note(finance, emptied)
     if changed:
         _audit(session, AuditAction.FINANCE_UPDATED, user, case, fields=changed)
     await session.commit()
     return await finance_out(session, case, user)
+
+
+async def _emptied(
+    session: AsyncSession,
+    case: VisaCase,
+    tenant: Tenant,
+    finance: CaseFinance,
+    changes: dict[str, Any],
+) -> set[str]:
+    """The suggested fields this save sends empty that held a value, or that the form
+    filled in from the lists: the specialist took them off (backlog 1.15.12). The form
+    sends every field, so an empty one the lists never offered is not taken off: a
+    registrar or a partner chosen later still fills it in."""
+    sent_empty = {
+        f for f in finance_hints.TAKEN_OFF if f in changes and not finance_hints.holds(changes[f])
+    }
+    if not sent_empty:
+        return set()
+    today = await workspace_today(session, tenant.id)
+    hints = await _suggestions(session, case, tenant, finance.currency, today, taken_off=set())
+    offered = {
+        "registrar_fee_amount": hints.registrar_fee is not None,
+        "prepayment": bool(hints.prepayment_in),
+        # The form starts the credit from the consultation only in the base currency.
+        "consultation_credit": hints.consultation_credit is not None
+        and finance.currency == tenant.base_currency,
+        "partner_terms": hints.partner_terms is not None,
+    }
+    before = finance_hints.held(finance)
+    return {f for f in sent_empty if f in before or offered[f]}
 
 
 async def _price_currency(changes: dict[str, Any], finance: CaseFinance, tenant: Tenant) -> None:
