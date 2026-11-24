@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import documents, templates
 from app.core.db import Base
 from app.core.dictionaries import add_default_dictionaries
-from app.models import ContactDocument, DocumentTemplate, Tenant, User, UserRole
+from app.models import ContactDocument, DocumentTemplate, PackageFile, Tenant, User, UserRole
 
 # Kept on purpose: the workspace itself with its settings (`tenants` has no tenant_id), the
 # owner's account (employees go, with their sessions and codes), the subscription payments
@@ -26,17 +26,27 @@ async def erase_workspace(session: AsyncSession, tenant_id: uuid.UUID) -> list[s
     """Delete the workspace's data in the session's transaction; returns the storage keys of
     its files. The session should be scoped to the tenant: RLS then keeps every statement
     inside it whatever the filter says."""
-    keys = [
-        documents.object_key(tenant_id, document_id)
-        for document_id in await session.scalars(
-            select(ContactDocument.id).where(ContactDocument.tenant_id == tenant_id)
-        )
-    ] + [
-        templates.object_key(tenant_id, template_id)
-        for template_id in await session.scalars(
-            select(DocumentTemplate.id).where(DocumentTemplate.tenant_id == tenant_id)
-        )
-    ]
+    keys = (
+        [
+            documents.object_key(tenant_id, document_id)
+            for document_id in await session.scalars(
+                select(ContactDocument.id).where(ContactDocument.tenant_id == tenant_id)
+            )
+        ]
+        + [
+            templates.object_key(tenant_id, template_id)
+            for template_id in await session.scalars(
+                select(DocumentTemplate.id).where(DocumentTemplate.tenant_id == tenant_id)
+            )
+        ]
+        + [
+            # Files of the client portal lie under the same keys as the card's (backlog 2.9).
+            documents.object_key(tenant_id, file_id)
+            for file_id in await session.scalars(
+                select(PackageFile.id).where(PackageFile.tenant_id == tenant_id)
+            )
+        ]
+    )
     # Children before parents: no foreign key stops a delete.
     for table in reversed(Base.metadata.sorted_tables):
         if "tenant_id" in table.c and table.name not in KEPT_TABLES:

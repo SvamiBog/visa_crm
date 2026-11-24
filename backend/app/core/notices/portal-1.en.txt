@@ -1,0 +1,19 @@
+Who is responsible for your data
+{name}, {address}. Questions about your data, requests for access, correction or erasure, and withdrawal of consent: {email}.
+
+Why we process your data
+To prepare and submit your visa application as you ordered: to check documents against the consulate's list, fill in forms and book the appointment. The legal basis is our contract with you (Art. 6(1)(b) GDPR). We keep minimal card data (name, contacts, history of visas and requests) after the work is done to help with your future visas; this is our legitimate interest (Art. 6(1)(f) GDPR), and you may object to it at any time.
+
+What data
+Data from your documents: passport, certificates, statements, bookings and the other documents listed on this page. If your documents contain health data or other special categories of data, we process them only with your separate consent below.
+
+Who receives the data
+The consulate or visa centre of the country you apply to. Technical providers: hosting and file storage in the EU region, an email service for sign-in codes. Files are stored encrypted.
+
+How long we keep it
+Uploaded documents and passport data: up to 30 days after the visa decision, then they are deleted. Backup copies keep them until the copy expires. Minimal card data: 10 years after your last request; each new request extends this. Earlier on your request.
+
+Your rights
+Access and a copy, correction, erasure, restriction, portability, objection, withdrawal of consent (it does not affect processing before the withdrawal). Complaint to the supervisory authority: {authority}.
+
+Without the documents we cannot prepare your visa application.

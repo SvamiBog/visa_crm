@@ -41,6 +41,7 @@ from app.api.deps import (
     require_specialist,
     workspace_today,
 )
+from app.api.package_files import package_file_keys, remove_objects
 from app.core import import_jobs
 from app.core.audit import record
 from app.core.cases import (
@@ -1104,15 +1105,19 @@ def refuse_while_importing(tenant_id: uuid.UUID | None) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, "import_running")
 
 
-async def delete_cases(session: AsyncSession, user: CurrentUser, cases: list[VisaCase]) -> None:
+async def delete_cases(
+    session: AsyncSession, user: CurrentUser, cases: list[VisaCase]
+) -> list[str]:
     """Delete the cases with everything they hold, by the foreign keys (ON DELETE CASCADE):
     payments, expenses, the finances with the talon and the partner payout, attempts, the
-    waiting list, package marks, bookings, employees' grants. Vault accounts and templates
-    given for them stay with the client (SET NULL); none of the rows that go holds a
-    stored file. Each case leaves its group and is logged; the highest number is kept, so
-    it is never given again (migration 0038)."""
+    waiting list, package marks, the client portal with its files, bookings, employees'
+    grants. Vault accounts and templates given for them stay with the client (SET NULL).
+    Each case leaves its group and is logged; the highest number is kept, so it is never
+    given again (migration 0038). Returns the storage keys of the portal files that went:
+    the caller removes them after the commit (remove_objects)."""
     if not cases:
-        return
+        return []
+    keys = await package_file_keys(session, [case.id for case in cases])
     for case in cases:
         group_id = case.group_id
         if group_id is not None:
@@ -1131,6 +1136,7 @@ async def delete_cases(session: AsyncSession, user: CurrentUser, cases: list[Vis
         .values(max_deleted_case_number=func.greatest(Tenant.max_deleted_case_number, highest))
     )
     await session.execute(delete(VisaCase).where(VisaCase.id.in_([case.id for case in cases])))
+    return keys
 
 
 async def _deletable(session: AsyncSession, user: CurrentUser, case_id: uuid.UUID) -> VisaCase:
@@ -1169,6 +1175,7 @@ async def delete_case(case_id: uuid.UUID, user: Member, session: TenantSession) 
     is rebuilt without it."""
     case = await _deletable(session, user, case_id)
     refuse_while_importing(user.tenant_id)
-    await delete_cases(session, user, [case])
+    keys = await delete_cases(session, user, [case])
     await session.commit()
+    await remove_objects(keys, "deleted case")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -38,6 +38,8 @@ const RegistrarsPage = lazyPage(
   "RegistrarsPage",
 );
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"), "SettingsPage");
+// The client's upload page (backlog 2.9): no CRM account, no shell.
+const PortalPage = lazyPage(() => import("./pages/portal/PortalPage"), "PortalPage");
 const SpecialistsPage = lazyPage(() => import("./pages/admin/SpecialistsPage"), "SpecialistsPage");
 const StayCalculatorPage = lazyPage(
   () => import("./pages/stay/StayCalculatorPage"),
@@ -122,6 +124,7 @@ export default function App() {
       <EnvBanner />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/u/:token" element={<PortalPage />} />
         <Route
           path="/change-password"
           element={

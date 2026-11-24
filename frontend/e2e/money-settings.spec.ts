@@ -72,6 +72,9 @@ for (const [lang, width] of [
   };
 
   test(`the accounting currency and the tax rate (${lang}, ${width}px)`, async ({ page }) => {
+    // Settings, the lists and a case's finances in one run: on a loaded CI runner it went
+    // past the default 30 s twice (main after PR #160, PR #163), with nothing failing.
+    test.slow();
     await page.addInitScript((l) => localStorage.setItem("visacrm.lang", l), lang);
     await page.setViewportSize({ width, height: 900 });
     await signIn(page);

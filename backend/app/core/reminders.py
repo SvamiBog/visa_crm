@@ -39,6 +39,8 @@ class ReminderKind(StrEnum):
     RESULT = "result"
     # The passport's data goes soon after the decision (backlog 2.8, app/core/passport_purge.py).
     PASSPORT_PURGE = "passport_purge"
+    # The client uploaded documents through the portal: to accept or return (backlog 2.9).
+    PORTAL_UPLOADS = "portal_uploads"
     # An employee went over a daily limit (backlog Т.14); for the specialist only.
     CARD_LIMIT = "card_limit"
     PASSWORD_LIMIT = "password_limit"

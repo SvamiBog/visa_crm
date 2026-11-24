@@ -141,6 +141,11 @@ def migrated_database() -> str:
 # Everything a test may write in workspaces; emptied after each test.
 WORKSPACE_TABLES = (
     "audit_events",
+    "portal_consents",
+    "portal_notices",
+    "client_sessions",
+    "package_files",
+    "client_links",
     "subscription_payments",
     "employee_cases",
     "import_rows",

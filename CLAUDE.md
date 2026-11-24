@@ -99,6 +99,7 @@ graphify update .                        # граф кода в graphify-out/: �
 | файл импорта, ждущий подтверждения / карточки до загрузки | upload (`app/core/import_uploads.py`) / import card (`app/core/import_cards.py`) |
 | удаление паспортных данных после решения | passport_purge (`app/core/passport_purge.py`) |
 | подписка визовика на CRM / тариф / оплата подписки | subscription (`app/core/subscription.py`, `app/api/subscriptions.py`) / tariff / subscription_payment |
+| страница для клиента (портал) / ссылка кейса / файл у пункта пакета / уведомление о данных и отметка клиента | client portal (`app/core/portal.py`, `app/api/portal.py`, `app/api/portal_public.py`) / client_link / package_file / portal_notice, portal_consent |
 
 ## Как работать
 

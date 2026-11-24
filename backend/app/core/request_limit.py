@@ -24,6 +24,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 MAX_FORM_BYTES = 256 * 1024
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
+# Files of the client portal go up to 20 MB (app/core/portal.py), 27 MB in base64.
+MAX_PORTAL_UPLOAD_BYTES = 28 * 1024 * 1024
 TOO_LARGE = "request_too_large"
 
 _ID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -34,26 +36,40 @@ UPLOADS = (
     ("POST", re.compile(r"/api/templates")),
     ("PUT", re.compile(rf"/api/templates/{_ID}/file")),
 )
+# Files at checklist items (backlog 2.9): from the case, for a signed-in member, and from
+# the client portal, for a client signed in to that link with a code.
+ITEM_UPLOADS = (("POST", re.compile(rf"/api/cases/{_ID}/package/{_ID}/files")),)
+PORTAL_UPLOADS = (("POST", re.compile(rf"/api/portal/[A-Za-z0-9_-]{{43}}/items/{_ID}/files")),)
 
 # Whether the request comes with a live session, as the API's own session check sees it.
 SignedIn = Callable[[Scope], Awaitable[bool]]
 
 
+def _matches(routes: tuple[tuple[str, re.Pattern[str]], ...], method: str, path: str) -> bool:
+    return any(method == m and pattern.fullmatch(path) for m, pattern in routes)
+
+
 def takes_a_file(method: str, path: str) -> bool:
-    return any(method == m and pattern.fullmatch(path) for m, pattern in UPLOADS)
+    return any(_matches(r, method, path) for r in (UPLOADS, ITEM_UPLOADS, PORTAL_UPLOADS))
 
 
 class RequestLimit:
     """ASGI middleware: 413 for a request that says it is larger than its limit, before any
     of it is read, and for one that turns out to be while it is read."""
 
-    def __init__(self, app: ASGIApp, *, signed_in: SignedIn) -> None:
+    def __init__(self, app: ASGIApp, *, signed_in: SignedIn, portal_signed_in: SignedIn) -> None:
         self.app = app
         self.signed_in = signed_in
+        self.portal_signed_in = portal_signed_in
 
     async def limit(self, scope: Scope) -> int:
-        if takes_a_file(scope["method"], scope["path"]) and await self.signed_in(scope):
+        method, path = scope["method"], scope["path"]
+        if _matches(UPLOADS, method, path) and await self.signed_in(scope):
             return MAX_UPLOAD_BYTES
+        if _matches(ITEM_UPLOADS, method, path) and await self.signed_in(scope):
+            return MAX_PORTAL_UPLOAD_BYTES
+        if _matches(PORTAL_UPLOADS, method, path) and await self.portal_signed_in(scope):
+            return MAX_PORTAL_UPLOAD_BYTES
         return MAX_FORM_BYTES
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

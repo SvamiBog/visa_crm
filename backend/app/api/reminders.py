@@ -55,6 +55,9 @@ from app.models import (
     Contact,
     CountryRule,
     Decision,
+    FileSource,
+    FileStatus,
+    PackageFile,
     ReminderDismissal,
     Tenant,
     User,
@@ -105,8 +108,12 @@ class ReminderOut(BaseModel):
     limit: int | None = None
     # Documents not collected (package): how many required ones are still to collect.
     missing: int | None = None
-    # The passport's removal: the names of the fields that will go (no values).
+    # The passport's removal: the names of the fields that will go (no values), and how
+    # many files at checklist items go with them.
     passport_fields: list[str] | None = None
+    uploaded_files: int | None = None
+    # Files the client uploaded that wait for «Принять» or «Вернуть» (backlog 2.9).
+    pending_files: int | None = None
 
 
 class DismissIn(BaseModel):
@@ -635,7 +642,45 @@ async def _passport_purges(
                 contact_id=due.contact_id,
                 contact_name=due.contact_name,
                 passport_fields=due.fields,
+                uploaded_files=due.files,
             )
+
+
+async def _portal_uploads(
+    session: AsyncSession, out: _Collector, timezone: str, contact_id: uuid.UUID | None
+) -> None:
+    """«Клиент загрузил документы — проверить» (backlog 2.9): a case with files from the
+    client waiting for review, until each is accepted or returned. «Готово» hides it until
+    the client uploads again (the key names the day of the latest upload)."""
+    query = (
+        select(
+            VisaCase,
+            Contact.full_name,
+            func.count(PackageFile.id),
+            func.max(PackageFile.created_at),
+        )
+        .join(PackageFile, PackageFile.case_id == VisaCase.id)
+        .join(Contact, Contact.id == VisaCase.contact_id)
+        .where(
+            PackageFile.source == FileSource.CLIENT,
+            PackageFile.status == FileStatus.PENDING,
+        )
+        .group_by(VisaCase.id, Contact.full_name)
+    )
+    zone = ZoneInfo(timezone)
+    for case, name, count, latest in await session.execute(
+        _for_contact(query, VisaCase.contact_id, contact_id)
+    ):
+        day = latest.astimezone(zone).date()
+        out.add(
+            ReminderKind.PORTAL_UPLOADS,
+            case.id,
+            day,
+            day,
+            deadline=False,
+            pending_files=count,
+            **_case_fields(case, name),
+        )
 
 
 async def _registrars(session: AsyncSession, out: _Collector) -> None:
@@ -710,6 +755,7 @@ async def collect(
         await _passport_purges(session, out, tenant.timezone, contact_id)
         if "package_check" in modules:
             await _packages(session, out, s, contact_id)
+            await _portal_uploads(session, out, tenant.timezone, contact_id)
         if money:
             await _queued_balances(session, out, s, contact_id, tenant.base_currency)
         # A registrar's balance covers every case: the specialist's, not an employee's.
@@ -838,13 +884,14 @@ async def postpone_passport_purge(
 async def purge_passport_now(contact_id: uuid.UUID, user: Cases, session: TenantSession) -> None:
     """«Удалить сейчас»: the same removal as the daily run's, before its day."""
     contact, _, _ = await _due(session, user, contact_id)
-    fields = await passport_purge.purge_contact(session, contact)
+    purged = await passport_purge.purge_contact(session, contact)
     record(
         session,
         AuditAction.PASSPORT_PURGED_MANUALLY,
         actor=user,
         target_type="contact",
         target_id=contact.id,
-        details={"fields": fields},
+        details={"fields": purged.fields, "files": len(purged.objects)},
     )
     await session.commit()
+    await passport_purge.remove_objects(purged.objects)
