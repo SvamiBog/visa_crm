@@ -10,6 +10,7 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.datastructures import Headers
 
 from app.models.audit import AuditAction, AuditEvent
 
@@ -26,18 +27,23 @@ MAX_IP_LENGTH = 45
 _FROM_ACTOR = object()
 
 
-def client_address(forwarded_for: list[str], peer: str | None) -> str | None:
-    """The client's address for the audit log and the login limit (backlog S17), from the
-    X-Forwarded-For lines of the request and the address of its connection.
+def client_address(headers: Headers, peer: str | None) -> str | None:
+    """The client's address for the audit log and the login limit (backlog S17, S22), from
+    the headers of the request and the address of its connection.
 
-    On Railway every request comes through its proxy, which writes the address it was
-    called from as the last entry of X-Forwarded-For: anything before it is what the
-    client sent and proves nothing (audit N1). A developer's machine has no proxy and no
-    header: the connection is the client. A value that is not an address gives None, not
-    an error and not an earlier entry (audit N2)."""
-    if not forwarded_for:
+    On Railway every request comes through its edge, which writes the address it was
+    called from in X-Real-IP, in place of any the client sent. X-Forwarded-For is not
+    read: a node of Railway's adds itself to its end (audit_events on staging got it,
+    24.11.2026), and what the client sends there proves nothing (audit N1). A developer's
+    machine has no proxy and no header: the connection is the client. A value that is not
+    one address, or two X-Real-IP lines, give None: not an error and not another address
+    in its place (audit N2)."""
+    real_ip = headers.getlist("x-real-ip")
+    if not real_ip:
         return _address(peer)
-    return _address(",".join(forwarded_for).rsplit(",", 1)[-1])
+    if len(real_ip) > 1:
+        return None
+    return _address(real_ip[0])
 
 
 def _address(value: str | None) -> str | None:
