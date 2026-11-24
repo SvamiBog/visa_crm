@@ -22,13 +22,14 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import delete, exists, or_, select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.base_currency import change_base
 from app.api.deps import CurrentUser, TenantSession, require_specialist, require_tenant_user
 from app.core.audit import record
+from app.core.dictionaries import SORT_ORDER_MAX, next_sort_order
 from app.core.modules import TaxRate
 from app.core.money import CENT, Amount, Currency, Percent, ordered_currencies
 from app.models import (
@@ -72,13 +73,14 @@ Note = Annotated[str, Field(max_length=1000)]
 
 class EntryIn(BaseModel):
     name: Name
-    sort_order: int = Field(default=0, ge=0, le=999)
+    # Not sent: the end of the list.
+    sort_order: int | None = Field(default=None, ge=0, le=SORT_ORDER_MAX)
     is_active: bool = True
 
 
 class EntryUpdate(BaseModel):
     name: Name | None = None
-    sort_order: int | None = Field(default=None, ge=0, le=999)
+    sort_order: int | None = Field(default=None, ge=0, le=SORT_ORDER_MAX)
     is_active: bool | None = None
 
 
@@ -271,7 +273,8 @@ class SystemIn(BaseModel):
     password_upper: bool = True
     password_digits: bool = True
     password_symbols: Symbols = "!@#$%*?"
-    sort_order: int = Field(default=0, ge=0, le=999)
+    # Not sent: the end of the list.
+    sort_order: int | None = Field(default=None, ge=0, le=SORT_ORDER_MAX)
     is_active: bool = True
 
     _url = field_validator("url", mode="before")(_blank_is_none)
@@ -289,7 +292,7 @@ class SystemUpdate(BaseModel):
     password_upper: bool | None = None
     password_digits: bool | None = None
     password_symbols: Symbols | None = None
-    sort_order: int | None = Field(default=None, ge=0, le=999)
+    sort_order: int | None = Field(default=None, ge=0, le=SORT_ORDER_MAX)
     is_active: bool | None = None
 
     _url = field_validator("url", mode="before")(_blank_is_none)
@@ -402,6 +405,12 @@ def _unique_keys(keys: list[tuple[Any, ...]]) -> None:
 SimpleModel = type[VisaPurpose] | type[LeadChannel]
 
 
+async def _end_of_list(session: AsyncSession, model: SimpleModel | type[VaultSystem]) -> int:
+    """The place after the workspace's last entry (Row-Level Security keeps the count to
+    this workspace's own list)."""
+    return next_sort_order(await session.scalar(select(func.max(model.sort_order))))
+
+
 def _simple_list_routes(
     path: str,
     model: SimpleModel,
@@ -417,7 +426,10 @@ def _simple_list_routes(
 
     @router.post(f"/{path}", status_code=status.HTTP_201_CREATED, name=f"create_{path}")
     async def create_entry(body: entry_in, user: Specialist, session: TenantSession) -> entry_out:
-        entry = model(tenant_id=user.tenant_id, **body.model_dump())
+        values = body.model_dump()
+        if values["sort_order"] is None:
+            values["sort_order"] = await _end_of_list(session, model)
+        entry = model(tenant_id=user.tenant_id, **values)
         entry.name = entry.name.strip()
         session.add(entry)
         await _flush_or_conflict(session, "name_taken")
@@ -468,7 +480,10 @@ async def list_systems(session: TenantSession) -> list[SystemOut]:
 
 @router.post("/vault-systems", status_code=status.HTTP_201_CREATED)
 async def create_system(body: SystemIn, user: Specialist, session: TenantSession) -> SystemOut:
-    system = VaultSystem(tenant_id=user.tenant_id, **body.model_dump())
+    values = body.model_dump()
+    if values["sort_order"] is None:
+        values["sort_order"] = await _end_of_list(session, VaultSystem)
+    system = VaultSystem(tenant_id=user.tenant_id, **values)
     system.name = system.name.strip()
     _check_password_rules(system)
     session.add(system)
