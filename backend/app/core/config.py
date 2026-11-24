@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     # Railway sets it on a deploy from GitHub: the release an error report belongs to.
     railway_git_commit_sha: str = ""
+    # The client portal (backlog 2.9). Unset: on at the stands (local, test, staging, PR
+    # stands), off in production until the owner turns it on with CLIENT_PORTAL=true
+    # (owner's decision 2026-11-24, docs/decisions.md → «Портал клиента и вход по коду»).
+    client_portal: bool | None = None
     # Removing passport data after the decision (backlog 2.8, app/core/passport_purge.py):
     # always on the stands (local, test, staging, PR stands); in production off until this
     # day, and what is already due then waits 14 days more (owner's decision 2026-11-24,
@@ -105,6 +109,12 @@ class Settings(BaseSettings):
     @property
     def development(self) -> bool:
         return self.env in DEVELOPMENT
+
+    @property
+    def client_portal_enabled(self) -> bool:
+        if self.client_portal is not None:
+            return self.client_portal
+        return self.env != "production"
 
     @property
     def cookie_secure(self) -> bool:

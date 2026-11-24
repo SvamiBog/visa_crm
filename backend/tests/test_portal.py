@@ -15,6 +15,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core import mail, portal
+from app.core.config import get_settings
 from app.core.db import scope_to_tenant
 from app.core.storage import MEMORY
 from app.models import AuditEvent, ClientLink, PackageFile, PortalConsent
@@ -916,3 +917,89 @@ async def test_removing_now_takes_the_files_too(
     async with owner_engine.connect() as conn:
         assert (await conn.execute(text("SELECT count(*) FROM package_files"))).scalar() == 0
     assert not any(k.startswith("documents/") for k in MEMORY)
+
+
+# --- Off in production (owner's decision 2026-11-24) ---------------------------------
+
+
+def test_the_portal_is_on_at_the_stands_and_off_in_production(monkeypatch: pytest.MonkeyPatch):
+    from app.core.config import Settings
+
+    secret = "x" * 40
+    for env, on in (("local", True), ("test", True), ("staging", True), ("production", False)):
+        monkeypatch.delenv("CLIENT_PORTAL", raising=False)
+        assert Settings(env=env, secret_key=secret).client_portal_enabled is on, env
+    assert Settings(env="production", secret_key=secret, client_portal=True).client_portal_enabled
+    assert not Settings(env="staging", secret_key=secret, client_portal=False).client_portal_enabled
+
+
+async def test_switched_off_the_portal_answers_like_a_link_that_never_was(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    visitor: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mail.OUTBOX.clear()
+    case, item, _ = await setup_case(client, make_user, owner_engine)
+    token = (await portal_of(client, case))["token"]
+    code = await staff_code(client, case)
+    monkeypatch.setenv("CLIENT_PORTAL", "false")
+    get_settings.cache_clear()
+    try:
+        # The client: every public address is a link that does not exist; no letter goes.
+        for response in (
+            await visitor.post(f"/api/portal/{token}/code"),
+            await visitor.post(f"/api/portal/{token}/login", json={"code": code}),
+            await visitor.get(f"/api/portal/{token}"),
+            await upload(visitor, token, item),
+        ):
+            assert response.status_code == 404 and response.json()["detail"] == "link_invalid"
+        assert mail.OUTBOX == []
+        # The specialist: no link, code, files or controller details; the interface is told.
+        base = f"/api/cases/{case['id']}"
+        for response in (
+            await client.get(f"{base}/portal"),
+            await client.post(f"{base}/portal/revoke"),
+            await client.post(f"{base}/portal/code", json={"channel": "specialist"}),
+            await client.post(
+                f"{base}/package/{item['id']}/files",
+                json={"file_name": "a.pdf", "content": b64(PDF)},
+            ),
+            await client.get("/api/workspace/controller"),
+            await client.put("/api/workspace/controller", json=CONTROLLER),
+        ):
+            assert response.status_code == 404, response.request.url
+        assert (await client.get("/api/workspace")).json()["client_portal"] is False
+        assert [r for r in await reminders_of(client) if r["kind"] == "portal_uploads"] == []
+        [row] = [i for i in (await package(client, case))["items"] if i["item_id"] == item["id"]]
+        assert row["files"] == []
+    finally:
+        monkeypatch.delenv("CLIENT_PORTAL")
+        get_settings.cache_clear()
+    assert (await client.get("/api/workspace")).json()["client_portal"] is True
+
+
+async def test_switched_off_no_large_body_is_taken_for_the_portal(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    visitor: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    case, item, _ = await setup_case(client, make_user, owner_engine)
+    token = await signed_in(client, visitor, case)
+    await consented(visitor, token)
+    monkeypatch.setenv("CLIENT_PORTAL", "false")
+    get_settings.cache_clear()
+    try:
+        big = b"{" + b" " * (300 * 1024) + b"}"
+        r = await visitor.post(
+            f"/api/portal/{token}/items/{item['id']}/files",
+            content=big,
+            headers={"Content-Type": "application/json"},
+        )
+        assert r.status_code == 413
+    finally:
+        monkeypatch.delenv("CLIENT_PORTAL")
+        get_settings.cache_clear()

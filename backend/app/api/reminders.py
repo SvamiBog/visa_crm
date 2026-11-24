@@ -41,6 +41,7 @@ from app.core.audit import record
 from app.core.bookings import LIVE
 from app.core.bookings import deadline as booking_deadline_of
 from app.core.cases import appeal_until
+from app.core.config import get_settings as app_settings
 from app.core.consultation_checks import add_months
 from app.core.employee_limits import LimitKind, day_start
 from app.core.reminders import ReminderKind
@@ -772,7 +773,8 @@ async def collect(
         await _passport_purges(session, out, tenant.timezone, contact_id)
         if "package_check" in modules:
             await _packages(session, out, s, contact_id)
-            await _portal_uploads(session, out, tenant.timezone, contact_id)
+            if app_settings().client_portal_enabled:
+                await _portal_uploads(session, out, tenant.timezone, contact_id)
         if money:
             await _queued_balances(session, out, s, contact_id, tenant.base_currency)
         # A registrar's balance covers every case: the specialist's, not an employee's.
