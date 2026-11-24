@@ -41,6 +41,7 @@ from app.core.audit import record
 from app.core.bookings import LIVE
 from app.core.bookings import deadline as booking_deadline_of
 from app.core.cases import appeal_until
+from app.core.config import get_settings as app_settings
 from app.core.consultation_checks import add_months
 from app.core.employee_limits import LimitKind, day_start
 from app.core.reminders import ReminderKind
@@ -645,7 +646,10 @@ async def _passport_purges(
     session: AsyncSession, out: _Collector, timezone: str, contact_id: uuid.UUID | None
 ) -> None:
     """The passport goes soon (backlog 2.8): from two days before, or from the release day
-    for the first run, until it is removed or put off."""
+    for the first run, until it is removed or put off. Nothing while the removal is off
+    (production until PASSPORT_PURGE_FROM)."""
+    if not passport_purge.is_on(out.today):
+        return
     for due in await passport_purge.dues(session, timezone, contact_id):
         if due.notice_on <= out.today:
             out.add(
@@ -769,7 +773,8 @@ async def collect(
         await _passport_purges(session, out, tenant.timezone, contact_id)
         if "package_check" in modules:
             await _packages(session, out, s, contact_id)
-            await _portal_uploads(session, out, tenant.timezone, contact_id)
+            if app_settings().client_portal_enabled:
+                await _portal_uploads(session, out, tenant.timezone, contact_id)
         if money:
             await _queued_balances(session, out, s, contact_id, tenant.base_currency)
         # A registrar's balance covers every case: the specialist's, not an employee's.
@@ -860,17 +865,21 @@ Cases = Annotated[CurrentUser, Depends(require_module("cases"))]
 async def _due(
     session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID
 ) -> tuple[Contact, passport_purge.Due, date]:
-    """The client and their removal day; 404 for a client the user does not see, 409 while
-    nothing is to be removed (a case in work, no decision, no passport data)."""
-    if await session.scalar(select(Contact.id).where(Contact.id == contact_id)) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    """The client and their removal day; 404 while the removal is off on this site or for
+    a client the user does not see, 409 while nothing is to be removed (a case in work, no
+    decision, no passport data)."""
     tenant = await session.get(Tenant, user.tenant_id)
     assert tenant is not None
+    today = await workspace_today(session, tenant.id)
+    if not passport_purge.is_on(today):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    if await session.scalar(select(Contact.id).where(Contact.id == contact_id)) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
     locked = await passport_purge.locked_due(session, tenant.timezone, contact_id)
     if locked is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "passport_purge_not_due")
     contact, due = locked
-    return contact, due, await workspace_today(session, tenant.id)
+    return contact, due, today
 
 
 @router.post("/reminders/passport/{contact_id}/postpone")

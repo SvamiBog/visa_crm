@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.audit import record
 from app.core.checklists import applies
+from app.core.config import get_settings
 from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
 from app.core.package import ItemStatus, Summary, item_status, reference_day, summarize
@@ -287,7 +288,8 @@ async def get_package(case_id: uuid.UUID, user: Member, session: TenantSession) 
     on = reference_day(case.submission_on, await workspace_today(session, case.tenant_id))
     marks = (await _marks(session, [case.id]))[case.id]
     checklist = (await _checklists(session, [case]))[case.id]
-    files = await files_of(session, case.id)
+    # The client portal's files; none to show while it is off (production, for now).
+    files = await files_of(session, case.id) if get_settings().client_portal_enabled else {}
     emails = await _emails(session, {f.uploaded_by for fs in files.values() for f in fs})
     items = [
         _out(i, marks.get(i.id), on).model_copy(

@@ -10,7 +10,7 @@ import { PasswordField } from "../components/PasswordField";
 import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
 import { formatDate } from "../contacts";
 import { changeLanguage, LANGUAGES } from "../i18n";
-import { useController, useSaveController } from "../portal";
+import { useController, usePortalOn, useSaveController } from "../portal";
 import { useOwnSubscription } from "../subscriptions";
 import { useMoney } from "./clients/Finance";
 import { Row } from "./clients/ui";
@@ -33,6 +33,7 @@ export function SettingsPage() {
   // The subscription stands first: the page waits for it, so the cards below do not jump
   // down when it arrives.
   const specialist = me.data?.role === "specialist";
+  const portalOn = usePortalOn();
   const own = useOwnSubscription(specialist);
   const money = useQuery({
     queryKey: MONEY_KEY,
@@ -65,7 +66,7 @@ export function SettingsPage() {
       <OwnSubscription />
       {specialist && money.data && <Accounting money={money.data} />}
       {specialist && money.isError && <ErrorAlert error={money.error} />}
-      {specialist && <DataController />}
+      {specialist && portalOn && <DataController />}
       <EmailChange />
       <TwoFactor />
       {me.data?.role === "specialist" && <EraseData />}

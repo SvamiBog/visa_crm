@@ -48,6 +48,16 @@ export function portalUrl(token: string): string {
   return `${window.location.origin}/u/${token}`;
 }
 
+/** The client portal is on in this environment: off in production for now (owner's
+ * decision 2026-11-24); the case, the settings and the package show nothing of it then. */
+export function usePortalOn(): boolean {
+  const workspace = useQuery({
+    queryKey: ["workspace"],
+    queryFn: () => apiGet<{ client_portal: boolean }>("/workspace"),
+  });
+  return workspace.data?.client_portal === true;
+}
+
 const portalKey = (caseId: string) => ["cases", caseId, "portal"] as const;
 const packageKey = (caseId: string) => ["cases", caseId, "package"] as const;
 

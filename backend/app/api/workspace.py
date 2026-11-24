@@ -19,6 +19,7 @@ from app.api.deps import (
 from app.api.subscriptions import SubscriptionState, subscription_state
 from app.core import import_jobs, import_uploads, storage
 from app.core.audit import record
+from app.core.config import get_settings
 from app.core.erase import erase_workspace
 from app.core.modules import MODULES
 from app.core.portal_notice import DEFAULT_AUTHORITY
@@ -43,6 +44,8 @@ class WorkspaceOut(BaseModel):
     file_storage: bool
     # The CRM subscription's state, for the specialist only (a notice when overdue).
     subscription: SubscriptionState | None
+    # The client portal (backlog 2.9) is on here: off in production for now.
+    client_portal: bool
 
 
 class ModuleOut(BaseModel):
@@ -65,6 +68,7 @@ async def workspace(
         timezone=tenant.timezone,
         modules=await effective_modules(session, user),
         file_storage=storage.is_configured(),
+        client_portal=get_settings().client_portal_enabled,
         subscription=await subscription_state(session, tenant)
         if user.role == UserRole.SPECIALIST
         else None,
@@ -108,7 +112,13 @@ def _controller_out(tenant: Tenant) -> ControllerOut:
     )
 
 
-@router.get("/workspace/controller")
+async def portal_on() -> None:
+    """The details are for the client portal's notice: none while it is off."""
+    if not get_settings().client_portal_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+
+
+@router.get("/workspace/controller", dependencies=[Depends(portal_on)])
 async def get_controller(
     user: Annotated[CurrentUser, Depends(require_tenant_user)], session: TenantSession
 ) -> ControllerOut:
@@ -116,7 +126,7 @@ async def get_controller(
     return _controller_out(tenant)
 
 
-@router.put("/workspace/controller")
+@router.put("/workspace/controller", dependencies=[Depends(portal_on)])
 async def put_controller(
     body: ControllerIn,
     user: Annotated[CurrentUser, Depends(require_specialist)],

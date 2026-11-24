@@ -8,6 +8,8 @@ from app.core.passport_purge import (
     notice_on,
     postponed_until,
     purge_on,
+    switched_on,
+    with_grace,
 )
 
 D = date(2026, 12, 1)
@@ -81,3 +83,30 @@ def test_only_the_filled_fields_of_the_passport_are_named():
     assert filled_fields(questionnaire) == ["passport_number", "birth_place"]
     assert filled_fields({"nationality": "BY"}) == []
     assert filled_fields({}) == []
+
+
+# --- Production: off until PASSPORT_PURGE_FROM ------------------------------------------
+
+
+def test_the_stands_remove_always_and_production_only_from_the_day_set():
+    for env in ("local", "test", "staging"):
+        assert switched_on(env, None, on(1))
+    assert not switched_on("production", None, on(1))
+    assert not switched_on("production", on(2), on(1))
+    assert switched_on("production", on(2), on(2))
+    assert switched_on("production", on(2), on(3))
+
+
+def test_what_is_due_before_the_switch_waits_fourteen_days_from_it_and_shows_at_once():
+    # Due long ago, or kept by the release's first run until a day now past.
+    assert with_grace(on(5), None, on(10)) == (on(24), on(10))
+    assert with_grace(on(5), on(1), on(10)) == (on(24), on(1))
+    # Due within the fourteen days: also from the switch day + 14, shown from the switch.
+    assert with_grace(on(20), None, on(10)) == (on(24), on(10))
+
+
+def test_what_is_due_after_the_grace_keeps_its_own_day():
+    assert with_grace(on(24), None, on(10)) == (on(24), None)
+    assert with_grace(on(30), on(1), on(10)) == (on(30), on(1))
+    # No switch day (the stands): nothing changes.
+    assert with_grace(on(5), on(3), None) == (on(5), on(3))
