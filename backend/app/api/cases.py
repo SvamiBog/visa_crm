@@ -72,6 +72,7 @@ from app.models import (
     EmailOwner,
     EmployeeCase,
     PackageItem,
+    PartnerTermsType,
     Registrar,
     SubmissionGroup,
     Tenant,
@@ -1034,6 +1035,9 @@ class CaseDeletion(BaseModel):
     bookings: int
     outcome: bool
     employees: int
+    # The price, the prepayment, the consultation credit or the partner's terms, with no
+    # money moved: they go too, and the client's balance with them (backlog 1.15.12).
+    terms: bool
     # The other cases of its submission group: they stay, the case leaves the group.
     group_members: int
 
@@ -1051,14 +1055,15 @@ async def _what_goes(session: AsyncSession, case: VisaCase) -> CaseDeletion:
         return await session.scalar(select(func.count()).where(model.case_id == case.id)) or 0
 
     payments, expenses = await count(CasePayment), await count(CaseExpense)
-    fee, partner_paid_on = (
-        await session.execute(
-            select(CaseFinance.registrar_fee_amount, CaseFinance.partner_paid_on).where(
-                CaseFinance.case_id == case.id
-            )
-        )
-    ).one_or_none() or (None, None)
-    registrar_fee, partner_paid = fee is not None, partner_paid_on is not None
+    finance = await session.get(CaseFinance, case.id)
+    registrar_fee = finance is not None and finance.registrar_fee_amount is not None
+    partner_paid = finance is not None and finance.partner_paid_on is not None
+    terms = finance is not None and (
+        finance.price is not None
+        or finance.prepayment is not None
+        or finance.consultation_credit > 0
+        or finance.partner_terms in (PartnerTermsType.PERCENT, PartnerTermsType.FIXED)
+    )
     group_members = 0
     if case.group_id is not None:
         group_members = (
@@ -1081,6 +1086,7 @@ async def _what_goes(session: AsyncSession, case: VisaCase) -> CaseDeletion:
         bookings=await count(Booking),
         outcome=case.outcome is not None,
         employees=await count(EmployeeCase),
+        terms=terms,
         group_members=group_members,
     )
 

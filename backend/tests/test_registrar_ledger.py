@@ -200,6 +200,39 @@ async def test_other_currencies_and_missing_prices(client: AsyncClient, make_use
     assert mismatch.status_code == 422 and mismatch.json()["detail"] == "registrar_mismatch"
 
 
+async def test_a_talon_taken_off_is_not_missing(client: AsyncClient, make_user: MakeUser):
+    """Backlog 1.15.12, owner's answer 2026-11-24: a case whose talon the specialist took
+    off is not listed «Без талона»; she said it has none. A talon typed in its finances,
+    or charged here, counts again."""
+    await as_specialist(client, make_user)
+    codes = await countries(client)
+    reg = await registrar(client, codes, currency="EUR")
+    anna = await open_case(client, codes, "Анна", reg)
+    boris = await open_case(client, codes, "Борис", reg)
+    ledger = (await client.get(ledger_url(reg))).json()
+    assert (ledger["missing"], len(ledger["missing_talons"])) == (2, 2)
+
+    url = f"/api/cases/{anna['id']}/finance"
+    talon = {"registrar_fee_amount": "60", "registrar_fee_currency": "EUR"}
+    assert (await client.patch(url, json=talon)).status_code == 200
+    off = await client.patch(url, json={"registrar_fee_amount": None})
+    assert off.status_code == 200, off.text
+    ledger = (await client.get(ledger_url(reg))).json()
+    assert [m["contact_name"] for m in ledger["missing_talons"]] == ["Борис"]
+    assert (ledger["missing"], ledger["talons"]) == (1, 0)
+    [summary] = (await client.get("/api/registrars/ledgers")).json()
+    assert summary["missing"] == 1
+
+    # Charged here after all: it counts, and taken off again it is not missing either.
+    charged = await client.post(f"/api/registrars/{reg['id']}/talons", json={"case_id": anna["id"]})
+    assert charged.status_code == 201 and charged.json()["talons"] == 1
+    assert (await client.patch(url, json={"registrar_fee_amount": None})).status_code == 200
+    assert (await client.get(ledger_url(reg))).json()["missing"] == 1
+    assert boris["id"] in {
+        m["case_id"] for m in (await client.get(ledger_url(reg))).json()["missing_talons"]
+    }
+
+
 async def test_the_talon_day_follows_the_queue(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     codes = await countries(client)

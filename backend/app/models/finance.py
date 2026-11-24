@@ -118,6 +118,14 @@ class CaseFinance(Base):
     # Paid to the registrar outside the CRM's settlements (a talon from the specialist's
     # tables): in the profit, not in the registrar's balance.
     registrar_fee_settled: Mapped[bool] = mapped_column(server_default=text("false"))
+    # The specialist took the talon off (backlog 1.15.12): the registrar's price list does
+    # not fill it in again, so a later save of the finances does not charge it back. The
+    # same for the list's prepayment, the consultation credit and the partner's terms
+    # (app/core/finance_hints.py).
+    registrar_fee_removed: Mapped[bool] = mapped_column(server_default=text("false"))
+    prepayment_removed: Mapped[bool] = mapped_column(server_default=text("false"))
+    consultation_credit_removed: Mapped[bool] = mapped_column(server_default=text("false"))
+    partner_terms_removed: Mapped[bool] = mapped_column(server_default=text("false"))
     # The partner's terms copied into the case (changeable here); NULL — no partner.
     partner_terms: Mapped[PartnerTermsType | None] = mapped_column(
         Enum(

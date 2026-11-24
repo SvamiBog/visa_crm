@@ -49,6 +49,7 @@ import { ContactSearch } from "./ContactSearch";
 import { CaseFinance } from "./Finance";
 import { CasePackage } from "./Package";
 import { useCaseName } from "./ui";
+import { flushPending } from "../../undo";
 import { useHasModule } from "../../workspace";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
@@ -516,6 +517,8 @@ type CaseDeletion = {
   bookings: number;
   outcome: boolean;
   employees: number;
+  /** The price or the partner's terms, no money moved: they go with the case. */
+  terms: boolean;
   group_members: number;
 };
 
@@ -529,8 +532,10 @@ const DELETED_WITH_CASE = [
 
 /** «Удалить кейс»: a case opened by mistake, a duplicate (pilot fix 1). The specialist
  * only; the question lists what goes with the case, and a case with money is refused
- * before it is asked, naming the money that holds it (the API refuses it too). The
- * refusal reaches `onError` as a ready message. */
+ * before it is asked, naming the money that holds it and how to take it off (the API
+ * refuses it too). A payment or an expense just deleted, still offering «Отменить», is
+ * sent first, so it does not hold the case (1.15.12). The refusal reaches `onError` as a
+ * ready message. */
 function DeleteCase({
   visaCase: c,
   onError,
@@ -545,6 +550,7 @@ function DeleteCase({
   const refresh = useRefreshCards();
   const remove = useMutation({
     mutationFn: async () => {
+      await flushPending();
       const what = await apiGet<CaseDeletion>(`/cases/${c.id}/deletion`);
       // Refused before the question, as the API would refuse it after.
       if (what.has_money) {
@@ -564,6 +570,7 @@ function DeleteCase({
           t(`cases.deletedWith.${key}`, { n: what[key] }),
         ),
         ...(what.outcome ? [t("cases.deletedWith.outcome")] : []),
+        ...(what.terms ? [t("cases.deletedWith.terms")] : []),
       ];
       const message = [
         items.length > 0
@@ -579,6 +586,8 @@ function DeleteCase({
     onSuccess: (deleted) => {
       if (!deleted) return;
       void queryClient.invalidateQueries({ queryKey: ["cases", "board"] });
+      // A registrar's case without a talon was listed in his settlements.
+      void queryClient.invalidateQueries({ queryKey: ["registrars"] });
       refresh();
     },
     onError,
