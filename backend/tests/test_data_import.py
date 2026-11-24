@@ -672,6 +672,53 @@ async def test_what_an_export_takes_off_is_not_filled_in_again(
     assert flags == dict.fromkeys(flags, True)
 
 
+async def test_an_empty_password_cell_of_an_export_keeps_the_password(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """docs/data-format.md → «Пустая ячейка»: a row of an export clears the fields of its
+    empty cells, but never the password, so an export without passwords loads back safely."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    await run(client, {"Клиенты": CLIENTS, "Кейсы": CASES, "Учётные записи": ACCOUNTS[:2]})
+    [entry] = await rows(
+        owner_engine,
+        "SELECT id, contact_id, case_id FROM vault_entries WHERE tenant_id = :t "
+        "AND login = 'anna.p@example.com'",
+        t=tenant,
+    )
+
+    report = await run(
+        client,
+        {
+            "Учётные записи": [
+                ["Код", "Код клиента", "Код кейса", "Система", "Логин", "Пароль", "Чья почта"],
+                [
+                    str(entry["id"]),
+                    str(entry["contact_id"]),
+                    str(entry["case_id"]),
+                    "Почта",
+                    "anna.p@example.com",
+                    None,
+                    None,
+                ],
+            ],
+            "О файле": _about(_minsk_now() + timedelta(hours=1)),
+        },
+    )
+
+    assert report["skipped_count"] == 0, report["skipped"]
+    # The row is a snapshot: its other empty cell cleared its field...
+    assert report["updated"] == {"vault_entries": 1}
+    [after] = await rows(
+        owner_engine, "SELECT email_owner FROM vault_entries WHERE id = :e", e=entry["id"]
+    )
+    assert after["email_owner"] is None
+    # ...and the password is the one the first file gave.
+    revealed = await ok(await client.post(f"/api/vault/entries/{entry['id']}/reveal"))
+    assert revealed["password"] == "Pa55word"
+
+
 async def test_codes_of_another_workspace_find_nothing(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
