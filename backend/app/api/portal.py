@@ -33,6 +33,7 @@ from app.api.package import (
 from app.api.package_files import checked_type, put_file, remove_objects, storage_error
 from app.core import portal, storage
 from app.core.audit import record
+from app.core.config import get_settings
 from app.core.days import Day
 from app.core.documents import (
     clean_file_name,
@@ -65,9 +66,17 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
+
+async def portal_on() -> None:
+    """Switched off (production until the owner turns it on): the case has no portal."""
+    if not get_settings().client_portal_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+
+
 router = APIRouter(
     tags=["portal"],
     dependencies=[
+        Depends(portal_on),
         Depends(require_module("clients")),
         Depends(require_module("cases")),
         Depends(require_module("package_check")),

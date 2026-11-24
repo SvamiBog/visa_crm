@@ -58,7 +58,15 @@ from app.models import (
     VisaCase,
 )
 
-router = APIRouter(prefix="/portal", tags=["portal"])
+
+async def portal_on() -> None:
+    """Switched off (production until the owner turns it on): every address answers like
+    a link that never was."""
+    if not get_settings().client_portal_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "link_invalid")
+
+
+router = APIRouter(prefix="/portal", tags=["portal"], dependencies=[Depends(portal_on)])
 
 PORTAL_COOKIE = "visacrm_portal"
 HOST_PORTAL_COOKIE = f"__Host-{PORTAL_COOKIE}"
@@ -187,6 +195,8 @@ Client = Annotated[Visitor, Depends(visitor)]
 async def portal_signed_in(scope: Scope) -> bool:
     """For the body limit (app/core/request_limit.py): the request comes with a live
     session of the link in its path, as `visitor` sees it, without moving it on."""
+    if not get_settings().client_portal_enabled:
+        return False
     request = Request(scope)
     token = scope["path"].split("/")[3]
     values = _cookie_values(request, cookie_name())

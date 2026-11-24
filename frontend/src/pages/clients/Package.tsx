@@ -15,6 +15,7 @@ import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert } from "./ui";
 import { ItemFiles } from "./PackageFiles";
 import { CasePortal } from "./Portal";
+import { usePortalOn } from "../../portal";
 
 // The package check of a case (backlog 2.3): one line on whether the documents are
 // collected; the checklist with «есть / нет / не нужно» and the document's date opens
@@ -42,6 +43,7 @@ export function CasePackage({ visaCase: c }: { visaCase: VisaCase }) {
   const { t, i18n } = useTranslation();
   const result = usePackage(c);
   const list = useDisclosure();
+  const portalOn = usePortalOn();
 
   if (result.isPending) return null;
   if (result.isError) return <ErrorAlert error={result.error} />;
@@ -60,11 +62,11 @@ export function CasePackage({ visaCase: c }: { visaCase: VisaCase }) {
       <div className="card-head">
         <h4 className="h3">{t("package.title")}</h4>
         {p.items.length > 0 && !submitted && <PackageChip ready={p.ready} missing={p.missing} />}
-        {waiting > 0 && (
+        {portalOn && waiting > 0 && (
           <span className="chip st-orange">{t("portal.waiting", { count: waiting })}</span>
         )}
       </div>
-      {p.items.length > 0 && <CasePortal visaCase={c} />}
+      {portalOn && p.items.length > 0 && <CasePortal visaCase={c} />}
       {p.items.length === 0 ? (
         <p className="muted small">
           {t("package.noChecklist")} <Link to="/app/checklists">{t("checklists.title")}</Link>
@@ -90,6 +92,7 @@ export function CasePackage({ visaCase: c }: { visaCase: VisaCase }) {
 
 function Item({ caseId, item }: { caseId: string; item: PackageItem }) {
   const { t } = useTranslation();
+  const portalOn = usePortalOn();
   const mark = useMarkItem(caseId, item.item_id);
   // The date is saved when the field is left: typing a year must not save each digit.
   const [date, setDate] = useState(item.document_date ?? "");
@@ -165,7 +168,7 @@ function Item({ caseId, item }: { caseId: string; item: PackageItem }) {
         )}
       </div>
       {errors.general ? <ErrorAlert error={errors.general} /> : null}
-      <ItemFiles caseId={caseId} item={item} documentDate={date} />
+      {portalOn && <ItemFiles caseId={caseId} item={item} documentDate={date} />}
     </li>
   );
 }
