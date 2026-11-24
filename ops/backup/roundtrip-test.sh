@@ -348,6 +348,10 @@ rclone lsf --s3-versions dest:visacrm-backup/files/tenant-a/ | grep -qxF "$hidde
   fail "the hidden version of the deleted file is gone"
 
 echo "--- the old single key still makes the copy, but the run fails until it is replaced"
+# A copy is named to the second. The run just above can finish within the second this
+# one starts in, and its copy would then be replaced under the same name instead of
+# joined by a new one (CI on main, 2026-11-24): start in the next second.
+sleep 1
 copies=$(rclone lsf dest:visacrm-backup/db/daily/ | wc -l)
 status=0
 run --env-file "$work/owner.env" -e BACKUP_MONTHLY=auto "$IMAGE" 2> "$work/old-key.log" || status=$?
