@@ -448,6 +448,26 @@ async def test_the_day_a_case_opened_holds_west_of_utc_too(
     assert (report["created"], report["updated"], report["skipped"]) == ({}, {}, [])
 
 
+async def test_a_passport_typed_in_the_card_loads_back_unchanged(
+    client: AsyncClient, make_user: MakeUser
+):
+    """The card keeps the passport page whole, its empty fields too (sex: null): an export's
+    empty «Пол» is that same empty field, not a change."""
+    await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    passport = {"passport_number": "AB1234567", "nationality": "BY"}
+    await ok(
+        await client.post(
+            "/api/contacts",
+            json={"last_name": "Петрова", "first_name": "Анна", "passport": passport},
+        )
+    )
+
+    report = await load_back(client, (await exported(client)).content)
+
+    assert (report["created"], report["updated"], report["skipped"]) == ({}, {}, [])
+
+
 async def test_the_pilot_book_goes_through_load_export_load(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):

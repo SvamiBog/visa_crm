@@ -979,7 +979,9 @@ class WorkbookImport:
             if isinstance(value, date):
                 value = value.isoformat()
             if value is None:
-                if r.blank(key):
+                # The card keeps the passport page whole, its empty fields as null: the
+                # export's empty cell clears a value, an empty field stays as it is.
+                if r.blank(key) and current.get(key) is not None:
                     updated.pop(key, None)
                 continue
             if not r.snapshot and not made and current.get(key) is not None:
