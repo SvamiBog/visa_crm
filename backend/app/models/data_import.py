@@ -1,6 +1,7 @@
-"""Import of the specialist's spreadsheets (backlog 1.14): the remembered column mapping,
-the runs with their reports and which records each spreadsheet row became, so a repeated
-import updates them instead of adding duplicates.
+"""Import of the specialist's spreadsheets (backlog 1.14, 1.21): the runs with their
+reports and which records each spreadsheet row became, so a repeated import updates them
+instead of adding duplicates. The old import's remembered column mappings went with it
+(migration 0049).
 """
 
 import uuid
@@ -17,7 +18,6 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
-    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -41,26 +41,6 @@ class ImportKind(StrEnum):
 
 def _kind_enum() -> Enum:
     return Enum(ImportKind, name="import_kind", values_callable=lambda e: [m.value for m in e])
-
-
-class ImportMapping(Base):
-    """The last mapping of a kind in the old column-mapping import (1.14, 1.16). No longer
-    used since the VisaCRM data format (1.21); dropped by a later migration."""
-
-    __tablename__ = "import_mappings"
-    __table_args__ = (UniqueConstraint("tenant_id", "kind", name="uq_import_mappings_kind"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
-    )
-    kind: Mapped[ImportKind] = mapped_column(_kind_enum())
-    columns: Mapped[dict[str, str]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    options: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    values: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
 class ImportRun(Base):

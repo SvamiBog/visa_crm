@@ -8,6 +8,10 @@ owner imports.
 The sample, the check and the import run in the background (app/core/import_jobs.py): the
 request starts the run and answers at once; the page asks /imports/jobs/{id} how far it is.
 
+The export gives the workspace back in the same format, a file the import reads again
+(app/core/data_export.py). The owner confirms every export with her account's password, and
+one with the vault's passwords, with two-factor login on, also with a code from the app.
+
 The reader is app/core/workbook.py, the engine app/core/data_import.py, the cards
 app/core/import_cards.py; the rules are in docs/decisions.md → «Формат данных VisaCRM» and
 «Карточки до загрузки».
@@ -19,11 +23,13 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import Base64Bytes, BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import check_current_password, reject_wrong_secret
 from app.api.deps import (
     CurrentUser,
+    SystemSession,
     TenantSession,
     effective_modules,
     require_module,
@@ -33,7 +39,7 @@ from app.api.deps import (
 from app.core import import_jobs, import_uploads
 from app.core.audit import record
 from app.core.base_currency import hold_base
-from app.core.data_export import Lists, template
+from app.core.data_export import export, template, workspace_lists
 from app.core.data_format import CREATABLE
 from app.core.data_import import NEW, SKIP, Progress, WorkbookImport
 from app.core.db import get_sessionmaker, scope_to_tenant
@@ -42,22 +48,10 @@ from app.core.import_cards import cards, render, summary
 from app.core.import_jobs import ImportJob, ImportRunning
 from app.core.import_prompt import import_prompt
 from app.core.import_uploads import Upload
+from app.core.security import MAX_PASSWORD_LENGTH
+from app.core.two_factor import looks_like_recovery_code, unseal_secret, verify_totp
 from app.core.workbook import Workbook, WorkbookError, first_clients, parse_upload
-from app.models import (
-    AuditAction,
-    Country,
-    CountryRule,
-    ImportKind,
-    ImportRun,
-    LeadChannel,
-    Partner,
-    Registrar,
-    Tenant,
-    User,
-    VaultSystem,
-    VisaCenter,
-    VisaPurpose,
-)
+from app.models import AuditAction, ImportKind, ImportRun, Tenant, User
 
 router = APIRouter(
     prefix="/imports", tags=["imports"], dependencies=[Depends(require_module("clients"))]
@@ -239,6 +233,17 @@ class CardSummaryOut(BaseModel):
 
 class PromptOut(BaseModel):
     text: str
+
+
+class ExportIn(BaseModel):
+    """The export of the workspace, confirmed with the account's password: the file holds
+    every client's data (the owner's decision on PR #162). With the vault's passwords and
+    two-factor login on, also a current code from the app (recovery codes do not export)."""
+
+    language: Language = "ru"
+    with_passwords: bool = False
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+    code: str | None = Field(default=None, max_length=32)
 
 
 # --- Helpers --------------------------------------------------------------------------
@@ -425,32 +430,29 @@ def _upload_out(upload: Upload) -> UploadOut:
     )
 
 
-async def _names(session: AsyncSession, model: Any) -> list[str]:
-    rows = await session.scalars(select(model.name).where(model.is_active).order_by(model.name))
-    return list(rows)
-
-
-async def _lists(session: AsyncSession, language: Language) -> Lists:
-    """The workspace's values for the template's «Справочник»."""
-    country = Country.name_ru if language == "ru" else Country.name_en
-    # The English name of a city is optional: the Russian one stands in for it.
-    city = (
-        VisaCenter.city_ru
-        if language == "ru"
-        else func.coalesce(VisaCenter.city_en, VisaCenter.city_ru)
-    )
-    cities = await session.scalars(
-        select(city).join(CountryRule, VisaCenter.rule_id == CountryRule.id).distinct()
-    )
-    return Lists(
-        countries=list(await session.scalars(select(country).order_by(country))),
-        cities=sorted(set(cities)),
-        channels=await _names(session, LeadChannel),
-        partners=await _names(session, Partner),
-        purposes=await _names(session, VisaPurpose),
-        registrars=await _names(session, Registrar),
-        systems=await _names(session, VaultSystem),
-    )
+async def _confirm(system: AsyncSession, user: CurrentUser, body: ExportIn) -> None:
+    """The owner herself asks for the file: her account's password, and for the vault's
+    passwords, with two-factor login on, a code from the app. Misses count with wrong
+    logins (app/api/auth.py), so a stolen session cannot guess them."""
+    owner = await system.get_one(User, user.id, with_for_update=True)
+    await check_current_password(system, owner, body.password, "export_password")
+    if (
+        body.with_passwords
+        and owner.totp_enabled_at is not None
+        and owner.totp_secret_encrypted is not None
+    ):
+        code = body.code or ""
+        step = (
+            None
+            if not code or looks_like_recovery_code(code)
+            else verify_totp(
+                unseal_secret(owner.id, owner.totp_secret_encrypted), code, owner.totp_last_step
+            )
+        )
+        if step is None:
+            await reject_wrong_secret(system, owner, "export_code", "invalid_code")
+        owner.totp_last_step = step
+    await system.commit()
 
 
 # --- Endpoints ------------------------------------------------------------------------
@@ -605,7 +607,7 @@ async def download_template(
     tenant = await session.get(Tenant, user.tenant_id)
     assert tenant is not None
     content = template(
-        await _lists(session, language),
+        await workspace_lists(session, language),
         language=language,
         workspace=tenant.name,
         base_currency=tenant.base_currency,
@@ -613,6 +615,54 @@ async def download_template(
     name = "VisaCRM-шаблон.xlsx" if language == "ru" else "VisaCRM-template.xlsx"
     return Response(
         content, media_type=XLSX, headers={"Content-Disposition": content_disposition(name)}
+    )
+
+
+@router.post("/export")
+async def export_data(
+    body: ExportIn, user: Specialist, system: SystemSession, session: TenantSession
+) -> Response:
+    """The workspace in one file of the format (docs/data-format.md → «Выгрузка»): a copy
+    to keep, to check the CRM against, or to load back. Only the owner, with her account's
+    password; the request is a POST, so nothing of it is in an address. The log gets one
+    event with the counts, and the export with passwords one more: how many were shown."""
+    assert user.tenant_id is not None
+    await _confirm(system, user, body)
+    tenant = await session.get_one(Tenant, user.tenant_id)
+    made = await export(
+        session,
+        tenant=tenant,
+        modules=set(await effective_modules(session, user)),
+        language=body.language,
+        with_passwords=body.with_passwords,
+    )
+    record(
+        session,
+        AuditAction.DATA_EXPORTED,
+        actor=user,
+        details={"rows": made.rows, "with_passwords": body.with_passwords},
+    )
+    if body.with_passwords:
+        record(
+            session,
+            AuditAction.VAULT_PASSWORDS_EXPORTED,
+            actor=user,
+            details={"count": made.passwords},
+        )
+    await session.commit()
+    day = (await workspace_today(session, user.tenant_id)).isoformat()
+    if body.language == "ru":
+        kind = "выгрузка-с-паролями" if body.with_passwords else "выгрузка"
+    else:
+        kind = "export-with-passwords" if body.with_passwords else "export"
+    return Response(
+        made.content,
+        media_type=XLSX,
+        headers={
+            "Content-Disposition": content_disposition(f"VisaCRM-{kind}-{day}.xlsx"),
+            # The file holds every client's data: no browser or proxy keeps a copy.
+            "Cache-Control": "no-store",
+        },
     )
 
 

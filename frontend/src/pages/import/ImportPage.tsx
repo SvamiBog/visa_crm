@@ -1,8 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { useMe } from "../../auth";
 import { Field, FormError, useFieldErrors } from "../../components/Field";
+import { PasswordField } from "../../components/PasswordField";
 import { useCaseLists, useContactLists, type Entry } from "../../contacts";
 import { formatSize, readBase64 } from "../../files";
 import {
@@ -10,6 +12,7 @@ import {
   MAX_IMPORT_BYTES,
   cancelImportUpload,
   downloadImportTemplate,
+  exportWorkspace,
   fetchImportPrompt,
   promptLanguage,
   startImportJob,
@@ -366,7 +369,124 @@ export function ImportPage() {
         error={runs.isError ? runs.error : null}
         shown={[jobs.sample, jobs.check, jobs.import]}
       />
+
+      {/* Scrolled to once the blocks above have their data and stand still. */}
+      <ExportData ready={!upload.isPending && !runs.isPending} />
     </div>
+  );
+}
+
+const SECRET_CODES = { invalid_current_password: "password", invalid_code: "code" };
+const SECRET_FIELDS = ["password", "code"] as const;
+
+/** The workspace in one file of the format: a copy to keep, to check the CRM against or to
+ * load back (docs/data-format.md → «Выгрузка»). Confirmed with the account's password; with
+ * the vault's passwords also a code from the app when two-factor login is on, and that file
+ * is not for an AI. */
+function ExportData({ ready }: { ready: boolean }) {
+  const { t, i18n } = useTranslation();
+  const me = useMe();
+  const { hash } = useLocation();
+  const section = useRef<HTMLElement>(null);
+  const [withPasswords, setWithPasswords] = useState(false);
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const twoFactorOn = me.data?.two_factor_enabled ?? false;
+  const language = promptLanguage(i18n.resolvedLanguage);
+  const exporting = useMutation({
+    mutationFn: () =>
+      exportWorkspace(
+        withPasswords
+          ? { language, with_passwords: true, password, code: twoFactorOn ? code : undefined }
+          : { language, with_passwords: false, password },
+        t(withPasswords ? "import.exportFileWithPasswords" : "import.exportFile"),
+      ),
+    onSuccess: () => {
+      setPassword("");
+      setCode("");
+    },
+    onError: () => setCode(""),
+  });
+  const errors = useFieldErrors(exporting.error, { codes: SECRET_CODES, fields: SECRET_FIELDS });
+
+  // Sent here from «Удаление всех данных» in the settings: the block comes into view.
+  useEffect(() => {
+    if (hash !== "#export" || !ready) return;
+    const show = () => section.current?.scrollIntoView({ block: "start" });
+    show();
+    // The fonts come a moment later and the text above wraps anew: the block moves down.
+    void document.fonts.ready.then(show);
+  }, [hash, ready]);
+
+  return (
+    <section className="card form-card" id="export" ref={section} aria-labelledby="export-title">
+      <h2 className="h2" id="export-title">
+        {t("import.export")}
+      </h2>
+      <p className="muted small">{t("import.exportHint")}</p>
+      <form
+        ref={errors.form}
+        onSubmit={(e: FormEvent) => {
+          e.preventDefault();
+          exporting.mutate();
+        }}
+      >
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={withPasswords}
+            onChange={(e) => {
+              setWithPasswords(e.target.checked);
+              exporting.reset();
+            }}
+          />
+          {t("import.exportWithPasswords")}
+        </label>
+        {withPasswords && (
+          <div className="alert alert-warn" role="note">
+            {t("import.exportPasswordsWarning")}
+          </div>
+        )}
+        {/* Every export: the file holds every client's data (the owner's decision on
+            PR #162); the code from the app only for the vault's passwords. */}
+        <div className="form-grid">
+          <PasswordField
+            label={t("auth.currentPassword")}
+            autoComplete="current-password"
+            value={password}
+            onChange={setPassword}
+            error={errors.at("password")}
+          />
+          {withPasswords && twoFactorOn && (
+            <Field label={t("import.exportCode")} error={errors.at("code")}>
+              {(control) => (
+                <input
+                  {...control}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  pattern="[0-9 ]{6,7}"
+                  maxLength={7}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              )}
+            </Field>
+          )}
+        </div>
+        {errors.general ? <ErrorAlert error={errors.general} /> : null}
+        {exporting.isSuccess && (
+          <div className="alert alert-ok" role="status">
+            {t("import.exported")}
+          </div>
+        )}
+        <div className="form-actions">
+          <button type="submit" className="btn btn-p" disabled={exporting.isPending}>
+            {exporting.isPending ? t("import.exporting") : t("import.exportSubmit")}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
 
