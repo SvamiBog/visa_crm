@@ -58,8 +58,10 @@ class Settings:
     consultation_days: int = 1  # before the consultation, and on the day
     contract_days: int = 3  # after the case is opened
     questionnaire_days: int = 1  # before the questionnaire is due, and on the day
-    package_days: int = 7  # before the submission, and the day before (question 26)
-    result_days: int = 15  # after the submission, until a result is entered
+    package_days: int = 7  # before «Документы до» or the submission, and the day before
+    # After the submission, until a result is entered: the decision usually comes in two
+    # weeks (the specialist's answer to question 34, 2026-11-24).
+    result_days: int = 14
 
 
 def occurrence(triggers: Iterable[date], today: date, until: date | None = None) -> date | None:
@@ -153,11 +155,33 @@ def balance_queued(
     return occurrence([queued_on], today, until=until)
 
 
-def package(submission_on: date, ready: bool, today: date, s: Settings) -> date | None:
-    """Documents still to collect before the submission (the package check, 2.3)."""
+def package_due_on(submission_on: date | None, documents_due_on: date | None) -> date | None:
+    """The day the documents are due by: the specialist's «Документы до», or the
+    submission when it comes sooner (a slot moved forward) or no day is set."""
+    days = [d for d in (submission_on, documents_due_on) if d is not None]
+    return min(days, default=None)
+
+
+def package(
+    submission_on: date | None,
+    ready: bool,
+    today: date,
+    s: Settings,
+    *,
+    documents_due_on: date | None = None,
+) -> date | None:
+    """Documents still to collect before the submission (the package check, 2.3): a week
+    and the day before. The day the specialist named the client for the documents
+    («Документы до», question 26) is a real deadline, like the questionnaire's: counted
+    from it, the reminder stays overdue after it. Without it, or when the submission comes
+    sooner, the submission is the day. Either way the reminder is over with the
+    submission."""
     if ready:
         return None
-    triggers = (submission_on - timedelta(days=s.package_days), submission_on - timedelta(1))
+    due_on = package_due_on(submission_on, documents_due_on)
+    if due_on is None:
+        return None
+    triggers = (due_on - timedelta(days=s.package_days), due_on - timedelta(1))
     return occurrence(triggers, today, until=submission_on)
 
 

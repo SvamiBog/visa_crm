@@ -168,6 +168,8 @@ class CaseUpdate(BaseModel):
     submission_on: Day | None = None
     questionnaire_due_on: Day | None = None
     questionnaire_received_on: Day | None = None
+    # «Документы до»: the day the client is to bring the documents (question 26).
+    documents_due_on: Day | None = None
     outcome: VisaOutcome | None = None
     decided_on: Day | None = None
     visa_entries: VisaEntries | None = None
@@ -237,6 +239,7 @@ class CaseOut(BaseModel):
     submission_on: date | None
     questionnaire_due_on: date | None
     questionnaire_received_on: date | None
+    documents_due_on: date | None
     outcome: VisaOutcome | None
     decided_on: date | None
     visa_entries: VisaEntries | None

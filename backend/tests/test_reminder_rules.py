@@ -121,12 +121,14 @@ def test_a_held_consultation_brings_no_reminder_of_its_own():
 
 
 def test_a_result_not_entered_long_after_the_submission():
-    """CRM audit 2026-11-18: a deal past its close date with no outcome is stale."""
-    assert S.result_days == 15
-    assert r.result(days(-15), TODAY, S) == TODAY
-    assert r.result(days(-14), TODAY, S) is None  # the consulate is still deciding
+    """CRM audit 2026-11-18: a deal past its close date with no outcome is stale. The
+    decision usually comes in two weeks (the specialist's answer to question 34,
+    2026-11-24), so the reminder comes on the 14th day."""
+    assert S.result_days == 14
+    assert r.result(days(-14), TODAY, S) == TODAY
+    assert r.result(days(-13), TODAY, S) is None  # the consulate is still deciding
     assert r.result(days(2), TODAY, S) is None  # not submitted yet
-    assert r.result(days(-90), TODAY, S) == days(-75)  # stays until the result is in
+    assert r.result(days(-90), TODAY, S) == days(-76)  # stays until the result is in
     wide = r.Settings(result_days=30)
     assert r.result(days(-15), TODAY, wide) is None
     assert r.result(days(-30), TODAY, wide) == TODAY
@@ -198,3 +200,48 @@ def test_settings_change_the_package_window():
     wide = r.Settings(package_days=14)
     assert r.package(days(14), False, TODAY, wide) == TODAY
     assert r.package(days(7), False, TODAY, wide) == days(-7)
+    assert r.package(days(30), False, TODAY, wide, documents_due_on=days(14)) == TODAY
+
+
+# The specialist's own day for the documents, «Документы до» (question 26, 2026-11-24).
+
+
+def test_an_incomplete_package_counts_from_the_documents_due_date():
+    """She names the client a day to bring the documents: the week and the day before
+    count from it, not from the submission."""
+    submission = days(20)
+    assert r.package(submission, False, TODAY, S, documents_due_on=days(7)) == TODAY
+    assert r.package(submission, False, TODAY, S, documents_due_on=days(8)) is None
+    assert r.package(submission, False, TODAY, S, documents_due_on=days(3)) == days(-4)
+    assert r.package(submission, False, TODAY, S, documents_due_on=days(1)) == TODAY
+    assert r.package(submission, False, TODAY, S, documents_due_on=TODAY) == days(-1)
+
+
+def test_documents_not_brought_by_their_day_stay_until_the_submission():
+    """A real deadline, like the questionnaire's: past it the reminder stays (overdue)
+    while the package is incomplete and the submission is not over; without a
+    submission date, until the documents are collected."""
+    assert r.package(days(5), False, TODAY, S, documents_due_on=days(-3)) == days(-4)
+    assert r.package(TODAY, False, TODAY, S, documents_due_on=days(-3)) == days(-4)
+    assert r.package(days(-1), False, TODAY, S, documents_due_on=days(-3)) is None  # submitted
+    assert r.package(None, False, TODAY, S, documents_due_on=days(-30)) == days(-31)
+    assert r.package(None, False, TODAY, S, documents_due_on=days(8)) is None  # not yet
+    assert r.package(days(5), True, TODAY, S, documents_due_on=days(-3)) is None  # collected
+
+
+def test_a_submission_moved_before_the_documents_date_takes_over():
+    """The slot came sooner than the day named for the documents: they are due by the
+    submission, so the reminder counts from it rather than going quiet."""
+    assert r.package_due_on(days(3), days(10)) == days(3)
+    assert r.package_due_on(days(10), days(3)) == days(3)
+    assert r.package_due_on(None, days(3)) == days(3)
+    assert r.package_due_on(days(3), None) == days(3)
+    assert r.package_due_on(None, None) is None
+    assert r.package(days(3), False, TODAY, S, documents_due_on=days(10)) == days(-4)
+    assert r.package(days(1), False, TODAY, S, documents_due_on=days(10)) == TODAY
+
+
+def test_without_a_documents_date_the_package_counts_from_the_submission():
+    assert r.package(days(7), False, TODAY, S, documents_due_on=None) == TODAY
+    assert r.package(days(8), False, TODAY, S, documents_due_on=None) is None
+    assert r.package(None, False, TODAY, S) is None  # neither date: nothing to count from

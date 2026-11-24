@@ -190,7 +190,7 @@ async def test_the_windows_are_the_specialists(
         "contract_days": 3,
         "questionnaire_days": 1,
         "package_days": 7,
-        "result_days": 15,
+        "result_days": 14,
     }
     saved = await client.put(
         "/api/reminders/settings",
@@ -385,8 +385,9 @@ async def test_what_the_specialist_reminded_clients_of_by_hand(
 
 
 async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_user: MakeUser):
-    """CRM audit 2026-11-18: 15 days after the submission with no result entered,
-    «внесите результат» until it is. Pilot fix 3 (owner's decision 2026-11-19): a
+    """CRM audit 2026-11-18: 14 days after the submission with no result entered (the
+    specialist's answer to question 34, 2026-11-24: the decision usually comes in two
+    weeks), «внесите результат» until it is. Pilot fix 3 (owner's decision 2026-11-19): a
     consultation held without a decision asks for it only on the day to hear it that
     the specialist set («Связаться»), and is overdue only after that day."""
     await make_user("anna@example.com")
@@ -395,11 +396,11 @@ async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_use
 
     petr = await contact(client, "Пётр")
     poland = await open_case(client, codes, petr, "PL")
-    await patch_case(client, poland, submission_on=day(-15))
-    # Two weeks after the submission the consulate may still be deciding.
+    await patch_case(client, poland, submission_on=day(-14))
+    # Thirteen days after the submission the consulate may still be deciding.
     roma = await contact(client, "Рома")
     latvia = await open_case(client, codes, roma, "LV")
-    await patch_case(client, latvia, submission_on=day(-14))
+    await patch_case(client, latvia, submission_on=day(-13))
 
     # Held yesterday, no decision and no day to hear it: nothing to remind of.
     for held_on in (day(-1), day(-3)):
@@ -440,7 +441,7 @@ async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_use
     result = found["result"]
     assert (result["contact_name"], result["since"], result["due_on"]) == (
         "Пётр",
-        day(-15),
+        day(-14),
         day(0),
     )
     assert result["key"] == f"result:{poland['id']}:{day(0)}"
@@ -470,7 +471,7 @@ async def test_a_result_and_a_decision_not_entered(client: AsyncClient, make_use
 
 
 async def test_a_result_not_entered_has_no_deadline(client: AsyncClient, make_user: MakeUser):
-    """Owner's answer 2026-11-20 (pilot): 15 days after the submission is the CRM's guess,
+    """Owner's answer 2026-11-20 (pilot): 14 days after the submission is the CRM's guess,
     not a deadline, so «внесите результат» is never «просрочено» or «сегодня»: it has no
     days left and comes after the reminders with a real date, overdue or not."""
     await make_user("anna@example.com")
@@ -492,8 +493,8 @@ async def test_a_result_not_entered_has_no_deadline(client: AsyncClient, make_us
     assert [r["kind"] for r in listed] == ["follow_up", "result"]
     follow_up, result = listed
     assert follow_up["days_left"] == -2
-    assert (result["since"], result["due_on"], result["days_left"]) == (day(-20), day(-5), None)
-    assert result["key"] == f"result:{poland['id']}:{day(-5)}"
+    assert (result["since"], result["due_on"], result["days_left"]) == (day(-20), day(-6), None)
+    assert result["key"] == f"result:{poland['id']}:{day(-6)}"
 
 
 async def test_a_familys_reminders_name_their_group(client: AsyncClient, make_user: MakeUser):
