@@ -80,7 +80,7 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
       b2 key create --bucket visacrm-backup-<…> --name-prefix files/ railway-backup-files listBuckets,listAllBucketNames,readBuckets,listFiles,readFiles,writeFiles
       ```
 
-      Каждая команда печатает две строки: `keyID` и сам ключ (`applicationKey`). Ключ показывается один раз: сразу сохраните обе строки в менеджере паролей.
+      Каждая команда печатает одну строку из двух значений через пробел. Первое — `keyID`: 25 символов, только цифры и буквы a–f, начинается с `00`. Оно идёт в переменные `…_ACCESS_KEY`. Второе — сам ключ (`applicationKey`): 31 символ, в нём бывают `/` и `+`. Он идёт в `…_SECRET_KEY`. Ключ показывается один раз: сразу сохраните оба значения в менеджере паролей. Если их перепутать, B2 отвечает на запросы `400 Bad Request`.
    4. Проверьте: `b2 key list --long`. У каждого ключа должны быть ровно эти права и свой префикс (`db/` или `files/`).
    5. Выйдите: `b2 account clear`. Так мастер-ключ не останется на компьютере.
 
