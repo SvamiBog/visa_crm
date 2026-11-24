@@ -67,4 +67,11 @@ class Tenant(Base):
     # The highest number of a deleted case: numbers go on past it, so a deleted case's
     # number is never given again (pilot fix 1, app/api/cases.py → delete_case).
     max_deleted_case_number: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    # The specialist as the controller of her clients' data (GDPR): named in the data
+    # notice of the client portal (backlog 2.9). Until they are filled in the portal does
+    # not take uploads. No supervisory authority means the Polish one (UODO).
+    controller_name: Mapped[str | None] = mapped_column(String(200))
+    controller_address: Mapped[str | None] = mapped_column(String(300))
+    controller_email: Mapped[str | None] = mapped_column(String(320))
+    supervisory_authority: Mapped[str | None] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -13,6 +13,8 @@ import {
 } from "../../package";
 import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert } from "./ui";
+import { ItemFiles } from "./PackageFiles";
+import { CasePortal } from "./Portal";
 
 // The package check of a case (backlog 2.3): one line on whether the documents are
 // collected; the checklist with «есть / нет / не нужно» and the document's date opens
@@ -47,13 +49,22 @@ export function CasePackage({ visaCase: c }: { visaCase: VisaCase }) {
   const on = formatDate(p.on, i18n.language);
   // Once the case is submitted the package is history: «Не хватает» would only be noise.
   const submitted = c.outcome !== null || c.stage === "review" || c.stage === "result";
+  // Files from the client's portal waiting for «Принять» or «Вернуть» (backlog 2.9).
+  const waiting = p.items.reduce(
+    (n, item) => n + item.files.filter((f) => f.status === "pending").length,
+    0,
+  );
 
   return (
     <section className="package">
       <div className="card-head">
         <h4 className="h3">{t("package.title")}</h4>
         {p.items.length > 0 && !submitted && <PackageChip ready={p.ready} missing={p.missing} />}
+        {waiting > 0 && (
+          <span className="chip st-orange">{t("portal.waiting", { count: waiting })}</span>
+        )}
       </div>
+      {p.items.length > 0 && <CasePortal visaCase={c} />}
       {p.items.length === 0 ? (
         <p className="muted small">
           {t("package.noChecklist")} <Link to="/app/checklists">{t("checklists.title")}</Link>
@@ -154,6 +165,7 @@ function Item({ caseId, item }: { caseId: string; item: PackageItem }) {
         )}
       </div>
       {errors.general ? <ErrorAlert error={errors.general} /> : null}
+      <ItemFiles caseId={caseId} item={item} documentDate={date} />
     </li>
   );
 }

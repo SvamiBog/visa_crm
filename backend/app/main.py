@@ -33,6 +33,9 @@ from app.api.home import router as home_router
 from app.api.imports import router as imports_router
 from app.api.mrz import router as mrz_router
 from app.api.package import router as package_router
+from app.api.portal import router as portal_router
+from app.api.portal_public import portal_signed_in
+from app.api.portal_public import router as portal_public_router
 from app.api.queues import router as queues_router
 from app.api.reference import admin_router as admin_reference_router
 from app.api.reference import router as reference_router
@@ -108,7 +111,7 @@ def create_app() -> FastAPI:
     )
     # A request too large for its route is refused before it is read: only a file sent by
     # someone signed in may be large.
-    app.add_middleware(RequestLimit, signed_in=signed_in)
+    app.add_middleware(RequestLimit, signed_in=signed_in, portal_signed_in=portal_signed_in)
     # An unexpected error is logged without its text (it may quote clients' data). Added
     # after the limit, so it also catches a failed session lookup of the limit.
     app.add_middleware(UnexpectedErrors)
@@ -176,6 +179,8 @@ def create_app() -> FastAPI:
         queues_router,
         bookings_router,
         package_router,
+        portal_router,
+        portal_public_router,
         finances_router,
         registrar_ledger_router,
         reminders_router,

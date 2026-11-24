@@ -42,6 +42,9 @@ CONTENT_SECURITY_POLICY = "; ".join(
 )
 # Swagger UI (a developer's machine only, Settings.api_docs) loads its scripts from a CDN.
 WITHOUT_CSP = ("/api/docs",)
+# The client portal (backlog 2.9): its page and its API are never indexed, in production
+# too, and send no Referer.
+PORTAL_PATHS = ("/u/", "/api/portal/")
 CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # What a browser names in Sec-Fetch-Site for the site's own requests: sent by its own page,
 # or started by the user (typed, bookmarked) rather than by any page.
@@ -100,6 +103,9 @@ def add_security_headers(app: FastAPI) -> None:
             headers.setdefault("Cache-Control", "no-store")
         if settings.cookie_secure:  # served over HTTPS
             headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-        if settings.env != "production":
+        if settings.env != "production" or path.startswith(PORTAL_PATHS):
             headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+        if path.startswith(PORTAL_PATHS):
+            # The address carries the link's token: no other site gets it in a Referer.
+            headers["Referrer-Policy"] = "no-referrer"
         return response

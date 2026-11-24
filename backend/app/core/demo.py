@@ -532,7 +532,15 @@ async def _workspace(
 ) -> dict[str, int]:
     today = now.date()
     name = SPECIALIST_NAMES[(index - 1) % len(SPECIALIST_NAMES)]
-    tenant = Tenant(id=uuid.uuid4(), name=f"{name} (демо {index})", modules=list(DEMO_MODULES))
+    tenant = Tenant(
+        id=uuid.uuid4(),
+        name=f"{name} (демо {index})",
+        modules=list(DEMO_MODULES),
+        # The client portal's data notice names the specialist (backlog 2.9): made up.
+        controller_name=f"{name} (демо {index})",
+        controller_address="ul. Przykładowa 1, 00-001 Warszawa",
+        controller_email=specialist_email(index),
+    )
     session.add(tenant)
     await session.flush()
     _subscribe(session, tenant, index, today, tariffs)

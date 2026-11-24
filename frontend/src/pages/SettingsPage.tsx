@@ -10,6 +10,7 @@ import { PasswordField } from "../components/PasswordField";
 import { PaymentsTable, SubscriptionChip } from "../components/Subscription";
 import { formatDate } from "../contacts";
 import { changeLanguage, LANGUAGES } from "../i18n";
+import { useController, useSaveController } from "../portal";
 import { useOwnSubscription } from "../subscriptions";
 import { useMoney } from "./clients/Finance";
 import { Row } from "./clients/ui";
@@ -64,6 +65,7 @@ export function SettingsPage() {
       <OwnSubscription />
       {specialist && money.data && <Accounting money={money.data} />}
       {specialist && money.isError && <ErrorAlert error={money.error} />}
+      {specialist && <DataController />}
       <EmailChange />
       <TwoFactor />
       {me.data?.role === "specialist" && <EraseData />}
@@ -264,6 +266,87 @@ function Accounting({ money }: { money: Money }) {
       <div className="form-actions">
         <button type="submit" className="btn btn-p" disabled={save.isPending}>
           {rebasing ? t("settings.rebase", { currency: base }) : t("common.save")}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** The specialist as the controller of her clients' data (backlog 2.9): named in the
+ * notice the client sees on the upload page; uploads wait until it is filled in. */
+function DataController() {
+  const { t } = useTranslation();
+  const saved = useController(true);
+  const save = useSaveController();
+  const [form, setForm] = useState({ name: "", address: "", email: "", authority: "" });
+  useEffect(() => {
+    if (!saved.data) return;
+    setForm({
+      name: saved.data.name ?? "",
+      address: saved.data.address ?? "",
+      email: saved.data.email ?? "",
+      authority: saved.data.supervisory_authority ?? "",
+    });
+  }, [saved.data]);
+  const errors = useFieldErrors(save.error, { fields: ["name", "address", "email"] });
+  if (saved.isPending) return null;
+  const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  return (
+    <form
+      ref={errors.form}
+      className="card form-card"
+      onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        save.mutate({
+          name: form.name.trim(),
+          address: form.address.trim(),
+          email: form.email.trim(),
+          supervisory_authority: form.authority.trim() || null,
+        });
+      }}
+    >
+      <h2 className="h2">{t("settings.controller")}</h2>
+      <p className="muted small">{t("settings.controllerHint")}</p>
+      <div className="form-grid">
+        <Field label={t("settings.controllerName")} error={errors.at("name")}>
+          {(control) => <input {...control} required value={form.name} onChange={set("name")} />}
+        </Field>
+        <Field label={t("settings.controllerAddress")} error={errors.at("address")}>
+          {(control) => (
+            <input {...control} required value={form.address} onChange={set("address")} />
+          )}
+        </Field>
+        <Field label={t("settings.controllerEmail")} error={errors.at("email")}>
+          {(control) => (
+            <input
+              {...control}
+              type="email"
+              required
+              value={form.email}
+              onChange={set("email")}
+            />
+          )}
+        </Field>
+        <Field
+          label={t("settings.controllerAuthority")}
+          hint={t("settings.controllerAuthorityHint", {
+            authority: saved.data?.supervisory_authority_default ?? "",
+          })}
+        >
+          {(control) => <input {...control} value={form.authority} onChange={set("authority")} />}
+        </Field>
+      </div>
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
+      {save.isSuccess && (
+        <div className="alert alert-ok" role="status">
+          {t("dict.saved")}
+        </div>
+      )}
+      <div className="form-actions">
+        <button type="submit" className="btn btn-p" disabled={save.isPending}>
+          {t("common.save")}
         </button>
       </div>
     </form>

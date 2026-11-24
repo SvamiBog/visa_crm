@@ -4160,3 +4160,184 @@ a.kpi:focus-visible {
     font-size: 16px;
   }
 }
+
+/* --- Client portal (backlog 2.9) -------------------------------------------------- */
+
+/* «Страница для клиента» in the case: the link, its buttons and the code just issued */
+.portal-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.portal-block > p {
+  margin: 0;
+}
+
+.portal-link {
+  display: flex;
+  gap: 8px;
+}
+
+.portal-link input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.portal-code {
+  font-family: var(--font-code);
+  font-size: 1.4em;
+  letter-spacing: 0.15em;
+}
+
+/* Files at an item of the package */
+.package-files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.package-files .plain-list {
+  align-self: stretch;
+}
+
+.plain-list li.package-file {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.package-file > p {
+  margin: 0;
+}
+
+.package-file > .link-button {
+  align-self: flex-start;
+  padding-inline: 0;
+}
+
+.package-review {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+
+.package-review .field {
+  flex: 1 1 180px;
+}
+
+/* The client's page /u/<token>: one column, phone first, no CRM shell */
+.portal-page {
+  min-height: 100svh;
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+
+.portal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.portal-brand {
+  font-family: var(--font-heading);
+  font-weight: 600;
+}
+
+.portal-main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.portal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 16px;
+}
+
+.portal-card > p,
+.portal-card > h1,
+.portal-card > h2 {
+  margin: 0;
+}
+
+.portal-notice {
+  white-space: pre-line;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-bg);
+  font-size: 0.9em;
+}
+
+.portal-choice {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.portal-choice legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.portal-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.portal-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+}
+
+.portal-item > .package-line,
+.portal-item > .plain-list {
+  align-self: stretch;
+}
+
+.portal-item > p {
+  margin: 0;
+}
+
+.portal-note {
+  white-space: pre-line;
+}
+
+.portal-reason {
+  display: block;
+  color: var(--c-red);
+}
+
+.portal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+}

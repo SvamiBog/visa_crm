@@ -10,6 +10,21 @@ export const PACKAGE_STATES = ["present", "missing", "not_needed"] as const;
 export type PackageState = (typeof PACKAGE_STATES)[number];
 export type ItemStatus = "ok" | "missing" | "no_date" | "expired" | "not_needed";
 
+// A file at the item (backlog 2.9): from the client's portal or added from the case.
+export type PackageFile = {
+  id: string;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  source: "client" | "staff";
+  status: "pending" | "accepted" | "returned";
+  return_reason: "unreadable" | "need_fresh" | "other" | null;
+  return_note: string | null;
+  uploaded_by_email: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+};
+
 export type PackageItem = {
   item_id: string;
   own: boolean;
@@ -21,6 +36,8 @@ export type PackageItem = {
   state: PackageState | null;
   document_date: string | null;
   status: ItemStatus;
+  // Newest first.
+  files: PackageFile[];
 };
 
 export type Package = {
