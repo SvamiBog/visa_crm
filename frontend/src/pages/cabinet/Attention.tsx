@@ -3,6 +3,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet, apiPost, apiPut } from "../../api";
+import { useConfirm } from "../../components/ConfirmDialog";
 import { formatDate } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { useMoney } from "../clients/Finance";
@@ -10,6 +11,8 @@ import { ErrorAlert } from "../clients/ui";
 
 // «Требует внимания» (backlog 1.11): reminders the API computes from the workspace's data
 // (app/core/reminders.py). «Готово» hides one occurrence; the next one comes back.
+// The passport's removal after the decision (backlog 2.8) has «Отложить на 30 дней» and
+// «Удалить сейчас» instead.
 
 type Kind =
   | "birthday"
@@ -28,6 +31,7 @@ type Kind =
   | "balance_queued"
   | "package"
   | "result"
+  | "passport_purge"
   | "card_limit"
   | "password_limit";
 
@@ -54,7 +58,10 @@ type Reminder = {
   limit: number | null;
   // Documents not collected (package): required ones still to collect.
   missing: number | null;
+  // The passport's removal: the fields that will go (no values).
+  passport_fields: string[] | null;
 };
+
 
 const remindersKey = (contactId?: string) => ["reminders", contactId ?? "all"] as const;
 
@@ -184,6 +191,17 @@ function ReminderText({ item: r }: { item: Reminder }) {
       );
     case "result":
       return <>{t("attention.kind.result", { date: date(r.since) })}</>;
+    case "passport_purge":
+      return (
+        <>
+          {t("attention.kind.passport_purge", {
+            date: date(r.due_on),
+            fields: (r.passport_fields ?? [])
+              .map((f) => t(`attention.passportField.${f}`))
+              .join(", "),
+          })}
+        </>
+      );
     case "consultation":
       return <>{t("attention.kind.consultation", { date: date(r.due_on) })}</>;
     case "registrar_advance":
@@ -239,6 +257,22 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
       Promise.all(keys.map((key) => apiPost<void>("/reminders/dismiss", { key }))),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reminders"] }),
   });
+  const confirm = useConfirm();
+  const passport = useMutation({
+    mutationFn: ({ contactId, action }: { contactId: string; action: "postpone" | "purge" }) =>
+      apiPost<unknown>(`/reminders/passport/${contactId}/${action}`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reminders"] }),
+  });
+  const purgeNow = async (r: Reminder) => {
+    const yes = await confirm({
+      message: t("attention.passportPurgeConfirm", { name: r.contact_name }),
+      items: (r.passport_fields ?? []).map((f) => t(`attention.passportField.${f}`)),
+      note: t("attention.passportPurgeNote"),
+      action: t("confirm.delete"),
+      tone: "danger",
+    });
+    if (yes && r.contact_id) passport.mutate({ contactId: r.contact_id, action: "purge" });
+  };
   const lines = useMemo(() => familyLines(list.data ?? []), [list.data]);
 
   // In a client's card the block shows only when there is something to do.
@@ -252,11 +286,15 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
       {list.isPending && <p className="muted">{t("common.loading")}</p>}
       {list.isError && <ErrorAlert error={list.error} />}
       {done.isError && <ErrorAlert error={done.error} />}
+      {passport.isError && <ErrorAlert error={passport.error} />}
       {list.data?.length === 0 && <p className="muted">{t("attention.none")}</p>}
       {shown.length > 0 && (
         <ul className="attention-list">
           {shown.map(({ item: r, members }) => (
-            <li key={r.key ?? `${r.kind}-${r.registrar_id}`} className="attention-item">
+            <li
+              key={r.key ?? `${r.kind}-${r.registrar_id ?? r.contact_id}`}
+              className="attention-item"
+            >
               <div className="attention-main">
                 <div>
                   <ReminderText item={r} />
@@ -304,6 +342,28 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
                   >
                     {t("attention.done")}
                   </button>
+                )}
+                {r.kind === "passport_purge" && r.contact_id && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={passport.isPending}
+                      onClick={() =>
+                        passport.mutate({ contactId: r.contact_id ?? "", action: "postpone" })
+                      }
+                    >
+                      {t("attention.passportPostpone")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      disabled={passport.isPending}
+                      onClick={() => void purgeNow(r)}
+                    >
+                      {t("attention.passportPurgeNow")}
+                    </button>
+                  </>
                 )}
               </div>
             </li>

@@ -5,7 +5,8 @@ and windows: app/core/reminders.py; the specialist sets the windows.
 Closed by the «tasks» module; each kind also needs the module its data belongs to
 (birthdays and thinking clients — «clients», case dates — «cases», money — «finances»,
 documents not collected — «package_check»).
-«Готово» hides one occurrence for the whole workspace.
+«Готово» hides one occurrence for the whole workspace. The passport's removal after the
+decision (backlog 2.8) has no «Готово»: «Отложить на 30 дней» and «Удалить сейчас» instead.
 """
 
 import uuid
@@ -34,6 +35,7 @@ from app.api.deps import (
 from app.api.finances import case_balances
 from app.api.package import package_summaries
 from app.api.registrar_ledger import ledger_summaries
+from app.core import passport_purge
 from app.core import reminders as rules
 from app.core.audit import record
 from app.core.bookings import LIVE
@@ -103,6 +105,8 @@ class ReminderOut(BaseModel):
     limit: int | None = None
     # Documents not collected (package): how many required ones are still to collect.
     missing: int | None = None
+    # The passport's removal: the names of the fields that will go (no values).
+    passport_fields: list[str] | None = None
 
 
 class DismissIn(BaseModel):
@@ -616,6 +620,24 @@ async def _results(
             )
 
 
+async def _passport_purges(
+    session: AsyncSession, out: _Collector, timezone: str, contact_id: uuid.UUID | None
+) -> None:
+    """The passport goes soon (backlog 2.8): from two days before, or from the release day
+    for the first run, until it is removed or put off."""
+    for due in await passport_purge.dues(session, timezone, contact_id):
+        if due.notice_on <= out.today:
+            out.add(
+                ReminderKind.PASSPORT_PURGE,
+                None,
+                due.notice_on,
+                due.purge_on,
+                contact_id=due.contact_id,
+                contact_name=due.contact_name,
+                passport_fields=due.fields,
+            )
+
+
 async def _registrars(session: AsyncSession, out: _Collector) -> None:
     for r in await ledger_summaries(session):
         if r.low and r.is_active:
@@ -685,6 +707,7 @@ async def collect(
         await _contracts(session, out, s, contact_id, tenant.timezone)
         await _questionnaires(session, out, s, contact_id)
         await _results(session, out, s, contact_id)
+        await _passport_purges(session, out, tenant.timezone, contact_id)
         if "package_check" in modules:
             await _packages(session, out, s, contact_id)
         if money:
@@ -762,3 +785,66 @@ async def put_settings(body: SettingsIO, user: Specialist, session: TenantSessio
     record(session, AuditAction.REMINDER_SETTINGS_UPDATED, actor=user)
     await session.commit()
     return _settings_out(settings_of(tenant))
+
+
+# --- The passport after the decision (backlog 2.8) -----------------------------------
+
+
+class PostponedOut(BaseModel):
+    purge_on: date
+
+
+Cases = Annotated[CurrentUser, Depends(require_module("cases"))]
+
+
+async def _due(
+    session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID
+) -> tuple[Contact, passport_purge.Due, date]:
+    """The client and their removal day; 404 for a client the user does not see, 409 while
+    nothing is to be removed (a case in work, no decision, no passport data)."""
+    if await session.scalar(select(Contact.id).where(Contact.id == contact_id)) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    tenant = await session.get(Tenant, user.tenant_id)
+    assert tenant is not None
+    locked = await passport_purge.locked_due(session, tenant.timezone, contact_id)
+    if locked is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "passport_purge_not_due")
+    contact, due = locked
+    return contact, due, await workspace_today(session, tenant.id)
+
+
+@router.post("/reminders/passport/{contact_id}/postpone")
+async def postpone_passport_purge(
+    contact_id: uuid.UUID, user: Cases, session: TenantSession
+) -> PostponedOut:
+    """«Отложить на 30 дней»: again and again if need be (an appeal)."""
+    contact, due, today = await _due(session, user, contact_id)
+    until = passport_purge.postponed_until(due.purge_on, today)
+    contact.passport_kept_until = until
+    contact.passport_notice_from = None
+    record(
+        session,
+        AuditAction.PASSPORT_PURGE_POSTPONED,
+        actor=user,
+        target_type="contact",
+        target_id=contact.id,
+        details={"until": until.isoformat()},
+    )
+    await session.commit()
+    return PostponedOut(purge_on=until)
+
+
+@router.post("/reminders/passport/{contact_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+async def purge_passport_now(contact_id: uuid.UUID, user: Cases, session: TenantSession) -> None:
+    """«Удалить сейчас»: the same removal as the daily run's, before its day."""
+    contact, _, _ = await _due(session, user, contact_id)
+    fields = await passport_purge.purge_contact(session, contact)
+    record(
+        session,
+        AuditAction.PASSPORT_PURGED_MANUALLY,
+        actor=user,
+        target_type="contact",
+        target_id=contact.id,
+        details={"fields": fields},
+    )
+    await session.commit()

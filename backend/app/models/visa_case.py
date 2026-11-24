@@ -183,6 +183,9 @@ class VisaCase(Base):
     visa_valid_to: Mapped[date | None] = mapped_column(Date)
     stay_days: Mapped[int | None] = mapped_column(SmallInteger)
     after_appeal: Mapped[bool] = mapped_column(server_default=text("false"))
+    # When the result or its date was last entered in the CRM: set by a trigger
+    # (migration 0046); the passport is removed counting from it (app/core/passport_purge.py).
+    decision_entered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
