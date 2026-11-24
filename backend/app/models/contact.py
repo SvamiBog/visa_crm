@@ -114,6 +114,11 @@ class Contact(Base):
     contract_signed_on: Mapped[date | None] = mapped_column(Date)
     # Consultation questionnaire answers and the passport (app/core/questionnaire.py).
     questionnaire: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    # The passport is removed a week after the decision (app/core/passport_purge.py), not
+    # before this day: «Отложить» or the first run after the release.
+    passport_kept_until: Mapped[date | None] = mapped_column(Date)
+    # The first run only: its list shows from the release day, not two days before.
+    passport_notice_from: Mapped[date | None] = mapped_column(Date)
     created_by: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

@@ -31,6 +31,7 @@ from app.core.crypto import generate_master_key, master_keys
 from app.core.db import get_engine, get_sessionmaker, scope_to_system, wait_for_database
 from app.core.demo import DemoRefused, DemoSettings, already_seeded, check_settings, seed
 from app.core.error_reports import send_test_report
+from app.core.passport_purge import purge_due
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
 from app.core.storage import StorageFailed
 from app.core.two_factor import reset_two_factor, upgrade_legacy_recovery_codes
@@ -164,6 +165,12 @@ async def upgrade_recovery_codes() -> int:
     return count
 
 
+async def purge_passports() -> int:
+    removed = await purge_due()
+    await get_engine().dispose()
+    return removed
+
+
 async def seed_demo(specialists: int, clients: int) -> str:
     settings = get_settings()
     check_settings(settings.env, settings.demo_password, settings.demo_totp_secret)
@@ -201,6 +208,9 @@ def main() -> None:
     rekey.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     commands.add_parser(
         "upgrade-recovery-codes", help="keep recovery codes made before S16 as HMAC"
+    )
+    commands.add_parser(
+        "purge-passports", help="remove the passport data due after the decision now"
     )
     reset = commands.add_parser("reset-two-factor", help="turn off 2FA for a user")
     reset.add_argument("email")
@@ -247,6 +257,8 @@ def main() -> None:
             sys.exit(f"Stopped by {type(error).__name__}; run the command again to go on")
     elif args.command == "upgrade-recovery-codes":
         print(f"Kept {asyncio.run(upgrade_recovery_codes())} recovery codes as HMAC")
+    elif args.command == "purge-passports":
+        print(f"Passport data removed for {asyncio.run(purge_passports())} clients")
     elif args.command == "seed-demo":
         try:
             print(asyncio.run(seed_demo(args.specialists, args.clients)))
