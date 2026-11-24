@@ -17,6 +17,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import Base64Bytes, BaseModel, Field
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, SystemSession, TenantSession, require_module
@@ -220,7 +221,14 @@ async def add_document(
         await _remove_object(document, "refused")
         raise
     session.add(document)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        # The card was deleted as a duplicate while the file was on its way (it had no
+        # file, so it could be): no row will refer to the object, so it goes too.
+        await session.rollback()
+        await _remove_object(document, "orphaned")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found") from error
     _audit(session, AuditAction.CONTACT_DOCUMENT_ADDED, user, document)
     await session.commit()
     await session.refresh(document)

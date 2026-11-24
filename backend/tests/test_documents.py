@@ -222,6 +222,30 @@ async def test_unknown_contact_or_document(client: AsyncClient, make_user: MakeU
     assert (await client.delete(missing)).status_code == 404
 
 
+async def test_a_file_for_a_card_deleted_meanwhile_leaves_no_object(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The card is deleted as a duplicate while its first file is on its way to the
+    storage (without a file it could be): the upload says the card is gone and takes the
+    object back, so nothing is left in the storage that no row refers to."""
+    await as_specialist(client, make_user)
+    anna = await contact(client)
+
+    async def put_while_the_card_goes(key: str, data: bytes) -> None:
+        await storage.put_object(key, data)
+        async with owner_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM contacts WHERE id = :c"), {"c": anna})
+
+    monkeypatch.setattr(documents_api, "put_object", put_while_the_card_goes)
+    response = await upload(client, anna)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "not_found"
+    assert storage.MEMORY == {}
+
+
 # --- Quotas (backlog S12) --------------------------------------------------------------
 
 

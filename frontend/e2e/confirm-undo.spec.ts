@@ -100,7 +100,7 @@ for (const lang of ["ru", "en"] as const) {
         expect((await page.request.get(`/api/contacts/${contactId}`)).status()).toBe(200);
 
         await button.click();
-        await ask.getByRole("button", { name: t("confirm.delete"), exact: true }).click();
+        await ask.getByRole("button", { name: t("contacts.deleteCard"), exact: true }).click();
         await expect(page).toHaveURL(/\/app\/clients$/);
         expect((await page.request.get(`/api/contacts/${contactId}`)).status()).toBe(404);
         contactId = "";

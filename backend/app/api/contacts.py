@@ -39,7 +39,7 @@ from app.core.db import BIGINT_MAX
 from app.core.employee_limits import LimitKind, watch
 from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
 from app.core.phone import normalize_phone, phone_search_digits
-from app.core.questionnaire import Passport, Questionnaire
+from app.core.questionnaire import Passport, Questionnaire, has_answers, has_passport
 from app.models import (
     AuditAction,
     CaseStage,
@@ -671,14 +671,57 @@ async def update_contact(
     return ContactOut.model_validate(contact)
 
 
+class ContactDeletion(BaseModel):
+    """What the confirmation names before a card is deleted (pilot remark 1.15.13)."""
+
+    # Client history keeps the card: the deletion would be refused.
+    has_history: bool
+    # Unpaid ones: a paid consultation is history.
+    consultations: int
+    notes: int
+    # Kept on the card itself: the passport's data page and the questionnaire answers.
+    passport: bool
+    questionnaire: bool
+
+
+async def _deletable(session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID) -> Contact:
+    """Another workspace's card is not found; an employee may not delete one."""
+    contact = await _contact(session, contact_id)
+    if user.role != UserRole.SPECIALIST:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+    return contact
+
+
+@router.get("/{contact_id}/deletion")
+async def contact_deletion(
+    contact_id: uuid.UUID, user: Member, session: TenantSession
+) -> ContactDeletion:
+    """What goes with the card, for the question before it is deleted."""
+    contact = await _deletable(session, user, contact_id)
+
+    async def count(model: Any) -> int:
+        return await session.scalar(select(func.count()).where(model.contact_id == contact.id)) or 0
+
+    questionnaire = Questionnaire.model_validate(contact.questionnaire)
+    return ContactDeletion(
+        has_history=await _has_history(session, contact.id),
+        consultations=await count(Consultation),
+        notes=await count(ContactNote),
+        passport=has_passport(questionnaire),
+        questionnaire=has_answers(questionnaire),
+    )
+
+
 @router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contact(contact_id: uuid.UUID, user: Member, session: TenantSession) -> Response:
     """A card made by mistake — a duplicate (owner's decision 2026-11-04). The specialist
     only; a card with client history stays (deleting a client's data on request is
     roadmap 6.6). Notes, links and unpaid consultations go with it by the foreign keys."""
-    contact = await _contact(session, contact_id)
-    if user.role != UserRole.SPECIALIST:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+    contact = await _deletable(session, user, contact_id)
+    # Locked to the commit: a row of history being saved for the card right now (a case,
+    # a file, an account, a trip, a template) is waited for and seen below instead of
+    # going with the card unseen, and one saved later finds the card gone.
+    await session.execute(select(Contact.id).where(Contact.id == contact.id).with_for_update())
     if await _has_history(session, contact.id):
         raise HTTPException(status.HTTP_409_CONFLICT, "contact_has_history")
     await session.execute(delete(Contact).where(Contact.id == contact.id))
