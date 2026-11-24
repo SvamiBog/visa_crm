@@ -1,5 +1,5 @@
-"""Which address the audit log and the login limit take for a client (backlog S17, audit
-N1 and N2), with the app served the way start.sh has uvicorn serve it on Railway."""
+"""Which address the audit log and the login limit take for a client (backlog S17 and S22,
+audit N1 and N2), with the app served the way start.sh has uvicorn serve it on Railway."""
 
 import logging
 import shlex
@@ -25,9 +25,10 @@ from tests.test_auth import PASSWORD_FORMS
 START_SH = Path(__file__).resolve().parents[1] / "start.sh"
 ANNA = "anna@example.com"
 EDGE = "100.64.0.9"  # Railway's proxy, as the app's connection shows it
-REAL = "198.51.100.20"  # the client, as the proxy saw it
+NODE = "192.0.2.33"  # a Railway node, which adds itself last to X-Forwarded-For
+REAL = "198.51.100.20"  # the client, as Railway's edge saw it
 OTHER = "198.51.100.21"
-FAKE = "203.0.113.7"  # what the client wrote in its own X-Forwarded-For
+FAKE = "203.0.113.7"  # what a client writes in headers of its own
 
 
 def served_like_start_sh(app: ASGIApp) -> ASGIApp:
@@ -53,16 +54,22 @@ async def edge(client: AsyncClient) -> AsyncIterator[AsyncClient]:
         yield http
 
 
+def through_railway(client: str, forwarded: str | None = None) -> dict[str, str]:
+    """The headers a request of `client` reaches the app with on Railway (staging,
+    24.11.2026): the client first in X-Forwarded-For and a node of Railway's last, and the
+    client in X-Real-IP."""
+    return {"X-Real-IP": client, "X-Forwarded-For": forwarded or f"{client}, {NODE}"}
+
+
 async def sign_in(
     http: AsyncClient,
-    forwarded: str | None = None,
+    headers: dict[str, str] | None = None,
     *,
     email: str = ANNA,
     password: str = "wrong-password",
 ) -> Response:
-    headers = {"X-Forwarded-For": forwarded} if forwarded is not None else {}
     body = {"email": email, "password": password}
-    return await http.post("/api/auth/login", json=body, headers=headers)
+    return await http.post("/api/auth/login", json=body, headers=headers or {})
 
 
 async def logged_ips(owner_engine: AsyncEngine, action: AuditAction) -> list[str | None]:
@@ -81,40 +88,31 @@ async def misses(owner_engine: AsyncEngine, email: str = ANNA) -> int:
         )
 
 
-async def test_behind_the_proxy_the_log_takes_the_address_the_proxy_added(
+async def test_behind_railway_the_log_takes_the_client_not_the_node(
     edge: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
-    # The client may send an X-Forwarded-For of its own: the last entry is the one
-    # Railway's proxy wrote (audit N1).
+    # The last entry of X-Forwarded-For is Railway's own node (audit_events on staging got
+    # it with the code of S17), and what the client sends itself proves nothing (N1).
     await make_user(ANNA, two_factor=False)
-    assert (await sign_in(edge, f"{FAKE}, {REAL}")).status_code == 401
-    assert (await sign_in(edge, f"{FAKE}, {REAL}", password=PASSWORD)).status_code == 200
+    assert (await sign_in(edge, through_railway(REAL))).status_code == 401
+    sent = through_railway(REAL, f"{FAKE}, {REAL}, {NODE}")
+    assert (await sign_in(edge, sent, password=PASSWORD)).status_code == 200
 
     assert await logged_ips(owner_engine, AuditAction.LOGIN_FAILED) == [REAL]
     assert await logged_ips(owner_engine, AuditAction.LOGIN) == [REAL]
 
 
-async def test_the_login_limit_counts_the_address_the_proxy_added(
+async def test_a_client_guessing_does_not_pause_others_behind_the_same_node(
     edge: AsyncClient, make_user: MakeUser
 ):
-    # A new first entry on every try does not make a new client.
+    # Every request comes from the same node of Railway's: the limit counts the client.
     await make_user(ANNA, two_factor=False)
     for n in range(MAX_CLIENT_FAILURES):
-        guess = await sign_in(edge, f"203.0.113.{n}, {REAL}", email=f"guess-{n}@example.com")
-        assert guess.status_code == 401
-    paused = await sign_in(edge, f"203.0.113.250, {REAL}", password=PASSWORD)
-    assert paused.status_code == 429
+        sent = through_railway(REAL, f"203.0.113.{n}, {REAL}, {NODE}")
+        assert (await sign_in(edge, sent, email=f"guess-{n}@example.com")).status_code == 401
+    assert (await sign_in(edge, through_railway(REAL), password=PASSWORD)).status_code == 429
 
-    # Someone else behind the same proxy is not paused.
-    assert (await sign_in(edge, f"203.0.113.250, {OTHER}", password=PASSWORD)).status_code == 200
-
-
-async def test_a_single_forwarded_address_is_the_client(
-    edge: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
-):
-    await make_user(ANNA, two_factor=False)
-    assert (await sign_in(edge, REAL)).status_code == 401
-    assert await logged_ips(owner_engine, AuditAction.LOGIN_FAILED) == [REAL]
+    assert (await sign_in(edge, through_railway(OTHER), password=PASSWORD)).status_code == 200
 
 
 async def test_without_a_proxy_the_connection_is_the_client(
@@ -128,17 +126,18 @@ async def test_without_a_proxy_the_connection_is_the_client(
 
 
 @pytest.mark.parametrize(
-    "forwarded",
-    ["a" * 46, "not-an-address", f"{REAL}, nonsense"],
-    ids=["too long", "not an address", "last entry not an address"],
+    "real_ip",
+    ["a" * 46, "not-an-address", f"{REAL}, {FAKE}"],
+    ids=["too long", "not an address", "two addresses"],
 )
-async def test_a_forwarded_value_that_is_not_an_address_is_not_recorded(
-    edge: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, forwarded: str
+async def test_an_x_real_ip_that_is_not_an_address_is_not_recorded(
+    edge: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, real_ip: str
 ):
-    # Checked before it is written: the login neither fails on it nor loses its miss,
-    # and the log keeps no made-up address (audit N2).
+    # Checked before it is written: the login neither fails on it nor loses its miss, the
+    # log keeps no made-up address and takes no entry of X-Forwarded-For instead (N2).
     await make_user(ANNA, two_factor=False)
-    assert (await sign_in(edge, forwarded)).status_code == 401
+    sent = {"X-Real-IP": real_ip, "X-Forwarded-For": f"{REAL}, {NODE}"}
+    assert (await sign_in(edge, sent)).status_code == 401
     assert await logged_ips(owner_engine, AuditAction.LOGIN_FAILED) == [None]
     assert await misses(owner_engine) == 1
 

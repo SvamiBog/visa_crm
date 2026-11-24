@@ -118,11 +118,11 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def remember_client_ip(request: Request, call_next) -> Response:
-        # The audit log and the login limit take the client's address from the entry
-        # Railway's proxy adds to X-Forwarded-For, checked to be an address. uvicorn
-        # reads no proxy header (start.sh): it would take the first entry, the client's.
+        # The audit log and the login limit take the client's address from the X-Real-IP
+        # that Railway's edge writes, checked to be an address. uvicorn reads no proxy
+        # header (start.sh): it would trust X-Forwarded-For, which anybody can write.
         peer = request.client.host if request.client else None
-        address = client_address(request.headers.getlist("x-forwarded-for"), peer)
+        address = client_address(request.headers, peer)
         token = client_ip.set(address)
         try:
             return await call_next(request)
