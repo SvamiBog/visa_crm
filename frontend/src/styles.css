@@ -1418,8 +1418,11 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   min-width: 0;
 }
 
+/* The field's own column is the field's width: content that cannot narrow (a row of an
+   input and a button) stays inside it, not over the next field. */
 .form-grid > .field {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: subgrid;
   row-gap: 4px;
   align-items: start;
@@ -2869,15 +2872,24 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   margin-bottom: 16px;
 }
 
-/* An input with a button beside it (e.g. «Сгенерировать») */
+/* An input with a button beside it («Сгенерировать», «Добавить город»). The input keeps
+   room for a dozen characters; in a column narrower than that plus the button, the
+   button goes under the input and takes its width, instead of running into the next
+   column under its field (backlog 1.15.10, frontend/e2e/buttons.spec.ts). */
 .input-action {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .input-action input {
-  flex: 1;
+  /* Nearly all the row's spare width goes to the input, not to the button */
+  flex: 999 1 10em;
   min-width: 0;
+}
+
+.input-action .btn {
+  flex: 1 0 auto;
 }
 
 /* Bookings of a case and the deadlines view; the documents of a case (package check) */
