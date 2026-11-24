@@ -14,20 +14,21 @@
 - **Где работает.** Сервис `backup` в окружении `production` на Railway, запускается по расписанию. Код — `ops/backup/`:
   - `backup.sh` — сам бэкап;
   - `restore.sh` — восстановление;
-  - `Dockerfile` — образ на основе `postgres` нужной версии с `age` и `rclone`.
+  - `Dockerfile` — образ на основе `postgres` нужной версии с `age` и `rclone` (rclone 1.74 из его официального образа: в Debian версия старая и не умеет ставить блокировку).
 - **Шифрование.** Копия базы шифруется [age](https://age-encryption.org) открытым ключом. Закрытый ключ есть только у владельца, в Railway его нет. Даже с доступом к Railway и к B2 копию не прочитать.
   - Файлы клиентов и так зашифрованы ключом визовика (`backend/app/core/documents.py`) и копируются как есть.
   - Незашифрованное на диск не пишется.
-- **Защита от удаления.** Бакет в B2 создаётся с блокировкой удаления (Object Lock): 30 дней копию не может удалить никто, даже владелец ключей.
+- **Защита от удаления.** Бакет в B2 создаётся с блокировкой удаления (Object Lock) в режиме Compliance: каждый новый файл 30 дней не может удалить никто, даже владелец аккаунта. Ежемесячная копия живёт год, поэтому при загрузке получает свою блокировку Compliance на 366 дней.
+- **Ключи.** У сервиса `backup` два ключа B2, каждый только для своей папки. `railway-backup-db` пишет копии базы в `db/` и ставит им блокировку, `railway-backup-files` ведёт зеркало файлов в `files/`. Ни один из них не может удалить сохранённую версию файла, сократить блокировку или поменять настройки бакета. Тот, кто прочитает переменные сервиса в Railway, копии не уничтожит. Самое большее он скроет файлы, а скрытое B2 удаляет только через 30 дней (копии базы — не раньше, чем кончится их блокировка). За это время можно заметить и вернуть их (раздел 4).
 - **Сроки хранения** задают правила жизненного цикла бакета:
 
-  | Что | Папка | Срок |
-  | --- | --- | --- |
-  | ежедневные копии | `db/daily/` | 30 дней |
-  | ежемесячные копии (за 1-е число) | `db/monthly/` | 12 месяцев |
-  | файлы, удалённые в CRM | `files/` | 30 дней после удаления |
+  | Что | Папка | Срок | Блокировка |
+  | --- | --- | --- | --- |
+  | ежедневные копии | `db/daily/` | 30 дней | 30 дней, весь срок |
+  | ежемесячные копии (за 1-е число) | `db/monthly/` | 12 месяцев | 366 дней, весь срок |
+  | файлы, удалённые в CRM | `files/` | 30 дней после удаления | 30 дней после загрузки |
 
-- **Проверка.** На каждом PR задание CI `backup` проходит весь путь на демо-данных: бэкап → проверка, что копия зашифрована → восстановление в отдельный Postgres без сети → сверка каждой таблицы по содержимому, плюс RLS, политики, права и триггеры. Ещё оно проверяет, что в восстановленной базе нет сессий входа, что `restore.sh` не берёт подброшенные в бакет копии и не принимает пароль базы в адресе. Раз в месяц владелец проверяет настоящую копию (раздел 5).
+- **Проверка.** На каждом PR задание CI `backup` проходит весь путь на демо-данных: бэкап → проверка, что копия зашифрована → восстановление в отдельный Postgres без сети → сверка каждой таблицы по содержимому, плюс RLS, политики, права и триггеры. Ещё оно проверяет, что в восстановленной базе нет сессий входа, что `restore.sh` не берёт подброшенные в бакет копии и не принимает пароль базы в адресе. Тестовый S3 там устроен как бакет B2: с версиями, блокировкой и ключами с правами из раздела 2. Задание проверяет, что ежемесячная копия заблокирована на год и её не удаляет даже владелец, что ключи сервиса пишут только в свою папку и не удаляют версии, а файл, удалённый в CRM, остаётся в зеркале скрытой версией. Раз в месяц владелец проверяет настоящую копию (раздел 5).
 - **Цена.** В B2 первые 10 ГБ бесплатно, дальше $6,95 за ТБ в месяц. Сервис cron работает минуту в сутки и укладывается в использование, которое входит в Pro.
 
 ## 1. Ключ шифрования
@@ -60,7 +61,7 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
    - Default Encryption — Enable;
    - **Object Lock — Enable.** Включите сразу: выключить его потом нельзя;
    - имя, например `visacrm-backup-<что-то своё>`: имена бакетов общие для всех клиентов B2.
-3. **Блокировка удаления.** В списке бакетов нажмите у бакета **Object Lock: Enabled**, укажите срок **30** дней и нажмите **Save changes**. Срок действует для файлов, загруженных после сохранения, поэтому задайте его до первого запуска бэкапа.
+3. **Блокировка удаления.** В списке бакетов нажмите у бакета **Object Lock: Enabled**, укажите срок **30** дней и нажмите **Save changes**. Срок действует для файлов, загруженных после сохранения, поэтому задайте его до первого запуска бэкапа. B2 ставит такую блокировку в режиме Compliance: в сведениях о файле видно «Object Lock: Compliance Mode». Сократить или снять её не может никто, ни один ключ, ни сам владелец.
 4. **Сроки хранения.** **Lifecycle Settings** → **Use custom lifecycle rules**, три правила. Каждое — со своим **File Path**, поле дней, которого нет в таблице, оставьте пустым. Сохраните кнопкой **Update Bucket**. Правило с пустым File Path действует на весь бакет — такого не делайте.
 
    | File Path | Days from uploading to hiding | Days from hiding to deleting |
@@ -69,16 +70,35 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
    | `db/monthly/` | 365 | 1 |
    | `files/` | — | 30 |
 
-5. **Ключ для бэкапа.** **Application Keys** → **Add a New Application Key**:
-   - Name of Key — `railway-backup`;
-   - Allow access to Bucket(s) — только этот бакет;
-   - Type of Access — **Read and Write** (удаление нужно зеркалу файлов; заблокированные копии этот ключ всё равно удалить не может);
-   - **Allow List All Bucket Names** — отметьте: без неё ключ одного бакета получает ошибку авторизации на части запросов S3;
-   - File name prefix и Duration — пусто.
+5. **Ключи для бэкапа.** Два ключа, каждый для своей папки и без права удалять. В веб-интерфейсе B2 такие не создать: там только готовые наборы прав, и Read and Write даёт ключу ещё удаление, обход блокировки Governance, ссылки на файлы и смену настроек бакета. Поэтому ключи создаются утилитой B2 CLI на своём компьютере.
+   1. Установите B2 CLI версии 4.1 или новее: `pip install b2` (нужен Python 3.9+) или файл `b2-windows.exe` со страницы выпусков [B2_Command_Line_Tool](https://github.com/Backblaze/B2_Command_Line_Tool/releases).
+   2. Войдите мастер-ключом аккаунта: `b2 account authorize`, программа спросит `keyID` и сам ключ. Мастер-ключ — в B2 → **Application Keys** → **Master Application Key**. Если его нет под рукой, сгенерируйте новый. Прежний мастер-ключ при этом перестанет работать, через S3 он и так не нужен.
+   3. Создайте ключи, подставив имя бакета:
 
-   Сохраните `keyID` и `applicationKey`: второй показывается один раз.
-6. **Ключ для восстановления.** Второй ключ, `restore`: тот же бакет, тип **Read Only**, та же галочка. Его храните рядом с закрытым ключом age, в Railway он не нужен.
-7. **Адрес бакета.** На странице бакета указан **Endpoint**, например `s3.eu-central-003.backblazeb2.com`; его средняя часть — регион (`eu-central-003`).
+      ```bash
+      b2 key create --bucket visacrm-backup-<…> --name-prefix db/ railway-backup-db listBuckets,listAllBucketNames,readBuckets,listFiles,readFiles,writeFiles,readFileRetentions,writeFileRetentions
+      b2 key create --bucket visacrm-backup-<…> --name-prefix files/ railway-backup-files listBuckets,listAllBucketNames,readBuckets,listFiles,readFiles,writeFiles
+      ```
+
+      Каждая команда печатает две строки: `keyID` и сам ключ (`applicationKey`). Ключ показывается один раз: сразу сохраните обе строки в менеджере паролей.
+   4. Проверьте: `b2 key list --long`. У каждого ключа должны быть ровно эти права и свой префикс (`db/` или `files/`).
+   5. Выйдите: `b2 account clear`. Так мастер-ключ не останется на компьютере.
+
+   Зачем каждое право:
+
+   | Право | Зачем |
+   | --- | --- |
+   | `listBuckets`, `listAllBucketNames`, `readBuckets` | найти бакет через S3. Без `listAllBucketNames` ключ одного бакета получает ошибку авторизации на части запросов |
+   | `listFiles`, `readFiles` | rclone перед загрузкой смотрит, нет ли уже такого файла, а зеркалу нужен список файлов. Копии зашифрованы, без закрытого ключа age их не прочитать |
+   | `writeFiles` | загрузка. В `files/` ещё скрытие файлов, удалённых в CRM: скрытый файл B2 удалит через 30 дней по правилу из шага 4 |
+   | `writeFileRetentions`, `readFileRetentions` | только у `railway-backup-db`: блокировка ежемесячной копии на 366 дней |
+
+   Каких прав нет и почему: `deleteFiles` удаляет сохранённые версии, `bypassGovernance` снимает блокировку Governance, `shareFiles` даёт ссылки на скачивание, права `write…Bucket…` меняют блокировку по умолчанию, правила хранения и другие настройки бакета.
+
+   Что остаётся. С `writeFileRetentions` ключ `railway-backup-db` может заблокировать надолго любой файл в `db/`: блокировку Compliance можно только продлить. Кто украдёт этот ключ, может забить бакет мусором, который нельзя будет удалить. От счёта за это — лимит из шага 7.
+6. **Ключ для восстановления.** Третий ключ, `restore`, создаётся в веб-интерфейсе: тот же бакет, тип **Read Only**, галочка **Allow List All Bucket Names**, без префикса. Его храните рядом с закрытым ключом age, в Railway он не нужен. В `b2 key list --long` у него должны быть только права `list…` и `read…` (и, может быть, `shareFiles`): никаких `write…`, `deleteFiles` и `bypassGovernance`.
+7. **Лимит расходов.** B2 → **Caps & Alerts**: поставьте дневной лимит на хранение (Storage Cap) с запасом выше нынешнего и включите письма о приближении к нему. Когда лимит достигнут, B2 перестаёт принимать файлы: запуск бэкапа становится красным, и это видно сразу.
+8. **Адрес бакета.** На странице бакета указан **Endpoint**, например `s3.eu-central-003.backblazeb2.com`; его средняя часть — регион (`eu-central-003`).
 
 ## 3. Сервис `backup` в Railway
 
@@ -104,16 +124,19 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
    BACKUP_S3_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
    BACKUP_S3_REGION=eu-central-003
    BACKUP_S3_BUCKET=<имя бакета>
-   BACKUP_S3_ACCESS_KEY=<keyID ключа Read and Write>
-   BACKUP_S3_SECRET_KEY=<applicationKey этого ключа>
+   BACKUP_S3_DB_ACCESS_KEY=<keyID ключа railway-backup-db>
+   BACKUP_S3_DB_SECRET_KEY=<applicationKey этого ключа>
+   BACKUP_S3_FILES_ACCESS_KEY=<keyID ключа railway-backup-files>
+   BACKUP_S3_FILES_SECRET_KEY=<applicationKey этого ключа>
    BACKUP_AGE_RECIPIENT=age1…
    ```
 
    - `Postgres` и `Files` — имена сервиса базы и бакета, как в deploy.md.
-   - Если бакета файлов ещё нет, вместо `S3_*` поставьте `BACKUP_FILES=off`. Когда бакет появится, верните `S3_*` и уберите `BACKUP_FILES`.
+   - `BACKUP_S3_ACCESS_KEY` и `BACKUP_S3_SECRET_KEY` у сервиса быть не должно. Это переменные старого ключа с полными правами: с ними копия делается, но запуск заканчивается ошибкой (раздел 6).
+   - Если бакета файлов ещё нет, вместо `S3_*` поставьте `BACKUP_FILES=off`, тогда и `BACKUP_S3_FILES_*` не нужны. Когда бакет появится, верните `S3_*`, добавьте `BACKUP_S3_FILES_*` и уберите `BACKUP_FILES`.
    - `PG_MAJOR=<версия>` — только если на шаге 1 вышла не 18.
    - `BACKUP_HEARTBEAT_URL` — по желанию: адрес сервиса-наблюдателя (например, healthchecks.io). Скрипт обращается к нему после каждой успешной копии, и наблюдатель пишет вам, если копии перестали приходить.
-5. **Первый запуск.** **Deploy**. В логах должно быть `backup: db/daily/visacrm-….dump.age, N bytes` и `backup: files mirrored, …`. В B2 в бакете появятся `db/daily/` и `files/`. Если запуск красный, причина — в последних строках лога: `… is not set`, ошибка `pg_dump` или `rclone`.
+5. **Первый запуск.** **Deploy**. В логах должно быть `backup: db/daily/visacrm-….dump.age, N bytes` и `backup: files mirrored, …`, а 1-го числа ещё `backup: db/monthly/…, locked until <дата через 366 дней>`. В B2 в бакете появятся `db/daily/` и `files/`. Если запуск красный, причина — в последних строках лога: `… is not set`, ошибка `pg_dump` или `rclone`, `still holds BACKUP_S3_ACCESS_KEY` (раздел 6).
 
 ## 4. Восстановление
 
@@ -155,13 +178,15 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 
    `restore.sh` восстанавливает только в пустую базу: если в ней уже есть таблицы, он откажется. Перезаписать живые данные он не может. Сессии входа из копии он удаляет: после восстановления все входят заново.
 
-   **Какие копии берёт `restore.sh`.** Ключ бэкапа лежит в Railway и может писать в бакет, поэтому `restore.sh` берёт только копии, похожие на сделанные `backup.sh`:
+   **Какие копии берёт `restore.sh`.** Ключ бэкапа `railway-backup-db` лежит в Railway и может писать в `db/`, поэтому `restore.sh` берёт только копии, похожие на сделанные `backup.sh`:
    - имя вида `visacrm-20261101T010000Z.dump.age`;
    - время в имени не в будущем;
    - B2 принял файл в течение 6 часов после этого времени (по часам B2);
    - у файла одна версия.
 
-   `latest` — самая новая такая копия в `db/daily/`. Остальные файлы он пропускает и пишет `restore: skipped …` с причиной. Копию с двумя версиями (под её именем загрузили другой файл) он не восстанавливает ни через `latest`, ни по имени. Такие строки почти наверняка значат, что в бакет писал кто-то чужой. Восстановите более раннюю копию по имени. Потом смените ключ `railway-backup` в B2 и проверьте, у кого есть доступ к переменным сервиса `backup` в Railway.
+   `latest` — самая новая такая копия в `db/daily/`. Остальные файлы он пропускает и пишет `restore: skipped …` с причиной. Копию с двумя версиями (под её именем загрузили другой файл) он не восстанавливает ни через `latest`, ни по имени. Такие строки почти наверняка значат, что в бакет писал кто-то чужой. Восстановите более раннюю копию по имени. Потом замените оба ключа сервиса (раздел 2, шаг 5: удалите их `b2 key delete <keyID>` и создайте заново) и проверьте, у кого есть доступ к переменным сервиса `backup` в Railway.
+
+   **Копии пропали.** Если `restore.sh` пишет, что копий нет, а в B2 они видны при показе скрытых файлов, их скрыл кто-то с ключом из Railway. Удалить их он не мог: копия цела, пока не кончилась её блокировка (у ежедневной — 30 дней от загрузки, у ежемесячной — 366). Верните нужную копию B2 CLI под мастер-ключом: `b2 file unhide b2://<имя бакета>/db/daily/<имя копии>` (синтаксис — `b2 file unhide --help`). Ключи замените, как сказано выше.
 4. **Отзывы доступа.** До переключения сделайте шаги из «Отзывы доступа после копии» ниже. Время копии `restore.sh` печатает в последней строке.
 5. **Переключение.** Веб-сервису поставьте `DATABASE_URL` на новую базу. `VAULT_MASTER_KEY` нужен тот же, что был в production. Выключите TCP Proxy, удалите ключ age из папки `keys` и пароль из `restore.env`.
 
@@ -261,3 +286,75 @@ docker run --rm -v ~/visacrm-keys:/out --entrypoint age-keygen visacrm-backup -o
 | Дата | Копия | Результат |
 | --- | --- | --- |
 | 2026-10-26 | `daily/visacrm-20261026T010124Z.dump.age` | Восстановлена в пустую базу Postgres 18 (`docker compose`); число визовиков, клиентов и кейсов совпало с production |
+
+## 6. Ключи с наименьшими правами: проверка и замена
+
+До задачи S21 у сервиса `backup` был один ключ `railway-backup` типа Read and Write. С ним можно было навсегда удалить ежемесячные копии и документы в зеркале, как только кончались их 30 дней блокировки, обойти блокировку Governance, а ещё сократить блокировку по умолчанию и правила хранения для новых копий. Теперь у сервиса два ключа из раздела 2, шаг 5. Сначала они проверяются на отдельном тестовом бакете, потом заменяют старый ключ в production.
+
+### Проверка на тестовом бакете
+
+Production-бакет, его ключи и Railway в проверке не участвуют. Нужны Docker, запущенный `docker compose` (из его базы делается копия для проверки) и B2 CLI из раздела 2. Команды — из папки репозитория. В PowerShell `~/visacrm-keys` пишется как `"$HOME\visacrm-keys\…"`.
+
+1. **Тестовый бакет.** Как в разделе 2, шаги 2–3, но с именем `visacrm-backup-test-<что-то своё>` и блокировкой на **1** день. Правила жизненного цикла не нужны.
+2. **Тестовые ключи.** Как в разделе 2, шаг 5, но с `--bucket` тестового бакета и именами `test-backup-db` и `test-backup-files`.
+3. **Настройки** — три файла в `~/visacrm-keys`, вне репозитория. `s21-backup.env`:
+
+   ```
+   DATABASE_URL=postgresql://visacrm@db:5432/visacrm
+   PGPASSWORD=visacrm
+   BACKUP_AGE_RECIPIENT=age1…
+   BACKUP_S3_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
+   BACKUP_S3_REGION=eu-central-003
+   BACKUP_S3_BUCKET=visacrm-backup-test-<…>
+   BACKUP_S3_DB_ACCESS_KEY=<keyID ключа test-backup-db>
+   BACKUP_S3_DB_SECRET_KEY=<applicationKey этого ключа>
+   BACKUP_FILES=off
+   BACKUP_MONTHLY=always
+   BACKUP_MONTHLY_LOCK_DAYS=2
+   ```
+
+   `PGPASSWORD` здесь — пароль локальной базы из `docker-compose.yml`, `BACKUP_AGE_RECIPIENT` — открытый ключ из раздела 1. Ещё `s21-db.env` и `s21-files.env`, в каждом по пять строк: `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION` и `BACKUP_S3_BUCKET` как выше, а `BACKUP_S3_ACCESS_KEY` и `BACKUP_S3_SECRET_KEY` — ключ `test-backup-db` или `test-backup-files`.
+4. **Бэкап с новым ключом.** Сеть — та, в которой работает `docker compose` (`docker network ls`, обычно `visa_crm_default`):
+
+   ```bash
+   docker build -t visacrm-backup ops/backup
+   docker run --rm --network visa_crm_default --env-file ~/visacrm-keys/s21-backup.env visacrm-backup
+   ```
+
+   В логе должны быть `backup: db/daily/…` и `backup: db/monthly/…, locked until <через 2 дня>`. В B2 в сведениях о файле `db/monthly/…` — «Object Lock: Compliance Mode» до этой даты, у `db/daily/…` — на день.
+5. **Зеркало скрывает, но не удаляет.** Ключ `test-backup-files` дважды синхронизирует папку: сначала два файла, потом один.
+
+   ```bash
+   docker run --rm --env-file ~/visacrm-keys/s21-files.env --entrypoint sh visacrm-backup -c '. /usr/local/bin/remotes.sh && mkdir /tmp/a /tmp/b && echo 1 > /tmp/a/one && echo 2 > /tmp/a/two && echo 1 > /tmp/b/one && rclone sync /tmp/a dest:$BACKUP_S3_BUCKET/files/ && rclone sync /tmp/b dest:$BACKUP_S3_BUCKET/files/ && rclone lsf --s3-versions dest:$BACKUP_S3_BUCKET/files/'
+   ```
+
+   В конце должно быть `one` и `two-v…`: файл `two` скрыт, его версия на месте. Если второй `rclone sync` отказал (`AccessDenied`, `unauthorized`), значит B2 требует для скрытия ещё право `deleteFiles`. Тогда production не переключайте и запишите вопрос в `docs/open-questions.md`: с `deleteFiles` у ключа зеркала документы в `files/` старше 30 дней снова можно удалить ключом из Railway.
+6. **Каждый ключ — только в своей папке.** Обе команды должны закончиться ошибкой доступа:
+
+   ```bash
+   docker run --rm --env-file ~/visacrm-keys/s21-db.env --entrypoint sh visacrm-backup -c '. /usr/local/bin/remotes.sh && echo x > /tmp/x && rclone copyto /tmp/x dest:$BACKUP_S3_BUCKET/files/x'
+   docker run --rm --env-file ~/visacrm-keys/s21-files.env --entrypoint sh visacrm-backup -c '. /usr/local/bin/remotes.sh && echo x > /tmp/x && rclone copyto /tmp/x dest:$BACKUP_S3_BUCKET/db/daily/x'
+   ```
+7. **Через 2 дня, когда блокировка кончится, ключи всё равно не удаляют.** Каждым ключом попробуйте удалить все версии в его папке:
+
+   ```bash
+   docker run --rm --env-file ~/visacrm-keys/s21-db.env --entrypoint sh visacrm-backup -c '. /usr/local/bin/remotes.sh; rclone delete --s3-versions dest:$BACKUP_S3_BUCKET/db/; rclone lsf -R --s3-versions dest:$BACKUP_S3_BUCKET/db/'
+   docker run --rm --env-file ~/visacrm-keys/s21-files.env --entrypoint sh visacrm-backup -c '. /usr/local/bin/remotes.sh; rclone delete --s3-versions dest:$BACKUP_S3_BUCKET/files/; rclone lsf -R --s3-versions dest:$BACKUP_S3_BUCKET/files/'
+   ```
+
+   Удаление версий должно закончиться ошибками доступа, а список в конце — показать все файлы. Файлы при этом могут стать скрытыми: это право `writeFiles`, их версии остаются. Если какая-то версия исчезла, у ключа есть право удалять: проверьте его в `b2 key list --long`.
+8. **Уборка.** Удалите тестовые ключи (`b2 key delete <keyID>`, потом `b2 account clear`), файлы `s21-*.env` и тестовый бакет вместе с файлами (веб-интерфейс, у бакета **Delete Bucket**).
+
+### Замена старого ключа в production
+
+Порядок такой, чтобы ни один ночной запуск не остался без копии: пока у сервиса есть старые переменные, `backup.sh` до S21 работает с ними, а после S21 берёт новые ключи.
+
+1. **B2.** Создайте `railway-backup-db` и `railway-backup-files` для production-бакета (раздел 2, шаг 5).
+2. **Railway**, сервис `backup` → **Variables**: добавьте `BACKUP_S3_DB_ACCESS_KEY`, `BACKUP_S3_DB_SECRET_KEY`, `BACKUP_S3_FILES_ACCESS_KEY` и `BACKUP_S3_FILES_SECRET_KEY`. Старые `BACKUP_S3_ACCESS_KEY` и `BACKUP_S3_SECRET_KEY` пока не трогайте.
+3. **Проверка новых ключей.** Когда в Railway выкатился код с S21, запустите сервис вручную (раздел 3, шаг 5). В логе должны быть `backup: db/daily/…` и `backup: files mirrored, …`, а последней строкой — `the copy is made, but the service still holds BACKUP_S3_ACCESS_KEY`. Запуск красный, и так и задумано: копия сделана новыми ключами, осталось убрать старый.
+4. **Railway.** Удалите у сервиса `BACKUP_S3_ACCESS_KEY` и `BACKUP_S3_SECRET_KEY` и запустите его ещё раз: теперь запуск зелёный.
+5. **B2.** Удалите старый ключ `railway-backup`: в веб-интерфейсе **Application Keys** → **Delete** у него, или `b2 key delete <keyID>` (keyID — в `b2 key list`).
+6. **B2.** Проверьте ключ `restore` (раздел 2, шаг 6) и поставьте лимит (шаг 7).
+7. **1-го числа** в логе будет `backup: db/monthly/…, locked until …`, а в B2 в сведениях о файле — «Object Lock: Compliance Mode» до этой даты.
+
+Ежемесячные копии, сделанные до замены, заблокированы только на 30 дней. Но после замены удалить их ключом из Railway уже нельзя: права `deleteFiles` нет ни у одного из ключей.
