@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -25,8 +25,8 @@ import {
   useContactLists,
   type Consultation,
   type ContactCard,
+  type ContactDeletion,
   type ContactDocument,
-  type ContactListItem,
   type DocumentKind,
   type Note,
 } from "../../contacts";
@@ -79,7 +79,8 @@ function Slot({ name, children }: { name: string; children: ReactNode }) {
 }
 
 /** The client's card: contact details, questionnaire and its checks, cases,
- * consultations, paperwork, family and links, the notes timeline. */
+ * consultations, paperwork, the notes timeline. Clients are not linked to each other
+ * (backlog 1.15.11): a family filed together is a submission group of their cases. */
 export function ContactPage() {
   const { id = "" } = useParams();
   const { t } = useTranslation();
@@ -136,6 +137,35 @@ export function ContactPage() {
       navigate("/app/clients");
     },
   });
+  // The question names what goes with this card and what stays, read when «Удалить
+  // карточку» is pressed (pilot remark 1.15.13). A card that has got client history since
+  // it was opened is refused before the question, as the API would refuse it after, and
+  // shown again without the button. The button stays enabled while the question is open,
+  // so the focus can go back to it.
+  const ask = useMutation({
+    mutationFn: async (name: string) => {
+      const what = await apiGet<ContactDeletion>(`/contacts/${id}/deletion`);
+      if (what.has_history) throw new ApiError(409, "contact_has_history");
+      const items = [
+        ...(["consultations", "notes"] as const)
+          .filter((key) => what[key] > 0)
+          .map((key) => t(`contacts.deletedWith.${key}`, { n: what[key] })),
+        ...(["passport", "questionnaire"] as const)
+          .filter((key) => what[key])
+          .map((key) => t(`contacts.deletedWith.${key}`)),
+      ];
+      const message =
+        items.length > 0
+          ? t("contacts.confirmDeleteCardWith", { name, items: items.join(", ") })
+          : t("contacts.confirmDeleteCard", { name });
+      return confirm({ message, action: t("contacts.deleteCard") });
+    },
+    onMutate: () => remove.reset(),
+    onSuccess: (yes) => {
+      if (yes) remove.mutate();
+    },
+    onError: () => void queryClient.invalidateQueries({ queryKey: contactKey(id) }),
+  });
 
   if (card.isPending) return <p className="muted">{t("common.loading")}</p>;
   if (card.isError) {
@@ -146,7 +176,7 @@ export function ContactPage() {
       </div>
     );
   }
-  const { contact, notes, relations } = card.data;
+  const { contact, notes } = card.data;
 
   return (
     <div className="page">
@@ -181,19 +211,14 @@ export function ContactPage() {
               type="button"
               className="btn btn-danger"
               disabled={remove.isPending}
-              onClick={async () => {
-                const yes = await confirm({
-                  message: t("contacts.confirmDeleteCard", { name: contact.full_name }),
-                  action: t("confirm.delete"),
-                });
-                if (yes) remove.mutate();
-              }}
+              onClick={() => ask.mutate(contact.full_name)}
             >
               {t("contacts.deleteCard")}
             </button>
           )}
         </div>
       </header>
+      {ask.isError && <ErrorAlert error={ask.error} />}
       {remove.isError && <ErrorAlert error={remove.error} />}
 
       {editing && (
@@ -236,14 +261,6 @@ export function ContactPage() {
                 <ContactTemplates contactId={contact.id} cases={card.data.cases ?? []} />
               </Slot>
             )}
-            <Slot name="relations">
-              <Relations
-                contactId={contact.id}
-                name={contact.full_name}
-                relations={relations}
-                withCases={card.data.cases !== null}
-              />
-            </Slot>
           </div>
           <div className="column">
             {card.data.cases !== null && (
@@ -508,209 +525,6 @@ function DocumentFiles({
       )}
       {error !== null && <ErrorAlert error={error} />}
     </div>
-  );
-}
-
-/** `withCases`: the user may open cases, so the hint on filing a family together applies. */
-function Relations({
-  contactId,
-  name,
-  relations,
-  withCases,
-}: {
-  contactId: string;
-  name: string;
-  relations: ContactCard["relations"];
-  withCases: boolean;
-}) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [adding, setAdding] = useState(false);
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["contacts"] });
-  const unlink = useMutation({
-    mutationFn: (relatedId: string) =>
-      apiDelete<void>(`/contacts/${contactId}/relations/${relatedId}`),
-    onSuccess: () => void refresh(),
-  });
-
-  return (
-    <section className="card">
-      <h2 className="h2">{t("contacts.relations")}</h2>
-      {relations.length === 0 && !adding && <p className="muted small">{t("contacts.noRelations")}</p>}
-      {relations.length > 0 && (
-        <ul className="plain-list">
-          {relations.map((r) => (
-            <li key={r.related_id}>
-              <span>
-                <Link to={`/app/clients/${r.related_id}`}>{r.full_name}</Link>
-                {r.label && <span className="muted"> · {r.label}</span>}
-              </span>
-              <button
-                type="button"
-                className="btn btn-sm"
-                disabled={unlink.isPending}
-                onClick={() => unlink.mutate(r.related_id)}
-              >
-                {t("contacts.unlink")}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* A link is family for good; filing together is per trip and lives in the case. */}
-      {relations.length > 0 && withCases && !adding && (
-        <p className="muted small">{t("contacts.familyCaseHint")}</p>
-      )}
-      {adding ? (
-        <LinkForm
-          contactId={contactId}
-          name={name}
-          exclude={new Set([contactId, ...relations.map((r) => r.related_id)])}
-          onDone={() => {
-            setAdding(false);
-            void refresh();
-          }}
-        />
-      ) : (
-        <button type="button" className="btn btn-sm" onClick={() => setAdding(true)}>
-          {t("contacts.addRelation")}
-        </button>
-      )}
-    </section>
-  );
-}
-
-// Offered under each name; any other word can be typed.
-const KIN = [
-  "mother",
-  "father",
-  "wife",
-  "husband",
-  "daughter",
-  "son",
-  "sister",
-  "brother",
-  "grandmother",
-  "grandfather",
-  "granddaughter",
-  "grandson",
-] as const;
-
-/** Who is who is asked under each person's name, not with «он» and «этот клиент»:
- * `label` is who the picked client is to this one, `reverse` the other way round. */
-function LinkForm({
-  contactId,
-  name,
-  exclude,
-  onDone,
-}: {
-  contactId: string;
-  name: string;
-  exclude: Set<string>;
-  onDone: () => void;
-}) {
-  const { t } = useTranslation();
-  const ids = useId();
-  const [query, setQuery] = useState("");
-  const [picked, setPicked] = useState<ContactListItem | null>(null);
-  const [label, setLabel] = useState("");
-  const [reverse, setReverse] = useState("");
-  const found = useQuery({
-    queryKey: ["contacts", "search", query.trim(), "link"],
-    queryFn: () =>
-      apiPost<{ items: ContactListItem[] }>("/contacts/search", { query: query.trim() }),
-    enabled: query.trim().length >= 2 && picked === null,
-  });
-  const link = useMutation({
-    mutationFn: () =>
-      apiPost(`/contacts/${contactId}/relations`, {
-        related_id: picked?.id,
-        label: label.trim() || null,
-        reverse_label: reverse.trim() || null,
-      }),
-    onSuccess: onDone,
-  });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    link.mutate();
-  };
-
-  return (
-    <form className="form-card" onSubmit={submit}>
-      {picked ? (
-        <>
-          <div>
-            <p>
-              <strong>{t("contacts.whoIsWho")}</strong>
-            </p>
-            <p className="muted small">{t("contacts.whoIsWhoHint")}</p>
-          </div>
-          <div className="form-grid">
-            <label className="field">
-              <span>{name}</span>
-              <input
-                maxLength={100}
-                list={`${ids}-kin`}
-                placeholder={t("contacts.kinPlaceholder")}
-                value={reverse}
-                onChange={(e) => setReverse(e.target.value)}
-              />
-            </label>
-            <div className="field">
-              <label htmlFor={`${ids}-picked`}>{picked.full_name}</label>
-              <input
-                id={`${ids}-picked`}
-                maxLength={100}
-                list={`${ids}-kin`}
-                placeholder={t("contacts.kinPlaceholder")}
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-              />
-              <button type="button" className="link-button" onClick={() => setPicked(null)}>
-                {t("contacts.pickAnother")}
-              </button>
-            </div>
-          </div>
-          <datalist id={`${ids}-kin`}>
-            {KIN.map((k) => (
-              <option key={k} value={t(`contacts.kin.${k}`)} />
-            ))}
-          </datalist>
-        </>
-      ) : (
-        <>
-          <label className="field">
-            <span>{t("contacts.findContact")}</span>
-            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} />
-          </label>
-          {found.data && (
-            <ul className="plain-list">
-              {found.data.items
-                .filter((c) => !exclude.has(c.id))
-                .slice(0, 8)
-                .map((c) => (
-                  <li key={c.id}>
-                    <span>{c.full_name}</span>
-                    <button type="button" className="btn btn-sm" onClick={() => setPicked(c)}>
-                      {t("contacts.pick")}
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </>
-      )}
-      {link.isError && <ErrorAlert error={link.error} />}
-      <div className="form-actions">
-        <button type="submit" className="btn btn-sm btn-p" disabled={!picked || link.isPending}>
-          {t("contacts.link")}
-        </button>
-        <button type="button" className="btn btn-sm" onClick={onDone}>
-          {t("common.cancel")}
-        </button>
-      </div>
-    </form>
   );
 }
 

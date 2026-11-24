@@ -602,6 +602,76 @@ async def test_a_record_changed_in_the_crm_after_the_export_is_not_overwritten(
     assert case["vac_number"] == "PL123"
 
 
+async def test_what_an_export_takes_off_is_not_filled_in_again(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Backlog 1.15.12: the talon, the prepayment, the consultation credit and the
+    partner's terms taken off — here by the empty cells of an export loaded back — are not
+    filled in again from the lists in the case finances (owner's answer 2026-11-24)."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await run(client, {"Клиенты": CLIENTS, "Кейсы": CASES})
+    anna = (await _exported(owner_engine, tenant))["anna"]
+    [ivan] = [r for r in await ok(await client.get("/api/dictionaries/registrars"))]
+    codes = {c["code"]: c["id"] for c in await ok(await client.get("/api/reference/countries"))}
+    await ok(
+        await client.put(
+            f"/api/dictionaries/registrars/{ivan['id']}/prices",
+            json=[
+                {
+                    "country_id": codes["PL"],
+                    "purpose_id": None,
+                    "hall": "standard",
+                    "amount": "300",
+                    "currency": "PLN",
+                }
+            ],
+        )
+    )
+    await ok(
+        await client.put(
+            "/api/dictionaries/prepayments",
+            json=[{"country_id": codes["PL"], "purpose_id": None, "amount": "150"}],
+        )
+    )
+    url = f"/api/cases/{anna['case']}/finance"
+    held = {"prepayment": "100", "consultation_credit": "20", "partner_terms": "none"}
+    await ok(await client.patch(url, json=held))
+
+    report = await run(
+        client,
+        {
+            "Кейсы": [
+                [
+                    "Код кейса",
+                    "Код клиента",
+                    "Страна визы",
+                    "Предоплата",
+                    "Зачёт консультации",
+                    "Талон",
+                    "Условия партнёра",
+                ],
+                [str(anna["case"]), str(anna["contact"]), "Польша", None, None, None, None],
+            ],
+            "О файле": _about(_minsk_now() + timedelta(hours=1)),
+        },
+    )
+
+    assert report["skipped_count"] == 0, report["skipped"]
+    finance = await ok(await client.get(url))
+    assert (finance["registrar_fee_amount"], finance["prepayment"]) == (None, None)
+    assert (finance["consultation_credit"], finance["partner_terms"]) == ("0.00", None)
+    assert finance["suggestions"]["registrar_fee"] is None
+    assert finance["suggestions"]["prepayment"] is None
+    [flags] = await rows(
+        owner_engine,
+        "SELECT registrar_fee_removed, prepayment_removed, consultation_credit_removed, "
+        "partner_terms_removed FROM case_finances WHERE case_id = :c",
+        c=anna["case"],
+    )
+    assert flags == dict.fromkeys(flags, True)
+
+
 async def test_codes_of_another_workspace_find_nothing(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):

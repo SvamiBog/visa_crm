@@ -1418,8 +1418,11 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   min-width: 0;
 }
 
+/* The field's own column is the field's width: content that cannot narrow (a row of an
+   input and a button) stays inside it, not over the next field. */
 .form-grid > .field {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: subgrid;
   row-gap: 4px;
   align-items: start;
@@ -2285,7 +2288,7 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   }
 }
 
-/* A new family member: surname, given name, patronymic; then who they are and «Remove». */
+/* A new family member: surname, given name, patronymic; then «Remove». */
 .applicant-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2294,12 +2297,19 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   margin-bottom: 12px;
 }
 
-.applicant-row .applicant-label {
-  grid-column: span 2;
-}
-
 .applicant-row > .btn {
   justify-self: start;
+}
+
+/* «Найти клиента» (pages/clients/ContactSearch.tsx): the field, then the matches. */
+.contact-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.module-block .contact-search {
+  margin-bottom: 12px;
 }
 
 .case-group .note-actions {
@@ -2499,10 +2509,6 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   .applicant-row {
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
-  }
-
-  .applicant-row .applicant-label {
-    grid-column: auto;
   }
 }
 
@@ -2869,15 +2875,24 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   margin-bottom: 16px;
 }
 
-/* An input with a button beside it (e.g. «Сгенерировать») */
+/* An input with a button beside it («Сгенерировать», «Добавить город»). The input keeps
+   room for a dozen characters; in a column narrower than that plus the button, the
+   button goes under the input and takes its width, instead of running into the next
+   column under its field (backlog 1.15.10, frontend/e2e/buttons.spec.ts). */
 .input-action {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .input-action input {
-  flex: 1;
+  /* Nearly all the row's spare width goes to the input, not to the button */
+  flex: 999 1 10em;
   min-width: 0;
+}
+
+.input-action .btn {
+  flex: 1 0 auto;
 }
 
 /* Bookings of a case and the deadlines view; the documents of a case (package check) */

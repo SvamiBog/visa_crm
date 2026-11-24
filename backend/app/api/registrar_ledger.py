@@ -198,11 +198,18 @@ async def _talons(
 async def _without_talon(
     session: AsyncSession, registrar_id: uuid.UUID | None = None
 ) -> list[tuple[VisaCase, Contact]]:
+    """Cases of a registrar with no talon yet. One whose talon the specialist took off is
+    not: she said it has none (backlog 1.15.12, owner's answer 2026-11-24)."""
     query = (
         select(VisaCase, Contact)
         .join(Contact, Contact.id == VisaCase.contact_id)
         .outerjoin(CaseFinance, CaseFinance.case_id == VisaCase.id)
-        .where(VisaCase.registrar_id.is_not(None), CaseFinance.registrar_fee_amount.is_(None))
+        .where(
+            VisaCase.registrar_id.is_not(None),
+            CaseFinance.registrar_fee_amount.is_(None),
+            # No finance row yet: NULL, so not taken off.
+            CaseFinance.registrar_fee_removed.is_not(True),
+        )
         .order_by(VisaCase.number)
     )
     if registrar_id is not None:
@@ -442,6 +449,7 @@ async def charge_talon(
     finance.registrar_fee_rate = rate
     finance.registrar_fee_base = to_base(price.amount, rate)
     finance.registrar_fee_on = day
+    finance.registrar_fee_removed = False
     _audit(
         session,
         AuditAction.TALON_CHARGED,

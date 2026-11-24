@@ -296,6 +296,99 @@ async def test_suggestions_from_the_lists_and_the_consultation(
     assert other["suggestions"]["consultation_credit"] is None
 
 
+async def test_a_suggestion_taken_off_is_not_filled_in_again(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Backlog 1.15.12, owner's answer 2026-11-24: the form fills empty fields from the
+    lists and the consultation. A field the specialist emptied — the list's prepayment,
+    the consultation credit, the partner's terms — stays empty on the next save, until she
+    types a value; another case still gets them."""
+    await as_specialist(client, make_user, owner_engine)
+    codes = await countries(client)
+    await client.put(
+        f"{DICT}/prepayments",
+        json=[{"country_id": codes["PL"], "purpose_id": None, "amount": "150"}],
+    )
+    partner = (await client.post(f"{DICT}/partners", json={"name": "Пётр"})).json()
+    await client.put(
+        f"{DICT}/partners/{partner['id']}/terms",
+        json=[{"country_id": None, "terms_type": "percent", "percent": "10"}],
+    )
+    anna = (
+        await client.post("/api/contacts", json={"first_name": "Анна", "partner_id": partner["id"]})
+    ).json()
+    consultation = (
+        await client.post(
+            f"/api/contacts/{anna['id']}/consultations",
+            json={
+                "held_on": "2026-05-10",
+                "fee_amount": "90",
+                "fee_currency": "BYN",
+                "fee_paid": True,
+                "fee_paid_on": "2026-05-10",
+            },
+        )
+    ).json()
+    case = await open_case(client, anna, consultation_id=consultation["id"])
+    url = finance_url(case)
+    hints = (await client.get(url)).json()["suggestions"]
+    assert (hints["prepayment"], hints["consultation_credit"]) == ("150.00", "90.00")
+    assert (hints["partner_terms"], hints["partner_percent"]) == ("percent", "10.00")
+
+    # What the form sends with the three fields emptied, the price typed.
+    form = {
+        "price": "500",
+        "prepayment": None,
+        "consultation_credit": None,
+        "partner_terms": None,
+        "partner_percent": None,
+        "partner_fixed": None,
+        "partner_paid_on": None,
+        "registrar_fee_amount": None,
+    }
+    cleared = await client.patch(url, json=form)
+    assert cleared.status_code == 200, cleared.text
+    hints = cleared.json()["suggestions"]
+    assert (hints["prepayment"], hints["prepayment_in"], hints["consultation_credit"]) == (
+        None,
+        {},
+        None,
+    )
+    assert (hints["partner_terms"], hints["partner_percent"], hints["partner_fixed"]) == (
+        None,
+        None,
+        None,
+    )
+    # Saved again: nothing came back, the balance is the whole price.
+    again = (await client.patch(url, json=form | {"price": "600"})).json()
+    assert (again["prepayment"], again["partner_terms"]) == (None, None)
+    assert Decimal(again["consultation_credit"]) == 0
+    assert (again["balance"], again["suggestions"]["prepayment"]) == ("600.00", None)
+
+    # Typed, they are hers; emptied again, they stay empty.
+    hers = {"prepayment": "120", "consultation_credit": "50", "partner_terms": "none"}
+    assert (await client.patch(url, json=hers)).status_code == 200
+    typed = (await client.get(url)).json()
+    assert (typed["prepayment"], typed["consultation_credit"], typed["partner_terms"]) == (
+        "120.00",
+        "50.00",
+        "none",
+    )
+    emptied = (await client.patch(url, json=form)).json()
+    assert (emptied["prepayment"], emptied["partner_terms"]) == (None, None)
+    assert emptied["suggestions"]["partner_terms"] is None
+
+    # Another client of the partner still starts from the lists.
+    bella = (
+        await client.post(
+            "/api/contacts", json={"first_name": "Белла", "partner_id": partner["id"]}
+        )
+    ).json()
+    other = await open_case(client, bella)
+    fresh = (await client.get(finance_url(other))).json()["suggestions"]
+    assert (fresh["prepayment"], fresh["partner_terms"]) == ("150.00", "percent")
+
+
 async def test_partner_terms_must_be_complete(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):

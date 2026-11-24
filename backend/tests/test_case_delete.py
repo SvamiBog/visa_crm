@@ -13,10 +13,11 @@ from tests.test_data_import import CASES as IMPORTED_CASES
 from tests.test_data_import import CLIENTS as IMPORTED_CLIENTS
 from tests.test_data_import import run
 from tests.test_employee_cases import EMPLOYEE, switch_to, with_employee
+from tests.test_registrar_ledger import ledger_url, registrar
 
 
-async def one_case(client: AsyncClient, contact_id: str, destination="PL") -> dict:
-    response = await open_case(client, contact_id, destination)
+async def one_case(client: AsyncClient, contact_id: str, destination="PL", **fields) -> dict:
+    response = await open_case(client, contact_id, destination, **fields)
     assert response.status_code == 201, response.text
     return response.json()[0]
 
@@ -112,8 +113,11 @@ async def test_what_goes_with_the_case(
         "bookings": 1,
         "outcome": True,
         "employees": 1,
+        # The price goes too, and the client's balance with it (backlog 1.15.12).
+        "terms": True,
     }
-    assert (await client.get(f"/api/cases/{france['id']}/deletion")).json()["attempts"] == 1
+    france_goes = (await client.get(f"/api/cases/{france['id']}/deletion")).json()
+    assert (france_goes["attempts"], france_goes.get("terms")) == (1, False)
 
     for case in (france, poland):
         assert (await client.delete(f"/api/cases/{case['id']}")).status_code == 204
@@ -162,10 +166,148 @@ async def test_a_case_with_money_is_not_deleted(
         assert refused.status_code == 409 and refused.json()["detail"] == "case_has_money"
         assert (await client.get(f"/api/cases/{case['id']}")).status_code == 200
 
-    # The payment deleted first, the case goes.
+    # Each taken off in the case finances first, the case goes (backlog 1.15.12).
     [row] = (await client.get(f"/api/cases/{paid['id']}/finance")).json()["payments"]
     assert (await client.delete(f"/api/payments/{row['id']}")).status_code in (200, 204)
     assert (await client.delete(f"/api/cases/{paid['id']}")).status_code == 204
+    [row] = (await client.get(f"/api/cases/{spent['id']}/finance")).json()["expenses"]
+    assert (await client.delete(f"/api/expenses/{row['id']}")).status_code in (200, 204)
+    assert (await client.delete(f"/api/cases/{spent['id']}")).status_code == 204
+    off = await client.patch(
+        f"/api/cases/{talon['id']}/finance", json={"registrar_fee_amount": None}
+    )
+    assert off.status_code == 200, off.text
+    assert (await client.delete(f"/api/cases/{talon['id']}")).status_code == 204
+
+
+def the_form(finance: dict, **changes) -> dict:
+    """What «Стоимость и условия» sends on «Сохранить»: every field of the form, the
+    talon's amount as the field shows it — saved, else the registrar's price filled in."""
+    fee = finance["suggestions"]["registrar_fee"]
+    amount = finance["registrar_fee_amount"] or (fee and fee["amount"])
+    sent = {
+        "currency": finance["currency"],
+        "price": finance["price"],
+        "prepayment": finance["prepayment"],
+        "partner_terms": finance["partner_terms"],
+        "partner_fixed": finance["partner_fixed"],
+        "partner_paid_on": finance["partner_paid_on"],
+        "registrar_fee_amount": amount,
+    }
+    if amount is not None:
+        sent |= {
+            "registrar_fee_currency": finance["registrar_fee_currency"] or fee["currency"],
+            "registrar_fee_on": finance["registrar_fee_on"] or fee["on"],
+        }
+    return sent | changes
+
+
+async def test_a_talon_taken_off_stays_off_and_the_case_goes(
+    client: AsyncClient, make_user: MakeUser
+):
+    """Backlog 1.15.12: the refusal says to take the talon off in the case finances. Taken
+    off, it is not filled in again from the registrar's price list, so the next save of
+    the finances — the partner's date the same refusal names — does not charge it again,
+    and the case goes. The registrar was paid for that talon: the payment stays in the
+    settlements, as an advance."""
+    await as_specialist(client, make_user)
+    codes = await countries(client)
+    ivan = await registrar(client, codes, currency="EUR")  # Poland: 60 EUR
+    anna = await new_contact(client)
+    case = await one_case(client, anna["id"], registrar_id=ivan["id"])
+    url = f"/api/cases/{case['id']}"
+    fresh = (await client.get(f"{url}/finance")).json()
+    # A case of the registrar starts with the talon of the price list in the form.
+    assert fresh["suggestions"]["registrar_fee"]["amount"] == "60.00"
+
+    paid = await client.post(
+        f"/api/registrars/{ivan['id']}/payments",
+        json={"paid_on": "2026-05-01", "amount": "60", "method": "cash", "talons": 1},
+    )
+    assert paid.status_code == 201, paid.text
+    charged = await client.post(
+        f"/api/registrars/{ivan['id']}/talons", json={"case_id": case["id"]}
+    )
+    assert charged.status_code == 201 and charged.json()["balance"] == "0.00"
+    terms = {"price": "500", "partner_terms": "fixed", "partner_fixed": "50"}
+    partner = await client.patch(f"{url}/finance", json=terms | {"partner_paid_on": "2026-06-01"})
+    assert partner.status_code == 200, partner.text
+    summary = (await client.get(f"{url}/deletion")).json()
+    assert (summary["registrar_fee"], summary["partner_paid"]) == (True, True)
+
+    # The talon's amount emptied in the form.
+    off = await client.patch(
+        f"{url}/finance", json=the_form(partner.json(), registrar_fee_amount=None)
+    )
+    assert off.status_code == 200, off.text
+    finance = off.json()
+    assert finance["registrar_fee_amount"] is None
+    assert finance["suggestions"]["registrar_fee"] is None
+    # It left the registrar's balance; the payment for it is an advance now.
+    ledger = (await client.get(ledger_url(ivan))).json()
+    assert (ledger["paid"], ledger["charged"], ledger["balance"]) == ("60.00", "0.00", "60.00")
+    assert [line["kind"] for line in ledger["lines"]] == ["payment"]
+
+    # The form opened again: the talon stays off when the partner's date is cleared.
+    finance = (await client.get(f"{url}/finance")).json()
+    again = await client.patch(f"{url}/finance", json=the_form(finance, partner_paid_on=None))
+    assert again.status_code == 200, again.text
+    assert again.json()["registrar_fee_amount"] is None
+    assert (await client.get(f"{url}/deletion")).json()["has_money"] is False
+    assert (await client.delete(url)).status_code == 204
+    ledger = (await client.get(ledger_url(ivan))).json()
+    assert (ledger["balance"], ledger["talons"], ledger["missing"]) == ("60.00", 0, 0)
+
+
+async def test_a_talon_paid_before_the_crm_is_taken_off_too(
+    client: AsyncClient, make_user: MakeUser
+):
+    """A talon from the tables, paid to the registrar before the CRM, is not in his
+    balance: taking it off changes the case's profit only."""
+    await as_specialist(client, make_user)
+    codes = await countries(client)
+    ivan = await registrar(client, codes, currency="EUR")
+    anna = await new_contact(client)
+    case = await one_case(client, anna["id"], registrar_id=ivan["id"])
+    url = f"/api/cases/{case['id']}"
+    settled = await client.patch(
+        f"{url}/finance",
+        json={
+            "price": "500",
+            "registrar_fee_amount": "60",
+            "registrar_fee_currency": "EUR",
+            "registrar_fee_settled": True,
+        },
+    )
+    assert settled.status_code == 200, settled.text
+    assert (await client.get(ledger_url(ivan))).json()["charged"] == "0.00"
+    assert (await client.delete(url)).status_code == 409
+
+    off = await client.patch(
+        f"{url}/finance", json=the_form(settled.json(), registrar_fee_amount=None)
+    )
+    assert off.status_code == 200, off.text
+    assert (off.json()["registrar_fee_settled"], off.json()["profit"]) == (False, "500.00")
+    finance = (await client.get(f"{url}/finance")).json()
+    assert finance["suggestions"]["registrar_fee"] is None
+    assert (await client.patch(f"{url}/finance", json=the_form(finance))).status_code == 200
+    assert (await client.delete(url)).status_code == 204
+    assert (await client.get(ledger_url(ivan))).json()["balance"] == "0.00"
+
+
+async def test_a_registrar_without_a_talon_does_not_hold_the_case(
+    client: AsyncClient, make_user: MakeUser
+):
+    """The registrar chosen in the case's form is not money: only a talon is."""
+    await as_specialist(client, make_user)
+    codes = await countries(client)
+    ivan = await registrar(client, codes, currency="EUR")
+    anna = await new_contact(client)
+    case = await one_case(client, anna["id"], registrar_id=ivan["id"])
+    summary = (await client.get(f"/api/cases/{case['id']}/deletion")).json()
+    assert (summary["has_money"], summary["registrar_fee"]) == (False, False)
+    assert (await client.delete(f"/api/cases/{case['id']}")).status_code == 204
+    assert (await client.get(ledger_url(ivan))).json()["missing"] == 0
 
 
 async def test_a_case_whose_partner_was_paid_is_not_deleted(

@@ -39,6 +39,7 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import finance_hints
 from app.core.cases import by_dates, cleared_by_outcome
 from app.core.data_format import CREATABLE, ValueType
 from app.core.data_values import normalize
@@ -1360,6 +1361,7 @@ class WorkbookImport:
             finance = CaseFinance(
                 case_id=case.id, tenant_id=self.tenant_id, currency=self.base, rate=Decimal(1)
             )
+        held = finance_hints.held(finance)
         # The file has the price in the base currency (docs/data-format.md): a case priced
         # in another one is compared in the base currency, and goes back to it only when
         # the file changes its price.
@@ -1382,6 +1384,9 @@ class WorkbookImport:
             priced_in.restore()
         changed |= await self._talon(r, case, finance)
         changed |= self._partner(r, finance)
+        # What the export's empty cells took off is not filled in again from the lists in
+        # the case finances; what the file sets is not taken off (backlog 1.15.12).
+        finance_hints.note(finance, held - finance_hints.held(finance))
         if made:
             if not changed:
                 return False

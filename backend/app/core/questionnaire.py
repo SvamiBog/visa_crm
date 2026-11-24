@@ -85,3 +85,17 @@ class Questionnaire(Passport):
     # Childhood trips under humanitarian programmes (e.g. the Chernobyl programme).
     humanitarian_trips: Annotated[list[CountryCode], Field(max_length=10)] = []
     note: Annotated[str, Field(max_length=2000)] | None = None
+
+
+def has_passport(questionnaire: Questionnaire) -> bool:
+    """Something of the passport's data page is filled in."""
+    return any(getattr(questionnaire, field) is not None for field in Passport.model_fields)
+
+
+def has_answers(questionnaire: Questionnaire) -> bool:
+    """Something beyond the passport is answered: every default means «not asked»."""
+    blank = Questionnaire()
+    return any(
+        getattr(questionnaire, field) != getattr(blank, field)
+        for field in Questionnaire.model_fields.keys() - Passport.model_fields.keys()
+    )

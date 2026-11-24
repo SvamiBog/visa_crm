@@ -234,7 +234,14 @@ export function CaseFinance({ visaCase: c }: { visaCase: VisaCase }) {
           {saved}
         </p>
       )}
-      {editing === "finance" && <FinanceForm finance={f} caseName={caseName} onDone={close} />}
+      {editing === "finance" && (
+        <FinanceForm
+          finance={f}
+          caseName={caseName}
+          onDone={close}
+          registrar={c.registrar_id !== null}
+        />
+      )}
       {editing === "payment" && (
         <PaymentForm finance={f} caseName={caseName} payment={payment} onDone={close} />
       )}
@@ -543,6 +550,8 @@ function ItemActions({
 function refreshBalances(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["reminders"] });
   void queryClient.invalidateQueries({ queryKey: ["home"] });
+  // A talon is charged in the settlements with the registrar too.
+  void queryClient.invalidateQueries({ queryKey: ["registrars"] });
 }
 
 /** Saves a form; the API answers with the case's finance counted again. */
@@ -589,7 +598,14 @@ function FormButtons({ pending, onCancel }: { pending: boolean; onCancel: () => 
   );
 }
 
-function FinanceForm({ finance: f, caseName, onDone }: FormProps) {
+/** `registrar`: the case has one, so its talon is in the settlements with him. A talon
+ * taken off stays off: the API no longer suggests it from his price list (1.15.12). */
+function FinanceForm({
+  finance: f,
+  caseName,
+  onDone,
+  registrar,
+}: FormProps & { registrar: boolean }) {
   const { t } = useTranslation();
   const titleId = useId();
   const hints = f.suggestions;
@@ -785,6 +801,8 @@ function FinanceForm({ finance: f, caseName, onDone }: FormProps) {
               missing={rate.isError}
               base={base}
               error={errors.at("registrar_fee_rate")}
+              // Without a talon its rate is not sent: an empty one does not stop the form.
+              required={Boolean(feeAmount)}
             />
           )}
         </div>
@@ -797,6 +815,12 @@ function FinanceForm({ finance: f, caseName, onDone }: FormProps) {
             />
             <span>{t("finance.talonSettledField")}</span>
           </label>
+        )}
+        {/* Taking a talon off changes the registrar's balance: said before it is saved. */}
+        {!feeAmount && f.registrar_fee_amount !== null && !f.registrar_fee_settled && registrar && (
+          <p className="alert alert-warn small" role="status">
+            {t("finance.talonOff")}
+          </p>
         )}
       </fieldset>
       <fieldset className="module-block">
@@ -884,12 +908,14 @@ function RateField({
   missing,
   base,
   error,
+  required = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   missing: boolean;
   base: string;
   error?: ReactNode;
+  required?: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -902,7 +928,7 @@ function RateField({
         <input
           {...control}
           inputMode="decimal"
-          required
+          required={required}
           pattern="[0-9]*([.,][0-9]{1,6})?"
           value={value}
           onChange={(e) => onChange(e.target.value)}

@@ -83,7 +83,8 @@ for (const lang of ["ru", "en"] as const) {
         name: "a client's details",
         open: async (page) => {
           const found = await page.request.post("/api/contacts/search", { data: {} });
-          const [first] = (await found.json()).items as { id: string }[];
+          // Oldest first: a demo card, not one other tests make and delete meanwhile.
+          const [first] = ((await found.json()).items as { id: string }[]).reverse();
           await page.goto(`/app/clients/${first.id}`);
           await page.locator(".page-header").getByRole("button", { name: t("reference.edit") }).click();
         },

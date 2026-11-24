@@ -49,8 +49,6 @@ export type Note = {
   edited_at: string | null;
 };
 
-export type Relation = { related_id: string; full_name: string; label: string | null };
-
 export const DECISIONS = ["yes", "no", "thinking"] as const;
 export type Decision = (typeof DECISIONS)[number];
 
@@ -290,7 +288,6 @@ export type ContactDocument = {
 export type ContactCard = {
   contact: Contact;
   notes: Note[];
-  relations: Relation[];
   consultations: Consultation[];
   questionnaire: Questionnaire;
   hints: Hint[];
@@ -300,6 +297,16 @@ export type ContactCard = {
   documents: ContactDocument[];
   /** The specialist may delete a card without client history: a duplicate. */
   can_delete: boolean;
+};
+
+/** What goes with a card, for the question before it is deleted
+ * (GET /contacts/{id}/deletion). A card with client history stays. */
+export type ContactDeletion = {
+  has_history: boolean;
+  consultations: number;
+  notes: number;
+  passport: boolean;
+  questionnaire: boolean;
 };
 
 // Client index (backend/app/api/client_status.py): every contact is in one tab.

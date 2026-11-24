@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
@@ -124,7 +125,7 @@ async def test_create_cases_from_consultation(client: AsyncClient, make_user: Ma
             "submission_country_id": codes["BY"],
             "applicants": [
                 {"contact_id": anna["id"]},
-                {"last_name": " Ковалёв ", "first_name": "Сергей", "label": "муж"},
+                {"last_name": " Ковалёв ", "first_name": "Сергей"},
                 {"contact_id": maria["id"]},
             ],
         },
@@ -139,10 +140,11 @@ async def test_create_cases_from_consultation(client: AsyncClient, make_user: Ma
     anna_card = await card(client, anna["id"])
     # The client decided «yes» once the cases are open.
     assert anna_card["consultations"][0]["decision"] == "yes"
-    # The new family member got a card, linked to Anna, with Anna's channel.
-    [link] = anna_card["relations"]
-    assert (link["full_name"], link["label"]) == ("Ковалёв Сергей", "муж")
-    sergey = (await card(client, link["related_id"]))["contact"]
+    # The new family member got a card with Anna's channel; the family is the submission
+    # group, not a link between the cards (backlog 1.15.11).
+    assert "relations" not in anna_card
+    sergey_id = cases[0]["group"][0]["contact_id"]
+    sergey = (await card(client, sergey_id))["contact"]
     assert sergey["lead_channel_id"] == channel["id"]
     assert (sergey["last_name"], sergey["first_name"], sergey["middle_name"]) == (
         "Ковалёв",
@@ -167,7 +169,7 @@ async def test_applicants_are_checked(client: AsyncClient, make_user: MakeUser):
     )
     assert both.status_code == 422
     # A new applicant is named by the surname or the given name, as a new card.
-    for nameless in ({}, {"middle_name": "Сергеевич"}, {"first_name": " ", "label": "сын"}):
+    for nameless in ({}, {"middle_name": "Сергеевич"}, {"first_name": " "}):
         response = await client.post(url, json={**base, "applicants": [nameless]})
         assert response.status_code == 422, nameless
     assert (await client.post(url, json={**base, "applicants": []})).status_code == 422
@@ -409,14 +411,12 @@ async def test_group_join_and_leave(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     anna = await new_contact(client)
     sergey = await new_contact(client, last_name="Ковалёв", first_name="Сергей")
-    await client.post(
-        f"{CONTACTS}/{anna['id']}/relations",
-        json={"related_id": sergey["id"], "label": "муж", "reverse_label": "жена"},
-    )
     [anna_case] = (await open_case(client, anna["id"])).json()
     [sergey_case] = (await open_case(client, sergey["id"])).json()
+    url = f"/api/cases/{anna_case['id']}/group-candidates"
 
-    candidates = (await client.get(f"/api/cases/{anna_case['id']}/group-candidates")).json()
+    # The specialist finds the family member by name, then picks one of their cases.
+    candidates = (await client.get(url, params={"contact_id": sergey["id"]})).json()
     assert [c["case_id"] for c in candidates] == [sergey_case["id"]]
 
     joined = await client.post(
@@ -424,12 +424,43 @@ async def test_group_join_and_leave(client: AsyncClient, make_user: MakeUser):
     )
     assert joined.status_code == 200, joined.text
     assert [m["case_id"] for m in joined.json()["group"]] == [sergey_case["id"]]
-    assert (await client.get(f"/api/cases/{anna_case['id']}/group-candidates")).json() == []
+    assert (await client.get(url, params={"contact_id": sergey["id"]})).json() == []
 
     left = await client.delete(f"/api/cases/{sergey_case['id']}/group")
     assert left.status_code == 204
     # A group of one is dissolved.
     assert (await client.get(f"/api/cases/{anna_case['id']}")).json()["group_id"] is None
+
+
+async def test_group_candidates_are_the_cases_of_the_picked_client(
+    client: AsyncClient, make_user: MakeUser
+):
+    """Without links between clients (backlog 1.15.11) «Добавить в группу» offers the cases
+    of the client the specialist found by name: any of their cases outside this group, but
+    never the case's own client's."""
+    await as_specialist(client, make_user)
+    anna = await new_contact(client)
+    sergey = await new_contact(client, last_name="Ковалёв", first_name="Сергей")
+    [anna_case] = (await open_case(client, anna["id"])).json()
+    [anna_other] = (await open_case(client, anna["id"], destination="LT")).json()
+    [poland] = (await open_case(client, sergey["id"])).json()
+    [lithuania] = (await open_case(client, sergey["id"], destination="LT")).json()
+    url = f"/api/cases/{anna_case['id']}/group-candidates"
+
+    picked = (await client.get(url, params={"contact_id": sergey["id"]})).json()
+    assert [c["case_id"] for c in picked] == [lithuania["id"], poland["id"]]
+    assert {c["full_name"] for c in picked} == {"Ковалёв Сергей"}
+    # Anna's other case is not offered: one person is not filed twice in a family.
+    own = await client.get(url, params={"contact_id": anna["id"]})
+    assert own.status_code == 200, own.text
+    assert anna_other["id"] not in [c["case_id"] for c in own.json()] and own.json() == []
+    assert (await client.get(url)).status_code == 422
+    unknown = await client.get(url, params={"contact_id": str(uuid4())})
+    assert unknown.status_code == 200 and unknown.json() == []
+
+    await client.post(f"/api/cases/{anna_case['id']}/group", json={"case_id": poland["id"]})
+    picked = (await client.get(url, params={"contact_id": sergey["id"]})).json()
+    assert [c["case_id"] for c in picked] == [lithuania["id"]]
 
 
 async def test_groups_are_not_merged(client: AsyncClient, make_user: MakeUser):
@@ -714,7 +745,9 @@ async def test_log_has_ids_only(client: AsyncClient, make_user: MakeUser):
     )
     events = (await client.get("/api/audit")).json()["events"]
     actions = [e["action"] for e in events]
-    assert actions.count("cases.created") == 2 and "contacts.linked" in actions
+    assert actions.count("cases.created") == 2 and actions.count("contacts.created") == 2
+    # The new applicant's card is not linked to the client's (backlog 1.15.11).
+    assert "contacts.linked" not in actions
     assert "Секретов" not in str(events)
 
 

@@ -26,6 +26,7 @@ import {
   type CaseStage,
   type Consultation,
   type ContactCard,
+  type ContactListItem,
   type EmailOwner,
   type GroupMember,
   type Hall,
@@ -44,9 +45,11 @@ import {
 import { Appointment, useNumberLabel } from "./Appointment";
 import { CaseAccess } from "./CaseAccess";
 import { CaseBookings } from "./Bookings";
+import { ContactSearch } from "./ContactSearch";
 import { CaseFinance } from "./Finance";
 import { CasePackage } from "./Package";
 import { useCaseName } from "./ui";
+import { flushPending } from "../../undo";
 import { useHasModule } from "../../workspace";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
@@ -514,6 +517,8 @@ type CaseDeletion = {
   bookings: number;
   outcome: boolean;
   employees: number;
+  /** The price or the partner's terms, no money moved: they go with the case. */
+  terms: boolean;
   group_members: number;
 };
 
@@ -527,8 +532,10 @@ const DELETED_WITH_CASE = [
 
 /** «Удалить кейс»: a case opened by mistake, a duplicate (pilot fix 1). The specialist
  * only; the question lists what goes with the case, and a case with money is refused
- * before it is asked, naming the money that holds it (the API refuses it too). The
- * refusal reaches `onError` as a ready message. */
+ * before it is asked, naming the money that holds it and how to take it off (the API
+ * refuses it too). A payment or an expense just deleted, still offering «Отменить», is
+ * sent first, so it does not hold the case (1.15.12). The refusal reaches `onError` as a
+ * ready message. */
 function DeleteCase({
   visaCase: c,
   onError,
@@ -543,6 +550,7 @@ function DeleteCase({
   const refresh = useRefreshCards();
   const remove = useMutation({
     mutationFn: async () => {
+      await flushPending();
       const what = await apiGet<CaseDeletion>(`/cases/${c.id}/deletion`);
       // Refused before the question, as the API would refuse it after.
       if (what.has_money) {
@@ -562,6 +570,7 @@ function DeleteCase({
           t(`cases.deletedWith.${key}`, { n: what[key] }),
         ),
         ...(what.outcome ? [t("cases.deletedWith.outcome")] : []),
+        ...(what.terms ? [t("cases.deletedWith.terms")] : []),
       ];
       const message = [
         items.length > 0
@@ -577,6 +586,8 @@ function DeleteCase({
     onSuccess: (deleted) => {
       if (!deleted) return;
       void queryClient.invalidateQueries({ queryKey: ["cases", "board"] });
+      // A registrar's case without a talon was listed in his settlements.
+      void queryClient.invalidateQueries({ queryKey: ["registrars"] });
       refresh();
     },
     onError,
@@ -659,22 +670,34 @@ function GroupMembers({ visaCase: c }: { visaCase: VisaCase }) {
   );
 }
 
+/** «Добавить в группу»: the specialist finds the family member by name, then picks one of
+ * their cases. Clients are not linked to each other (backlog 1.15.11), so nobody is
+ * offered before the search. */
 function GroupEditor({ visaCase: c }: { visaCase: VisaCase }) {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const refresh = useRefreshCards();
   const [adding, setAdding] = useState(false);
+  const [member, setMember] = useState<ContactListItem | null>(null);
   const [picked, setPicked] = useState("");
   const candidates = useQuery({
-    queryKey: ["cases", c.id, "group-candidates"],
-    queryFn: () => apiGet<GroupMember[]>(`/cases/${c.id}/group-candidates`),
-    enabled: adding,
+    queryKey: ["cases", c.id, "group-candidates", member?.id],
+    queryFn: () =>
+      apiGet<GroupMember[]>(`/cases/${c.id}/group-candidates?contact_id=${member?.id}`),
+    enabled: member !== null,
   });
+  // A client with one case that can join: it is the one.
+  const only = candidates.data?.length === 1 ? candidates.data[0].case_id : "";
+  const chosen = picked || only;
+  const close = () => {
+    setAdding(false);
+    setMember(null);
+    setPicked("");
+  };
   const join = useMutation({
-    mutationFn: () => apiPost<VisaCase>(`/cases/${c.id}/group`, { case_id: picked }),
+    mutationFn: () => apiPost<VisaCase>(`/cases/${c.id}/group`, { case_id: chosen }),
     onSuccess: () => {
-      setAdding(false);
-      setPicked("");
+      close();
       void refresh();
     },
   });
@@ -698,34 +721,60 @@ function GroupEditor({ visaCase: c }: { visaCase: VisaCase }) {
             join.mutate();
           }}
         >
-          {candidates.data && candidates.data.length === 0 ? (
-            <p className="muted small">{t("cases.noCandidates")}</p>
+          {member === null ? (
+            <ContactSearch
+              exclude={new Set([c.contact_id, ...c.group.map((m) => m.contact_id)])}
+              onPick={(found) => {
+                setMember(found);
+                setPicked("");
+              }}
+            />
           ) : (
-            <Field label={t("cases.joinWith")} error={joinErrors.at("case_id")}>
-              {(control) => (
-                <select
-                  {...control}
-                  required
-                  value={picked}
-                  onChange={(e) => setPicked(e.target.value)}
+            <>
+              <p>
+                <strong>{member.full_name}</strong>{" "}
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => {
+                    setMember(null);
+                    setPicked("");
+                  }}
                 >
-                  <option value="" />
-                  {(candidates.data ?? []).map((m) => (
-                    <option key={m.case_id} value={m.case_id}>
-                      {m.full_name} · {t("cases.number", { number: m.number })} ·{" "}
-                      {t(`cases.stage.${m.stage}`)}
-                    </option>
-                  ))}
-                </select>
+                  {t("contacts.pickAnother")}
+                </button>
+              </p>
+              {candidates.data && candidates.data.length === 0 ? (
+                <p className="muted small">{t("cases.noCandidates")}</p>
+              ) : (
+                <Field label={t("cases.joinWith")} error={joinErrors.at("case_id")}>
+                  {(control) => (
+                    <select
+                      {...control}
+                      required
+                      value={chosen}
+                      onChange={(e) => setPicked(e.target.value)}
+                    >
+                      <option value="" />
+                      {(candidates.data ?? []).map((m) => (
+                        <option key={m.case_id} value={m.case_id}>
+                          {m.full_name} · {t("cases.number", { number: m.number })} ·{" "}
+                          {t(`cases.stage.${m.stage}`)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
               )}
-            </Field>
+            </>
           )}
+          {candidates.isError && <ErrorAlert error={candidates.error} />}
           {joinErrors.general ? <ErrorAlert error={joinErrors.general} /> : null}
           <div className="form-actions">
-            <button type="submit" className="btn btn-sm btn-p" disabled={!picked || join.isPending}>
+            <button type="submit" className="btn btn-sm btn-p" disabled={!chosen || join.isPending}>
               {t("cases.join")}
             </button>
-            <button type="button" className="btn btn-sm" onClick={() => setAdding(false)}>
+            <button type="button" className="btn btn-sm" onClick={close}>
               {t("common.cancel")}
             </button>
           </div>
@@ -927,13 +976,13 @@ function PlaceFields({
   );
 }
 
-// A family member without a card yet: ФИО apart, as on a new card.
+// A family member without a card yet: ФИО apart, as on a new card. Who they are to the
+// client is not asked (backlog 1.15.11): the specialist notes it if she needs to.
 type NewApplicant = {
   key: number;
   last_name: string;
   first_name: string;
   middle_name: string;
-  label: string;
 };
 const NEW_APPLICANT_NAME = ["last_name", "first_name", "middle_name"] as const;
 const PART_LABELS = {
@@ -941,6 +990,23 @@ const PART_LABELS = {
   first_name: "contacts.firstName",
   middle_name: "contacts.middleName",
 } as const;
+
+type Person = { id: string; full_name: string };
+
+/** Offered as the family: who filed in a group with the client before, or had a case
+ * opened from their consultation. Clients are not linked to each other (backlog 1.15.11);
+ * anyone else is found by name. */
+function familyOf(card: ContactCard, previous?: VisaCase): Person[] {
+  const seen = new Map<string, string>();
+  for (const c of [...(previous ? [previous] : []), ...(card.cases ?? [])]) {
+    for (const m of c.group) seen.set(m.contact_id, m.full_name);
+  }
+  for (const consultation of card.consultations) {
+    for (const c of consultation.cases) seen.set(c.contact_id, c.full_name);
+  }
+  seen.delete(card.contact.id);
+  return [...seen].map(([id, full_name]) => ({ id, full_name }));
+}
 
 /** An applicant's case in work, in the API's 409 `case_in_work`. */
 type CaseInWork = { contact_id: string; full_name: string; number: number; destination_id: string };
@@ -990,22 +1056,21 @@ function CaseCreateForm({
   useEffect(() => {
     if (!place.submission && belarus) setPlace((p) => ({ ...p, submission: belarus }));
   }, [belarus, place.submission]);
+  // Filing again: the family of the previous case comes along.
   const [chosen, setChosen] = useState<Set<string>>(
-    () =>
-      new Set([
-        card.contact.id,
-        // The family of the previous case, if they are linked to this client.
-        ...(previous?.group ?? [])
-          .map((m) => m.contact_id)
-          .filter((id) => card.relations.some((r) => r.related_id === id)),
-      ]),
+    () => new Set([card.contact.id, ...(previous?.group ?? []).map((m) => m.contact_id)]),
   );
   const [added, setAdded] = useState<NewApplicant[]>([]);
   const nextKey = useRef(0);
+  // Clients with a card found by name.
+  const [found, setFound] = useState<Person[]>([]);
+  const [searching, setSearching] = useState(false);
 
-  const people = [
-    { id: card.contact.id, full_name: card.contact.full_name, label: null as string | null },
-    ...card.relations.map((r) => ({ id: r.related_id, full_name: r.full_name, label: r.label })),
+  const family = familyOf(card, previous);
+  const people: Person[] = [
+    { id: card.contact.id, full_name: card.contact.full_name },
+    ...family,
+    ...found.filter((f) => !family.some((p) => p.id === f.id)),
   ];
   const named = added.filter((a) => a.last_name.trim() || a.first_name.trim());
   const count = chosen.size + named.length;
@@ -1021,7 +1086,6 @@ function CaseCreateForm({
           last_name: a.last_name.trim() || null,
           first_name: a.first_name.trim() || null,
           middle_name: a.middle_name.trim() || null,
-          label: a.label.trim() || null,
         })),
       ],
     });
@@ -1097,12 +1161,19 @@ function CaseCreateForm({
         {people.map((p) => (
           <label key={p.id} className="checkbox">
             <input type="checkbox" checked={chosen.has(p.id)} onChange={() => toggle(p.id)} />
-            <span>
-              {p.full_name}
-              {p.label && <span className="muted"> · {p.label}</span>}
-            </span>
+            <span>{p.full_name}</span>
           </label>
         ))}
+        {searching && (
+          <ContactSearch
+            exclude={new Set(people.map((p) => p.id))}
+            onPick={(contact) => {
+              setFound((list) => [...list, { id: contact.id, full_name: contact.full_name }]);
+              setChosen((current) => new Set(current).add(contact.id));
+              setSearching(false);
+            }}
+          />
+        )}
         {added.map((a) => (
           <div key={a.key} className="applicant-row">
             {NEW_APPLICANT_NAME.map((part) => (
@@ -1115,14 +1186,6 @@ function CaseCreateForm({
                 />
               </label>
             ))}
-            <label className="field applicant-label">
-              <span>{t("cases.newApplicantLabel")}</span>
-              <input
-                maxLength={100}
-                value={a.label}
-                onChange={(e) => change(a.key, { label: e.target.value })}
-              />
-            </label>
             <button
               type="button"
               className="btn btn-sm"
@@ -1132,18 +1195,28 @@ function CaseCreateForm({
             </button>
           </div>
         ))}
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() =>
-            setAdded((list) => [
-              ...list,
-              { key: nextKey.current++, last_name: "", first_name: "", middle_name: "", label: "" },
-            ])
-          }
-        >
-          {t("cases.addApplicant")}
-        </button>
+        <div className="actions">
+          <button
+            type="button"
+            className="btn btn-sm"
+            aria-expanded={searching}
+            onClick={() => setSearching((open) => !open)}
+          >
+            {t(searching ? "cases.hideSearch" : "cases.addApplicantWithCard")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() =>
+              setAdded((list) => [
+                ...list,
+                { key: nextKey.current++, last_name: "", first_name: "", middle_name: "" },
+              ])
+            }
+          >
+            {t("cases.addApplicant")}
+          </button>
+        </div>
         {consultation && <p className="muted small">{t("cases.applicantsNotTheVisitor")}</p>}
       </fieldset>
       {errors.general ? <ErrorAlert error={errors.general} /> : null}
