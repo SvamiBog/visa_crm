@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -59,6 +60,58 @@ class FakeClock:
 
 
 CLOCK = FakeClock()
+
+# Test-only keys of the client bot, in the shape Telegram gives them; no such bot exists.
+BOT_TOKEN = "123456789:TEST-not-a-real-bot-token-0123456789"
+WEBHOOK_SECRET = "test-only-webhook-secret-0123456789-abcdef"
+# The person who writes to the bot in tests: none of this may reach a log.
+TELEGRAM_CHAT = 5550001234
+TELEGRAM_PERSON = {"first_name": "Марина", "last_name": "Ковальчук", "username": "marina_kov"}
+
+
+class FakeTelegram:
+    """Telegram's Bot API in tests (patched into app.core.telegram by conftest): keeps what
+    the site asked for and answers as the test says."""
+
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+        self.calls: list[tuple[str, dict]] = []
+        # Telegram's error code and description for every call, e.g. (403, "Forbidden: …").
+        self.refusal: tuple[int, str] | None = None
+        self.unreachable = False
+
+    def post(self, url: str, body: bytes) -> tuple[int, bytes]:
+        self.urls.append(url)
+        method = url.rsplit("/", 1)[-1]
+        self.calls.append((method, json.loads(body)))
+        if self.unreachable:
+            # A real failure may quote the address, which carries the bot's token.
+            raise OSError(f"no route to {url}")
+        if self.refusal is not None:
+            code, description = self.refusal
+            answer = {"ok": False, "error_code": code, "description": description}
+            return code, json.dumps(answer).encode()
+        result = {"message_id": len(self.calls)} if method == "sendMessage" else True
+        return 200, json.dumps({"ok": True, "result": result}).encode()
+
+
+def telegram_message(
+    text: str = "/start", *, chat: str = "private", language: str | None = "ru"
+) -> dict:
+    """An update as Telegram sends it when somebody writes to the bot."""
+    sender = {"id": TELEGRAM_CHAT, "is_bot": False, **TELEGRAM_PERSON}
+    if language is not None:
+        sender["language_code"] = language
+    return {
+        "update_id": 900001,
+        "message": {
+            "message_id": 17,
+            "date": 1795000000,
+            "chat": {"id": TELEGRAM_CHAT, "type": chat, **TELEGRAM_PERSON},
+            "from": sender,
+            "text": text,
+        },
+    }
 
 
 async def login(

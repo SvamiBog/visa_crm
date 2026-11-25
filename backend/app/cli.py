@@ -14,6 +14,9 @@ seed-demo              fill the staging stand with demo specialists and clients
 wait-db                wait until the database answers (start.sh, before the migrations)
 check-error-reports    send one test report to Sentry from this server
                        (docs/operations.md)
+telegram-webhook set https://SITE | remove
+                       tell Telegram where the client bot's webhook is, or to stop
+                       calling the site (docs/deploy.md)
 """
 
 import argparse
@@ -25,6 +28,7 @@ import uuid
 from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import DBAPIError
 
+from app.core import telegram
 from app.core.audit import record
 from app.core.config import get_settings
 from app.core.crypto import generate_master_key, master_keys
@@ -34,6 +38,7 @@ from app.core.error_reports import send_test_report
 from app.core.passport_purge import purge_due
 from app.core.security import MIN_PASSWORD_LENGTH, hash_password
 from app.core.storage import StorageFailed
+from app.core.telegram import TelegramFailed
 from app.core.two_factor import reset_two_factor, upgrade_legacy_recovery_codes
 from app.core.vault import RekeyFailed, rekey_workspace, reseal_with_current_master_key
 from app.models import AuditAction, RecoveryCode, Tenant, User, UserRole, UserSession
@@ -195,6 +200,42 @@ async def seed_demo(specialists: int, clients: int) -> str:
     )
 
 
+def _telegram_refused(failed: TelegramFailed) -> str:
+    # Telegram's own words help here (a wrong token, an address it cannot call) and carry
+    # neither key; the terminal is the owner's.
+    reason = f"{failed.code} {failed.description}".strip() if failed.code else "not reached"
+    return f"Telegram did not take {failed.method}: {reason}"
+
+
+async def set_telegram_webhook(site: str) -> str:
+    settings = get_settings()
+    if not settings.client_bot_enabled:
+        # Telegram would call an address that answers «not found».
+        sys.exit(
+            "The client bot is off: it needs TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET "
+            "and, in production, CLIENT_BOT=true (docs/deploy.md)"
+        )
+    try:
+        url = telegram.webhook_address(site)
+    except ValueError as error:
+        sys.exit(f"Not set: {error}")
+    try:
+        await telegram.set_webhook(url, settings.telegram_webhook_secret)
+    except TelegramFailed as failed:
+        sys.exit(_telegram_refused(failed))
+    return f"Telegram will call {url}"
+
+
+async def remove_telegram_webhook() -> str:
+    if not get_settings().telegram_bot_token:
+        sys.exit("TELEGRAM_BOT_TOKEN is not set: no bot to ask")
+    try:
+        await telegram.delete_webhook()
+    except TelegramFailed as failed:
+        sys.exit(_telegram_refused(failed))
+    return "Telegram no longer calls the site"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -221,6 +262,14 @@ def main() -> None:
     # Within Railway's five-minute healthcheck window, with time left for the migrations.
     wait.add_argument("--timeout", type=float, default=180, help="seconds")
     commands.add_parser("check-error-reports", help="send one test report to Sentry")
+    webhook = commands.add_parser(
+        "telegram-webhook", help="tell Telegram where the client bot's webhook is"
+    )
+    actions = webhook.add_subparsers(dest="action", required=True)
+    actions.add_parser("set", help="send the bot's updates to this site").add_argument(
+        "site", help="the site's address, like https://crm.example.com"
+    )
+    actions.add_parser("remove", help="stop Telegram calling the site")
     args = parser.parse_args()
 
     if args.command == "generate-master-key":
@@ -275,6 +324,11 @@ def main() -> None:
         if event_id is None:
             sys.exit("SENTRY_DSN is not set: error reports are off")
         print(f"Sent test report {event_id} ({settings.env}): ErrorReportCheck in Sentry Issues")
+    elif args.command == "telegram-webhook":
+        if args.action == "set":
+            print(asyncio.run(set_telegram_webhook(args.site)))
+        else:
+            print(asyncio.run(remove_telegram_webhook()))
     elif args.command == "reset-two-factor":
         email = args.email.strip().lower()
         asyncio.run(reset_user_two_factor(email))

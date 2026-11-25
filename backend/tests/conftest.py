@@ -2,7 +2,7 @@ import asyncio
 import base64
 import os
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -29,14 +29,23 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from app.core import clock, db, rates, storage, two_factor
+from app.core import clock, db, rates, storage, telegram, two_factor
 from app.core.config import get_settings
 from app.core.demo import BELARUS_DIRECTIONS
 from app.core.modules import DEFAULT_MODULES
 from app.core.security import hash_password
 from app.core.two_factor import seal_secret
 from app.main import create_app
-from tests.helpers import CLOCK, PASSWORD, TOTP_SECRET, WALL_CLOCK, MakeUser
+from tests.helpers import (
+    BOT_TOKEN,
+    CLOCK,
+    PASSWORD,
+    TOTP_SECRET,
+    WALL_CLOCK,
+    WEBHOOK_SECRET,
+    FakeTelegram,
+    MakeUser,
+)
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get(
@@ -98,6 +107,48 @@ def fake_rates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rates, "_fetch", fetch)
     latest = {currency: (FAKE_RATES_ON, Decimal(rate)) for currency, rate in FAKE_RATES.items()}
     monkeypatch.setattr(rates, "_latest", latest)
+
+
+@pytest.fixture(autouse=True)
+def telegram_api(monkeypatch: pytest.MonkeyPatch) -> FakeTelegram:
+    """Tests never call Telegram: the one function that does (app/core/telegram.py) is
+    replaced with a fake that keeps what the site asked for."""
+    fake = FakeTelegram()
+    monkeypatch.setattr(telegram, "_post", fake.post)
+    return fake
+
+
+@pytest.fixture
+def environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., None]]:
+    """Start the site with these environment variables for one test (None leaves one
+    unset); afterwards they are as before and the settings are read again."""
+    before: dict[str, str | None] = {}
+
+    def put(values: dict[str, str | None]) -> None:
+        for name, value in values.items():
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
+        get_settings.cache_clear()
+
+    def start(**variables: str | None) -> None:
+        for name in variables:
+            before.setdefault(name, os.environ.get(name))
+        put(variables)
+
+    yield start
+    # Put back here, not when monkeypatch itself is undone: a fixture that finishes in
+    # between would read the settings with this test's variables and keep them.
+    put(before)
+
+
+@pytest.fixture
+def bot_keys(environment: Callable[..., None]) -> None:
+    """The client bot with both its keys, as on a stand that has them."""
+    environment(
+        CLIENT_BOT=None, TELEGRAM_BOT_TOKEN=BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET=WEBHOOK_SECRET
+    )
 
 
 @pytest.fixture(autouse=True)
