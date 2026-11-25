@@ -68,8 +68,13 @@ async function demoCardWithPortal(page: Page): Promise<string> {
 
 const height = (el: Locator) => el.evaluate((e) => Math.round(e.getBoundingClientRect().height));
 
-function setTheme(page: Page, theme: string): Promise<void> {
-  return page.evaluate((th) => void (document.documentElement.dataset.uiTheme = th), theme);
+/** Switches the theme and waits for its fonts: a theme's own font loads on first use,
+    and a box measured before and after the swap differs by a few pixels. */
+async function setTheme(page: Page, theme: string): Promise<void> {
+  await page.evaluate(async (th) => {
+    document.documentElement.dataset.uiTheme = th;
+    await document.fonts.ready;
+  }, theme);
 }
 
 /** Visible links of a selector whose box is shorter than `min`. */
@@ -143,15 +148,17 @@ for (const lang of ["ru", "en"] as const) {
       }) => {
         await page.goto("/app");
         const prev = page.getByRole("button", { name: t("home.prevMonth"), exact: true });
-        const next = page.getByRole("button", { name: t("home.nextMonth"), exact: true });
         await expect(prev).toBeVisible();
         const funnelNumber = page.locator(".funnel strong").first();
         await expect(funnelNumber).toBeVisible();
         for (const theme of THEMES) {
           await setTheme(page, theme);
-          const a = await prev.evaluate((e) => e.getBoundingClientRect().right);
-          const b = await next.evaluate((e) => e.getBoundingClientRect().left);
-          expect.soft(b - a, `«‹» and «›» keep a gap (${theme})`).toBeGreaterThanOrEqual(MIN_GAP - 0.5);
+          // Both edges in one go, so a late font cannot move one between the two readings.
+          const gap = await page.locator(".month-switch").evaluate((row) => {
+            const [a, b] = row.querySelectorAll(".btn");
+            return b.getBoundingClientRect().left - a.getBoundingClientRect().right;
+          });
+          expect.soft(gap, `«‹» and «›» keep a gap (${theme})`).toBeGreaterThanOrEqual(MIN_GAP - 0.5);
           const weight = await funnelNumber.evaluate((e) => Number(getComputedStyle(e).fontWeight));
           expect.soft(weight, `a funnel's number is bold at 600 at most (${theme})`).toBeLessThanOrEqual(MAX_WEIGHT);
           const heading = page.locator(".card-head .h2").first();
