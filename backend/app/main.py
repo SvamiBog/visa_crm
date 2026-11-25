@@ -44,6 +44,7 @@ from app.api.reminders import router as reminders_router
 from app.api.stay import router as stay_router
 from app.api.subscriptions import admin_router as admin_subscriptions_router
 from app.api.subscriptions import router as subscriptions_router
+from app.api.telegram import router as telegram_router
 from app.api.templates import contact_router as contact_templates_router
 from app.api.templates import router as templates_router
 from app.api.two_factor import router as two_factor_router
@@ -190,6 +191,7 @@ def create_app() -> FastAPI:
         package_router,
         portal_router,
         portal_public_router,
+        telegram_router,
         finances_router,
         registrar_ledger_router,
         reminders_router,

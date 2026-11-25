@@ -68,6 +68,23 @@ python -m app.cli check-error-reports   # «Sent test report <id> (production)�
 
 **Если в отчёте видны данные клиента.** Это инцидент: удалите задачу в Sentry (**⋯ → Delete**), запишите, какое поле и в каком отчёте, и поправьте чистильщик в `error_reports.py` с тестом в `backend/tests/test_error_report_rules.py`. Что именно уходит и почему — decisions.md → «Отчёты об ошибках в Sentry».
 
+## Бот клиента в Telegram
+
+Один бот на платформу (бэклог 2.12); как завести бота и ключи — docs/deploy.md, шаг 4 → «Бот клиента в Telegram». Код: вебхук `backend/app/api/telegram.py`, запросы к Telegram `backend/app/core/telegram.py`, ответы бота `backend/app/core/client_bot.py`.
+
+```bash
+python -m app.cli telegram-webhook set https://<адрес сайта>   # «Telegram will call …/api/telegram/webhook»
+python -m app.cli telegram-webhook remove                      # «Telegram no longer calls the site»
+```
+
+`set` нужен после первой выкладки с ключами и после смены токена, секрета или адреса сайта. Он работает, только когда бот включён (оба ключа и флаг `CLIENT_BOT`). `remove` нужен только токен.
+
+**Бот молчит.** В логе веб-сервиса ищите `Telegram did not take <метод>: <код>`. Код 401 — неверный токен, 403 — человек заблокировал бота, 429 — слишком много сообщений подряд, 0 — до Telegram не удалось достучаться. Если строк нет совсем, Telegram не доходит до сайта: выполните `telegram-webhook set` ещё раз и проверьте, что секрет в Railway тот же, с которым ставили вебхук.
+
+**Токен утёк.** @BotFather → `/revoke`: старый токен перестаёт работать сразу. Задайте новый в Railway, сделайте **Deploy** и снова `telegram-webhook set`. Секрет вебхука смените заодно.
+
+В логах нет ни ключей, ни того, кто и что написал боту.
+
 ## Удаление паспортных данных после решения
 
 Сайт сам удаляет паспортные данные клиентов через неделю после решения по визе: при запуске и каждые 6 часов (задача 2.8, decisions.md → «Удаление паспортных данных после решения»). В логе — `Passport data removed after the decision: N clients`, ошибка — `Removing passport data failed: <тип>`; данных клиентов в логе нет. Запустить вручную (удаляет только то, что пора):

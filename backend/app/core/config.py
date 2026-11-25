@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -16,6 +17,10 @@ DEVELOPMENT: tuple[Environment, ...] = ("local", "test")
 MIN_SECRET_KEY_LENGTH = 32
 # Sentry's EU data region: its DSNs point at o<N>.ingest.de.sentry.io.
 SENTRY_EU_HOST = ".de.sentry.io"
+# A bot's token as @BotFather gives it: the bot's number, a colon and the key.
+TELEGRAM_BOT_TOKEN = re.compile(r"[0-9]{1,20}:[A-Za-z0-9_-]{30,64}")
+# What Telegram takes as the secret of a webhook (setWebhook → secret_token).
+TELEGRAM_WEBHOOK_SECRET = re.compile(r"[A-Za-z0-9_-]{1,256}")
 
 
 class InvalidSettings(RuntimeError):
@@ -74,6 +79,17 @@ class Settings(BaseSettings):
     # day, and what is already due then waits 14 days more (owner's decision 2026-11-24,
     # docs/decisions.md). Set it to the day it is switched on, never to a day long past.
     passport_purge_from: date | None = None
+    # The client bot in Telegram (backlog 2.12, app/api/telegram.py): one bot for the whole
+    # platform. Unset: on at the stands, off in production until the owner turns it on with
+    # CLIENT_BOT=true, like the client portal. It works only with both keys below, which
+    # are Railway variables and nothing else (docs/deploy.md).
+    client_bot: bool | None = None
+    # The bot's token from @BotFather: it is part of the address of every call to Telegram.
+    telegram_bot_token: str = ""
+    # Telegram repeats it in a header of every call to the webhook, which is how the site
+    # tells Telegram from anybody else. Generate: python -c "import secrets;
+    # print(secrets.token_urlsafe(48))"
+    telegram_webhook_secret: str = ""
 
     @field_validator("env", mode="before")
     @classmethod
@@ -97,6 +113,34 @@ class Settings(BaseSettings):
                 raise ValueError(f"not a DSN of Sentry's EU region (*{SENTRY_EU_HOST})")
         return value
 
+    @field_validator("telegram_bot_token")
+    @classmethod
+    def _bot_token_is_a_token(cls, value: str) -> str:
+        # The token is put into the address of a request: only its own shape may be. The
+        # reason only, never the value, as for every key here.
+        value = value.strip()
+        if value and not TELEGRAM_BOT_TOKEN.fullmatch(value):
+            raise ValueError("not a bot token (NUMBER:KEY, as @BotFather gives it)")
+        return value
+
+    @field_validator("telegram_webhook_secret")
+    @classmethod
+    def _webhook_secret_is_one_telegram_takes(cls, value: str) -> str:
+        value = value.strip()
+        if value and not TELEGRAM_WEBHOOK_SECRET.fullmatch(value):
+            raise ValueError("must be 1-256 characters of A-Z, a-z, 0-9, _ and -")
+        return value
+
+    @model_validator(mode="after")
+    def _webhook_secret_outside_development(self) -> Self:
+        secret = self.telegram_webhook_secret
+        if secret and not self.development and len(secret) < MIN_SECRET_KEY_LENGTH:
+            raise ValueError(
+                f"TELEGRAM_WEBHOOK_SECRET must be at least {MIN_SECRET_KEY_LENGTH} random "
+                f"characters outside ENV={'|'.join(DEVELOPMENT)}"
+            )
+        return self
+
     @model_validator(mode="after")
     def _server_key_outside_development(self) -> Self:
         if not self.development and len(self.secret_key) < MIN_SECRET_KEY_LENGTH:
@@ -114,6 +158,15 @@ class Settings(BaseSettings):
     def client_portal_enabled(self) -> bool:
         if self.client_portal is not None:
             return self.client_portal
+        return self.env != "production"
+
+    @property
+    def client_bot_enabled(self) -> bool:
+        """The switch and both keys: without any of the three there is no bot at all."""
+        if not (self.telegram_bot_token and self.telegram_webhook_secret):
+            return False
+        if self.client_bot is not None:
+            return self.client_bot
         return self.env != "production"
 
     @property
