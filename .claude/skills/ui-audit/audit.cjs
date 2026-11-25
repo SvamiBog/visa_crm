@@ -346,6 +346,23 @@ function measure(phone) {
   return findings;
 }
 
+/**
+ * The whole page in one shot. Not `fullPage: true`: in Chromium it drops the touch
+ * emulation, so (pointer: coarse) stops matching and a phone's 44px targets shrink to
+ * their desktop size in that shot and in every measure after it (found 2026-11-25:
+ * «Изменить» in «Финансы» measured 17px). The viewport grows to the page's height for the
+ * shot and goes back, which keeps the emulation.
+ */
+async function shootWholePage(page, file, width) {
+  const size = page.viewportSize();
+  const height = await page.evaluate(() =>
+    Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0),
+  );
+  await page.setViewportSize({ width, height: Math.max(height, size.height) });
+  await page.screenshot({ path: file });
+  await page.setViewportSize(size);
+}
+
 function slug(value) {
   return value.replace(/^\/+/, "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/_+$/, "") || "home";
 }
@@ -406,8 +423,10 @@ async function auditScreen(browser, screen, results) {
         document.querySelectorAll(".tabbar").forEach((bar) => (bar.style.display = "none"));
       }, theme);
       await page.evaluate(() => document.fonts.ready);
-      await page.screenshot({ path: path.join(dir, `${theme}-${width}.png`), fullPage: true });
-      for (const finding of await page.evaluate(measure, phone)) {
+      // Measure first, in the phone's own viewport, then take the shot.
+      const measured = await page.evaluate(measure, phone);
+      await shootWholePage(page, path.join(dir, `${theme}-${width}.png`), width);
+      for (const finding of measured) {
         const key = `${screen.name}|${width}|${finding.rule}|${finding.message}`;
         const seen = results.byKey.get(key);
         if (seen) seen.themes.push(theme);

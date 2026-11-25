@@ -14,7 +14,9 @@ In a few lines, from this conversation: what the specialist (employee, admin) sh
 
 ## 2. Product analysis — agent `product-analyst`
 
-Give it the summary (it does not see this conversation). It returns the items in the backlog's style with acceptance criteria, areas and reviewers, conflicts with decisions, open questions, what already exists, and the lanes of parallel work.
+Give it the summary (it does not see this conversation). It returns the items in the backlog's style with acceptance criteria, areas and reviewers, the level of each (обычный / сложный / самый сложный), conflicts with decisions, open questions, what already exists, and the lanes of parallel work. If the analyst finds conflicts with decisions or the idea is architectural, run it with `model: "fable"` and `effort: "xhigh"` (`docs/process.md` → «Модель и уровень размышления»).
+
+Legal questions it raises go to the agent `legal-advisor` (Fable 5.2, maximum effort) before the owner is asked: the owner gets its conclusion, risks and options, not a bare legal question.
 
 ## 3. Owner's yes
 
@@ -41,7 +43,10 @@ For the first lane — items that can start now without colliding (2–3 at most
 <the item's text from docs/backlog.md, in full>
 Lane: runs in parallel with X.Z (screens of <…>); do not touch <files of the other item>.
 Mockup: needed / not needed — <why>.
+Level: обычный / сложный / самый сложный — <why>.
 <anything the owner said about this item in the discussion, quoted>
 ```
+
+For a сложный item, raise the new session to Fable 5.2 and `xhigh` right after starting it (`set_session_model`, `set_session_effort`; `max` for самый сложный); the app asks the owner to approve the more expensive model.
 
 The next lanes start as the merges they wait for land: say which, and propose them then.

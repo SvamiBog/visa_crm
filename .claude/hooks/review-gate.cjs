@@ -10,8 +10,10 @@
 //   db        backend/app/models/, backend/migrations/          agent ecc-database-reviewer
 //   design    frontend/src/**/*.tsx, *.css, frontend/index.html  agent design-qa
 //   copy      frontend/src/locales/, backend/app/core/notices/  agent copy-editor
-//   security  login, sessions, access, vault, files, uploads, portal (SECURITY below)
+//   security  login, sessions, access, vault, files, uploads, portal, signing, PDFs,
+//             the Telegram bot (SECURITY and SECURITY_BY_NAME below)
 //                                                               agent ecc-security-reviewer
+//   legal     what clients are told and agree to (LEGAL below)  agent legal-advisor
 //
 // A reviewer records its verdict when it has reviewed the branch:
 //   node .claude/hooks/review-gate.cjs record <gate> pass|fail [--note "…"]
@@ -38,6 +40,17 @@ const SECURITY = new RegExp(
     "import_uploads|data_import|workbook|portal|db|config|error_reports|erase|data_export|" +
     "passport_purge|modules)\\.py)$",
 );
+// What the client reaches from outside or signs: the portal, signing and PDFs, the Telegram
+// bot and its webhooks, client links and consent. Matched by name so that a module added
+// later (core/signing.py, api/telegram_webhook.py, a bot package) is covered from its first PR.
+const SECURITY_BY_NAME = new RegExp(
+  "^backend/app/((api|core)/[^/]*(sign|pdf|gotenberg|telegram|bot|portal|webhook|client_link|consent)[^/]*\\.py|" +
+    "(bot|telegram|signing|esign)/.*)$",
+);
+
+// The privacy notices clients read and the code that shows them and records their
+// consent: a change here is a legal question (docs/process.md → «Юрист»).
+const LEGAL = /^backend\/app\/core\/(notices\/|portal_notice\.py$)/;
 
 const GATES = {
   code: {
@@ -64,7 +77,12 @@ const GATES = {
   security: {
     reviewer: "ecc-security-reviewer",
     what: "вход, доступ, сейф, файлы, загрузки",
-    test: (p) => SECURITY.test(p),
+    test: (p) => SECURITY.test(p) || SECURITY_BY_NAME.test(p),
+  },
+  legal: {
+    reviewer: "legal-advisor",
+    what: "уведомления и согласия клиентов",
+    test: (p) => LEGAL.test(p),
   },
 };
 

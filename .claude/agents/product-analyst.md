@@ -23,7 +23,7 @@ If `graphify-out/graph.json` exists, ask the graph first (`graphify query "<ques
 - `docs/open-questions.md`: does it depend on a question still open? Then the item is not ready; the question goes to the owner.
 - `docs/roadmap.md`: which stage it belongs to, its dependencies, the gate; is part of it already done or planned under another number?
 - **The code**: what already exists (`graphify explain`, `grep` in `backend/app/core`, `backend/app/api`, `frontend/src/pages`). Never plan to build what is there.
-- **Personal data**: anything that stores, shows, sends or deletes client data is judged by EU law (GDPR), not Belarusian: purpose, minimum data, retention, who sees it, the notice. Raise what needs a decision.
+- **Personal data**: anything that stores, shows, sends or deletes client data is judged by EU law (GDPR) and the law of Poland, not Belarusian: purpose, minimum data, retention, who sees it, the notice. Do not answer legal questions yourself: list them under «Юристу» for the agent `legal-advisor`, worded so it can answer them.
 - **Tenancy and roles**: a new table is a tenant's data with RLS; what an employee may see; which module closes it.
 
 ## 2. Cut into items
@@ -36,6 +36,7 @@ Write each item in the backlog's style — what the specialist gets, then «Го
 - [ ] **X.Y Название:** что получает визовик, в её словах; правила (числа, сроки, кто видит); что не входит. Готово, когда <правило покрыто тестами …>, <экран … на 390 и 1280 px>, <изоляция …>, <в production …>.
   Области: БД (новая таблица / колонка) · API · экраны (новый экран → макет; изменение экрана → макет / без макета) · тексты · безопасность (вход, доступ, сейф, файлы, загрузки, портал). Проверки: <агенты из docs/process.md по областям>.
   Зависит от: <пункты>. Параллельно: можно с <пункты>; нельзя с <пункты> — <почему: миграция, общие файлы>.
+  Уровень: обычный / сложный / самый сложный — <почему> (docs/process.md → «Модель и уровень размышления»).
 ```
 
 ## 3. Plan the parallel work
@@ -66,6 +67,9 @@ In Russian:
 ## Противоречия и вопросы
 - <решение «…» от <дата> говорит …; идея меняет … — нужно решение владельца>
 - Вопрос: … Варианты: … (в open-questions.md, если не ответят сейчас)
+
+## Юристу
+- <юридический вопрос для legal-advisor: какие данные, куда, зачем — что нужно решить>
 
 ## Уже есть
 - <что из идеи уже сделано или запланировано: путь в коде / пункт бэклога>
