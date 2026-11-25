@@ -43,7 +43,7 @@ export function CasePortal({ visaCase: c }: { visaCase: VisaCase }) {
 
   return (
     <div className="portal-block">
-      <h5 className="h4">{t("portal.title")}</h5>
+      <h5 className="h3">{t("portal.title")}</h5>
       {!p.controller_ready && (
         <div className="alert alert-warn" role="status">
           {t("portal.controllerMissing")} <Link to="/settings">{t("settings.title")}</Link>
@@ -51,7 +51,7 @@ export function CasePortal({ visaCase: c }: { visaCase: VisaCase }) {
       )}
       <div className="portal-link">
         <input readOnly value={url} aria-label={t("portal.link")} onFocus={(e) => e.target.select()} />
-        <button type="button" className="btn btn-sm" onClick={() => void copy()}>
+        <button type="button" className="btn" onClick={() => void copy()}>
           {copied ? t("admin.copied") : t("admin.copy")}
         </button>
       </div>
