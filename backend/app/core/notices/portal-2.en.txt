@@ -1,0 +1,32 @@
+Who is responsible for your data
+{name}, {address}. Write to {email} with questions about your data and requests for access, correction, erasure or objection.
+
+Why we process your data and on what basis
+- To prepare and submit your visa application as you ordered: check documents against the consulate's list, fill in forms and book the appointment. Basis: our contract with you (Art. 6(1)(b) GDPR).
+- Health data or other special categories, if your documents contain them: only with your separate consent (Art. 9(2)(a) GDPR).
+- Payments and the contract: kept because tax and accounting law requires it (Art. 6(1)(c)) and to defend against claims (Art. 6(1)(f)).
+- After the work is done we keep a short card: your name, contacts, and which visas we handled and when, so a future visa does not start from scratch. This is our legitimate interest (Art. 6(1)(f)); ask us and we will tell you how we weighed it against your interests.
+
+You can object
+At any time, write to {email} that you do not want us to keep the card after the work is done, and we will delete it.
+
+What data
+Data from your documents: passport, certificates, statements, bookings and the other documents listed on this page. When you confirm you have read this notice, we record the time, IP address and browser so that we can prove it.
+
+Who receives the data
+- The consulate or visa centre of the country you apply to. If that country is outside the EU (for example the UK or the US), your data goes there because your order cannot be carried out otherwise (Art. 49(1)(b) GDPR). Data protection there may be weaker than in the EU.
+- Our providers, who act on our instructions: the CRM provider, hosting and storage for files and backups (servers in the Netherlands), and an email service for sign-in codes. Some are US companies; transfers to them rely on the EU-US Data Privacy Framework or the EU standard contractual clauses. Ask {email} for a copy.
+Files are stored encrypted.
+
+How long we keep it
+- Uploaded documents and passport data: 7 days after the visa decision; if you appeal a refusal, until the appeal ends.
+- Payments and the contract: 5 years after the end of the year of payment.
+- The short card: 10 years after your last request; each new request extends this. Earlier if you object.
+- Backups keep deleted data, encrypted, for up to 12 months; we use them only to recover from a failure.
+
+Your rights
+Access and a copy, correction, erasure, restriction, portability, objection. You can withdraw consent to special categories with the button on this page or by writing to {email}; this does not affect what was done before. You can complain to the supervisory authority: {authority}.
+
+Do you have to provide data
+Without the documents we cannot prepare your application. Consent to special categories is optional: without it, do not upload medical documents here, and we will agree on another way.
+We make no automated decisions about you.
