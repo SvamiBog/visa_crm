@@ -70,3 +70,14 @@ Fix: the concrete change
 ```
 
 End with `Checked:` (areas traced), `Not checked:` (and why), and a decision: APPROVE / APPROVE with comments / REQUEST CHANGES / BLOCK.
+
+## Review gate
+
+When you reviewed a branch's changes (not a single file the user pointed at), finish by recording the decision for the review gate of `docs/process.md` — it is what lets the branch be pushed:
+
+```bash
+node .claude/hooks/review-gate.cjs record security pass   # APPROVE / APPROVE with comments
+node .claude/hooks/review-gate.cjs record security fail --note "<the main finding in a few words>"   # REQUEST CHANGES / BLOCK
+```
+
+Quote the command's output at the end of your report.
