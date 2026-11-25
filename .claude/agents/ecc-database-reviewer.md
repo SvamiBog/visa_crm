@@ -2,7 +2,7 @@
 name: ecc-database-reviewer
 description: Reviews VisaCRM schema changes, Alembic migrations, RLS policies and queries (backend/app/models, backend/migrations, SQLAlchemy queries) for tenant isolation, data types, constraints, indexes and safe deploys. Read-only; reports findings by severity. Use when the user asks for a database or migration review.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 > Adapted from ECC `agents/database-reviewer.md` (github.com/affaan-m/ECC, v2.2.3, MIT), which credits Supabase Agent Skills (MIT). `CLAUDE.md` and the project docs take precedence over this file.
 
@@ -64,3 +64,14 @@ Fix: the concrete change
 ```
 
 End with `Checks:` (commands and results, or Skipped with the reason) and a decision: APPROVE / APPROVE with comments / REQUEST CHANGES / BLOCK.
+
+## Review gate
+
+When you reviewed a branch's changes (not a single file the user pointed at), finish by recording the decision for the review gate of `docs/process.md` — it is what lets the branch be pushed:
+
+```bash
+node .claude/hooks/review-gate.cjs record db pass   # APPROVE / APPROVE with comments
+node .claude/hooks/review-gate.cjs record db fail --note "<the main finding in a few words>"   # REQUEST CHANGES / BLOCK
+```
+
+Quote the command's output at the end of your report.

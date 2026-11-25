@@ -2,7 +2,7 @@
 name: ecc-security-reviewer
 description: Security review of VisaCRM changes that touch login, sessions, access, tenant data, the vault, stored files, uploads, outside calls or personal data. Read-only; reports findings by severity with fixes. Use when the user asks for a security review; the built-in /security-review covers the pending diff the same way.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 > Adapted from ECC `agents/security-reviewer.md` (github.com/affaan-m/ECC, v2.2.3, MIT). `CLAUDE.md` and the project docs take precedence over this file.
 
@@ -70,3 +70,14 @@ Fix: the concrete change
 ```
 
 End with `Checked:` (areas traced), `Not checked:` (and why), and a decision: APPROVE / APPROVE with comments / REQUEST CHANGES / BLOCK.
+
+## Review gate
+
+When you reviewed a branch's changes (not a single file the user pointed at), finish by recording the decision for the review gate of `docs/process.md` — it is what lets the branch be pushed:
+
+```bash
+node .claude/hooks/review-gate.cjs record security pass   # APPROVE / APPROVE with comments
+node .claude/hooks/review-gate.cjs record security fail --note "<the main finding in a few words>"   # REQUEST CHANGES / BLOCK
+```
+
+Quote the command's output at the end of your report.

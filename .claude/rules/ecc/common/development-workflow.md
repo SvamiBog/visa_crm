@@ -7,3 +7,4 @@
 3. Test first, then the smallest change to green (`testing.md`).
 4. Run what CI runs for the touched side; the Playwright tests when forms or layout change.
 5. Review the diff (`code-review.md`), update the docs the item touches; a product decision goes to `docs/decisions.md`.
+6. Before the push, the reviewers of every area the branch touches sign it off (`docs/process.md` → «Проверки перед PR»; `/deliver` runs them, the hook `review-gate.cjs` enforces them).

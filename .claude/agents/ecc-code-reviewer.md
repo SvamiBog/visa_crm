@@ -318,3 +318,14 @@ When reviewing AI-generated changes, prioritize:
 2. Security assumptions and trust boundaries
 3. Hidden coupling or accidental architecture drift
 4. Decisions taken silently that belong in `docs/decisions.md` or `docs/open-questions.md`
+
+## Review gate
+
+When you reviewed a branch's changes (not a single file the user pointed at), review them against `git merge-base HEAD origin/main`, uncommitted and new files included, and finish by recording the decision for the review gate of `docs/process.md` — it is what lets the branch be pushed:
+
+```bash
+node .claude/hooks/review-gate.cjs record code pass   # Approve
+node .claude/hooks/review-gate.cjs record code fail --note "<the main finding in a few words>"   # Warning or Block
+```
+
+Quote the command's output at the end of your report.

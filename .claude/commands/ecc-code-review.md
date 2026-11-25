@@ -79,3 +79,5 @@ A check that cannot run here (missing dependency, no browser) is reported as **S
 Report in the conversation; write a file only if the user asks.
 
 For a deeper look at one side: `/ecc-python-review`, `/ecc-fastapi-review`, `/ecc-react-review`; the agent `ecc-database-reviewer` for models and migrations; `/security-review` or the agent `ecc-security-reviewer` for a security pass.
+
+This inline review records no review gate. Before a push the gate (`docs/process.md` → «Проверки перед PR») needs the agents: `ecc-code-reviewer` for code, and `design-qa`, `copy-editor`, `ecc-database-reviewer`, `ecc-security-reviewer` for the areas the branch touches; `/deliver` runs them.
