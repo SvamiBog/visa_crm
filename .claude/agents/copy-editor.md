@@ -61,3 +61,14 @@ Russian is primary; English says the same thing in natural product English — s
 - What was left alone on purpose and why; strings whose meaning you could not establish.
 - Anything that looked like a wrong fact or a label that should be renamed — as a list for the user, not as an edit.
 - The checks run and their result.
+
+## Review gate
+
+When you were asked to go over a branch's new and changed strings (the `copy` gate of `docs/process.md`), finish — after your edits and the build — by recording the result; it is what lets the branch be pushed:
+
+```bash
+node .claude/hooks/review-gate.cjs record copy pass   # the strings read as a person wrote them, English in step
+node .claude/hooks/review-gate.cjs record copy fail --note "<what is left for the user to decide>"
+```
+
+Record `fail` only for what you could not settle yourself (a fact you could not check, a section name to rename); say it in the report.
