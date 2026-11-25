@@ -30,6 +30,8 @@ The `/ecc-plan` procedure, inline. Add two sections to its output:
 
 - **Области и проверки**: which review gates the change will need (`node .claude/hooks/review-gate.cjs` → GATES: code, db, design, copy, security) and which advisory reviewers (below).
 - **Макет**: needed when the item adds a screen, a block or a form, or visibly re-lays one; not needed for a fix that keeps the look.
+- **Уровень**: обычный / сложный / самый сложный (`docs/process.md` → «Модель и уровень размышления»), and which parts are hard. For a hard part, its subagent runs with `model: "fable"` and `effort: "xhigh"` (`"max"` for the hardest); if the whole item is hard and this session is not on Fable 5.2, ask the person to pick it in the model menu (a session cannot raise itself).
+- **Юрист**: any legal question the item raises (data, consent, notice, contract, signature, sending data to a third party) goes to the agent `legal-advisor` now, before code; its answer and what must stay off in production go into the plan.
 
 WAIT for the person's yes. A yes given ahead of time counts only in the person's own words in this session, or quoted from them in the brief.
 
@@ -60,7 +62,8 @@ node .claude/hooks/review-gate.cjs status     # which gates the working tree nee
    - `design-qa` — every change to `frontend/src/**/*.tsx` or `*.css` (gate `design`); give it the stand URL if one runs and the approved mockup;
    - `ecc-code-reviewer` — always when code changed (gate `code`);
    - `ecc-database-reviewer` — models or migrations, if not done in step 4 or stale since (gate `db`);
-   - `ecc-security-reviewer` — login, sessions, access, vault, files, uploads, the portal (gate `security`).
+   - `ecc-security-reviewer` — login, sessions, access, vault, files, uploads, the portal (gate `security`); with `model: "fable"` and `effort: "xhigh"` when the plan's level is сложный or above;
+   - `legal-advisor` — the notices clients read and the consent they give (gate `legal`), and any flow that sends client data somewhere new.
 3. **Advisory, for a Medium or Large plan**: `ecc-fastapi-reviewer` and `ecc-python-reviewer` (backend), `ecc-react-reviewer` and `ecc-typescript-reviewer` (frontend); `specialist-simulator` when the item changes how the specialist runs clients (a flow, money, reminders). They record no gate; their CRITICAL and HIGH findings are fixed like the others.
 
 Each agent's prompt says: the item, what the plan changes, that it reviews the branch against `git merge-base HEAD origin/main` including uncommitted files, and that it records its gate at the end. If `graphify-out/graph.json` exists, the prompt says to ask `graphify query` before grepping.
@@ -75,8 +78,16 @@ To the person, in Russian: what the specialist gets now; tests RED → GREEN; th
 
 ## 10. Commit and PR — on the person's yes
 
-`git-workflow.md`: English subject with the item (`Show questionnaire fields in the case (backlog 2.4)`), body in prose with the test that proves it. `git push -u origin <branch>` — the review gate hook checks the committed files against the reviews; if it blocks, do what it says. The PR: what the branch changes, how it was tested, the output of `review-gate.cjs status`, the backlog link. Then the PR tools (status, CI, Auto-fix offer); merge only on the person's word when CI is green (no required checks on GitHub).
+`git-workflow.md`: English subject with the item (`Show questionnaire fields in the case (backlog 2.4)`), body in prose with the test that proves it. `git push -u origin <branch>` — the review gate hook checks the committed files against the reviews; if it blocks, do what it says. The PR: what the branch changes, how it was tested, the output of `review-gate.cjs status`, the backlog link, the feature's flag and that it is off in production. Then the PR tools (status, CI, Auto-fix offer). Never GitHub auto-merge: there are no required checks, it would merge before CI.
 
-## 11. After the merge
+## 11. The PR's stand — the test server
 
-Mark the item in `docs/backlog.md`, `docs/roadmap.md` and on the roadmap page (ArtifactData, collection `items`): «На проверке» until it is checked in production, «Готово» after. The mockup stays in `docs/prototype/` as the screen's reference.
+`docs/process.md` → «Тестовый сервер и флаги». When CI is green, Railway's stand of this PR serves the branch with demo data (`docs/staging.md`, section 2: its address and the demo password in its log). On the stand: `design-qa` with `--base <stand>` on the changed screens; `specialist-simulator` when the item changes client work; `ecc-site-security-tester` for the portal, signing and the bot (stand only, never production). Fix what they find (and re-run the gates the fix makes stale). Then send the person the stand's address, the demo login and what to look at, and WAIT for their yes.
+
+## 12. Merge — on the person's yes after the stand
+
+`gh pr merge <n> --squash` — one commit in `main` per item. Production deploys from `main` at once: a new feature must stay off there by its flag until the person switches it on.
+
+## 13. After the merge
+
+Mark the item in `docs/backlog.md`, `docs/roadmap.md` and on the roadmap page (ArtifactData, collection `items`): «На проверке» until it is checked in production, «Готово» after. The mockup stays in `docs/prototype/` as the screen's reference. For a feature behind a flag, the note says it is off in production and which variable turns it on.

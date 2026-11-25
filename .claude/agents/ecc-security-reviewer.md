@@ -2,7 +2,7 @@
 name: ecc-security-reviewer
 description: Security review of VisaCRM changes that touch login, sessions, access, tenant data, the vault, stored files, uploads, outside calls or personal data. Read-only; reports findings by severity with fixes. Use when the user asks for a security review; the built-in /security-review covers the pending diff the same way.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 > Adapted from ECC `agents/security-reviewer.md` (github.com/affaan-m/ECC, v2.2.3, MIT). `CLAUDE.md` and the project docs take precedence over this file.
 

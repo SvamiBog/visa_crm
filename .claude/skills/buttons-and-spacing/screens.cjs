@@ -84,7 +84,14 @@ async function resolvePath(request) {
         document.querySelectorAll(".tabbar").forEach((bar) => (bar.style.display = "none"));
       }, theme);
       const name = `${theme}-${width}`;
-      await page.screenshot({ path: `${OUT}/${name}-page.png`, fullPage: true });
+      // Not `fullPage: true`: in Chromium it drops the touch emulation, and (pointer: coarse)
+      // rules (44px targets on a phone) would vanish from this shot and every one after it.
+      // The viewport grows to the page's height for the shot and goes back instead.
+      const size = page.viewportSize();
+      const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      await page.setViewportSize({ width, height: Math.max(height, size.height) });
+      await page.screenshot({ path: `${OUT}/${name}-page.png` });
+      await page.setViewportSize(size);
       const header = page.locator(".page-header").first();
       if (await header.count()) await header.screenshot({ path: `${OUT}/${name}-header.png` });
       const blocks = page.locator(".page .card");
