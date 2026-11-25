@@ -145,7 +145,7 @@
   --radius-btn: 999px;
   --radius-logo: 50%;
   --h2-font: var(--font-heading);
-  --h2-size: 15px;
+  --h2-size: 16px;
   --h2-case: none;
   --h2-spacing: 0;
   --h2-color: var(--c-text);
@@ -195,7 +195,7 @@
   --radius-btn: 4px;
   --radius-chip: 4px;
   --radius-logo: 4px;
-  --h2-size: 13px;
+  --h2-size: 16px;
   --h2-case: none;
   --h2-spacing: 0;
   --h2-color: var(--c-text);
@@ -282,6 +282,12 @@ body {
 a {
   color: var(--c-link);
   text-decoration: none;
+}
+
+/* Bold is 600 everywhere, the heaviest weight of the scale; the browser's own is 700 */
+strong,
+b {
+  font-weight: 600;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1713,16 +1719,26 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   flex: 1;
 }
 
+/* A field in a row of buttons is as tall as the row's small buttons (.btn-sm): compact
+   under a mouse, a finger's 44px on a touch screen (backlog 2.15) */
 .inline-form input,
 .row-editor input,
 .row-editor select {
-  min-height: 40px;
+  min-height: 36px;
   padding: 0 10px;
   border: 1px solid var(--c-field-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
   font: inherit;
   color: inherit;
+}
+
+@media (pointer: coarse) {
+  .inline-form input,
+  .row-editor input,
+  .row-editor select {
+    min-height: 44px;
+  }
 }
 
 .inline-form input {
@@ -3356,7 +3372,7 @@ a.kpi:focus-visible {
 
 .month-switch {
   display: flex;
-  gap: 4px;
+  gap: 8px;
 }
 
 .funnel {
@@ -3407,6 +3423,23 @@ a.kpi:focus-visible {
 
 .home-list > li:first-child {
   border-top: 0;
+}
+
+/* Links that stand alone — «Все клиенты» of a card, a queue of the home page, «← Все
+   клиенты» above a client's card — are a finger's 44px tall on a touch screen; a list's
+   row with such a link loses its padding so it keeps its height (backlog 2.15) */
+@media (pointer: coarse) {
+  .card-head a.small,
+  .home-list a,
+  .page > a.small {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .home-list > li:has(> a) {
+    padding-block: 0;
+  }
 }
 
 /* Аналитика: tables with thin bars; the numbers are always written next to them */
@@ -4078,6 +4111,13 @@ a.kpi:focus-visible {
   color: inherit;
 }
 
+/* As tall as the row's buttons, which grow to a finger's size on a touch screen */
+@media (pointer: coarse) {
+  .plain-list .actions select {
+    min-height: 44px;
+  }
+}
+
 /* Document templates: codes found in a file, actions that wrap on a phone */
 .templates .chips {
   margin: 8px 0;
@@ -4181,9 +4221,25 @@ a.kpi:focus-visible {
   gap: 8px;
 }
 
+/* The link is read-only but looks like the fields of a form: same height, frame and padding */
 .portal-link input {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--c-field-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  font: inherit;
+  font-weight: 400;
+  color: inherit;
+}
+
+/* Comes after the fields' own `font: inherit` above, as the list of 16px fields does */
+@media (pointer: coarse) {
+  .portal-link input {
+    font-size: 16px;
+  }
 }
 
 .portal-code {
