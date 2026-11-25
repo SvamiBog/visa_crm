@@ -1,0 +1,32 @@
+Kto odpowiada za Twoje dane
+{name}, {address}. W sprawach danych, dostępu, sprostowania, usunięcia i sprzeciwu pisz na {email}.
+
+W jakim celu i na jakiej podstawie przetwarzamy dane
+- Aby przygotować i złożyć wniosek wizowy na Twoje zlecenie: sprawdzić dokumenty według listy konsulatu, wypełnić formularze i umówić termin. Podstawa: umowa z Tobą (art. 6 ust. 1 lit. b RODO).
+- Dane o zdrowiu lub inne szczególne kategorie danych, jeśli są w dokumentach: wyłącznie za Twoją odrębną zgodą (art. 9 ust. 2 lit. a RODO).
+- Płatności i umowę przechowujemy, bo wymagają tego przepisy podatkowe i rachunkowe (art. 6 ust. 1 lit. c), oraz w celu obrony przed roszczeniami (art. 6 ust. 1 lit. f).
+- Po zakończeniu usługi przechowujemy krótką kartę: imię i nazwisko, kontakt oraz informację, jakie wizy i kiedy załatwialiśmy, aby kolejna wiza nie zaczynała się od zera. To nasz prawnie uzasadniony interes (art. 6 ust. 1 lit. f); na żądanie wyjaśnimy, jak wyważyliśmy go z Twoimi interesami.
+
+Możesz wnieść sprzeciw
+W każdej chwili napisz na {email}, że nie chcesz, abyśmy przechowywali kartę po zakończeniu usługi, a usuniemy ją.
+
+Jakie dane
+Dane z Twoich dokumentów: paszport, zaświadczenia, wyciągi, rezerwacje i inne dokumenty z listy na tej stronie. Gdy potwierdzasz zapoznanie się z tą informacją, zapisujemy czas, adres IP i przeglądarkę, aby móc to wykazać.
+
+Kto otrzymuje dane
+- Konsulat lub centrum wizowe państwa, do którego składasz wniosek. Jeśli państwo to jest poza UE (np. Wielka Brytania lub USA), dane są tam przekazywane, ponieważ bez tego nie można wykonać zlecenia (art. 49 ust. 1 lit. b RODO). Ochrona danych może być tam słabsza niż w UE.
+- Nasi dostawcy działający na nasze polecenie: dostawca systemu CRM, hosting i przechowywanie plików oraz kopii zapasowych (serwery w Holandii), usługa e-mail do wysyłki kodów logowania. Część z nich to firmy z USA; przekazanie opiera się na EU-US Data Privacy Framework lub standardowych klauzulach umownych UE. Kopię możesz otrzymać pod {email}.
+Pliki są przechowywane w postaci zaszyfrowanej.
+
+Jak długo przechowujemy dane
+- Przesłane dokumenty i dane paszportowe: 7 dni po decyzji wizowej; jeśli odwołujesz się od odmowy — do zakończenia odwołania.
+- Płatności i umowa: 5 lat od końca roku, w którym dokonano płatności.
+- Krótka karta: 10 lat od Twojego ostatniego kontaktu; każdy nowy kontakt przedłuża ten okres. Wcześniej — jeśli wniesiesz sprzeciw.
+- Kopie zapasowe zawierają usunięte dane w postaci zaszyfrowanej do 12 miesięcy; korzystamy z nich wyłącznie do odtworzenia systemu po awarii.
+
+Twoje prawa
+Dostęp do danych i ich kopia, sprostowanie, usunięcie, ograniczenie przetwarzania, przenoszenie, sprzeciw. Zgodę na szczególne kategorie danych możesz wycofać przyciskiem na tej stronie lub pisząc na {email}; nie wpływa to na zgodność z prawem przetwarzania przed jej wycofaniem. Możesz wnieść skargę do organu nadzorczego: {authority}.
+
+Czy musisz podać dane
+Bez dokumentów nie przygotujemy wniosku. Zgoda na szczególne kategorie danych jest dobrowolna: bez niej nie przesyłaj tu dokumentów medycznych — ustalimy inny sposób.
+Nie podejmujemy wobec Ciebie zautomatyzowanych decyzji.

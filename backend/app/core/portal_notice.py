@@ -10,6 +10,10 @@ in the database anyway.
 
 DRAFT 1, not yet checked by a lawyer (docs/open-questions.md): the specialist is
 registered in Poland and works under the GDPR and Polish law.
+
+Version 2 (portal-2.{ru,en,pl}.txt, docs/decisions.md → «Данные клиентов и GDPR») is
+prepared but not shown yet: its text points to a consent-withdrawal button the page does not
+have, so VERSION moves to "2" together with that button and Polish joins LANGUAGES then.
 """
 
 import hashlib
