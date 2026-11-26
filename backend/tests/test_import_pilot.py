@@ -114,6 +114,18 @@ async def test_the_pilot_book_in_the_format_loads_whole_and_once(
         ("2025-08-01", "2026-05-05"),
         ("2026-05-05", "None"),
     ]
+    # France: the CRM counts the window, the sent date + 60 days, a day after «60й день» of
+    # the book, and closes the expired attempt on its last day (backlog 1.25).
+    denis = await rows(
+        owner_engine,
+        "SELECT a.sent_on, a.deadline_on, a.outcome, a.closed_on FROM application_attempts a "
+        "JOIN visa_cases c ON c.id = a.case_id JOIN contacts p ON p.id = c.contact_id "
+        "WHERE p.full_name = 'Морозов Денис' ORDER BY a.number",
+    )
+    assert [tuple(str(v) for v in a.values()) for a in denis] == [
+        ("2026-05-01", "2026-06-30", "expired", "2026-06-30"),
+        ("2026-07-01", "2026-08-30", "cancelled", "None"),
+    ]
     # The talons from the book are paid: no debt to the registrars.
     ledgers = await ok(await client.get("/api/registrars/ledgers"))
     assert {(r["name"], r["balance"], r["talons"]) for r in ledgers} == {

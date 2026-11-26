@@ -101,8 +101,8 @@ Queue (waiting list)
 - "Email" and "Password" columns side by side — the client's email account (the email system) for this case. That email is also the case's "Application email" unless the spreadsheet says otherwise.
 - If the submissions sheets have "Queued" and "Letter with date" columns and there is no queue sheet — also a row on the "Queue" sheet, but only for countries with a waiting list. Which countries these are — ask me if the sheet names do not show it.
 Windowed applications (France)
-- "Date the application was sent" — attempt 1; "60th day" → "Last day of the window" (as in the spreadsheet, do not work it out again).
-- "Again" — the date of the next application, that is attempt 2. The previous attempt gets "Outcome: expired" and "Closed on" — its last day of the window. "60th day (2nd cycle)" — the last day of attempt 2; "Again (2nd cycle)" — attempt 3, and so on.
+- "Date the application was sent" — attempt 1. Do not carry over "60th day": leave "Last day of the window" empty, the CRM puts it itself — the sent date + the country's window.
+- "Again" — the date of the next application, that is attempt 2. The previous attempt gets "Outcome: expired" and an empty "Closed on": the CRM closes it on its last day of the window. Do not carry over "60th day (2nd cycle)" either; "Again (2nd cycle)" — attempt 3, and so on.
 - "not sending" in a column of repeats — the last attempt gets "Outcome: cancelled".
 - If the person has no case of this country, create one as for the queue.
 Bookings
@@ -174,7 +174,7 @@ Expenses: Code | Case code* | Client | Date* | Description* | Amount* | Currency
 
 Queue: Code | Case code* | Client | Country | Queued on* | Letter on | Removed on | Removal reason
 
-Windowed applications: Code | Case code* | Client | Country | Attempt number | Sent on* | Last day of the window | Outcome (date received / expired / cancelled; empty — open) | Closed on
+Windowed applications: Code | Case code* | Client | Country | Attempt number | Sent on* | Last day of the window (empty — the CRM counts it by the country's window) | Outcome (date received / expired / cancelled; empty — open) | Closed on
 
 Bookings: Code | Case code* | Client | Kind (hotel / flight) | Status (active / rescheduled / cancelled) | Place* | Check-in | Check-out | Free cancellation until | Valid until | Booking number | Account | Comment
 
