@@ -1,7 +1,7 @@
 """What the system watches in bookings (docs/clients-module.md → «Брони»).
 
-A hotel's deadline is its last day of free cancellation; a client's flight booking has a
-validity date instead. Reminders 3 and 1 days before a deadline come with the in-CRM
+A hotel's deadline is its last day of free cancellation; a flight booking has a validity
+date instead. Reminders 3 and 1 days before a deadline come with the in-CRM
 reminders (backlog 1.11) and use these rules.
 """
 
@@ -22,7 +22,7 @@ class BookingWarning(StrEnum):
     CASE_CLOSED = "case_closed"
     # The free cancellation day has passed and the booking is still live.
     CANCELLATION_PASSED = "cancellation_passed"
-    # The client's flight booking ends before the submission date.
+    # The flight booking ends before the submission date.
     EXPIRES_BEFORE_SUBMISSION = "expires_before_submission"
 
 

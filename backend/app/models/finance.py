@@ -186,7 +186,9 @@ class CasePayment(_Money, Base):
 
 
 class CaseExpense(_Money, Base):
-    """Something the specialist paid for the case themselves (not the client's flight)."""
+    """Something the specialist paid for the case themselves, such as the flight booking: its
+    price is already in the price of the service. Real tickets are the client's own and
+    are not kept in the CRM (backlog 1.26)."""
 
     __tablename__ = "case_expenses"
     __table_args__ = _money_checks("case_expenses")

@@ -268,7 +268,7 @@ class CaseOut(BaseModel):
     attempts: list[AttemptOut] = []
     # Average days from the queue to the letter for this country, city and purpose.
     average_wait_days: int | None = None
-    # Hotels and the client's flight booking for the document package.
+    # Hotels and the flight booking for the document package.
     bookings: list[BookingOut] = []
 
 

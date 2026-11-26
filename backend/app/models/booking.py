@@ -1,7 +1,9 @@
 """Bookings for the document package (брони; docs/clients-module.md → «Брони для пакета
-документов»): hotels with their free cancellation deadline and the client's flight
-booking with its validity. Kept per case; the system watches the deadlines until the
-case reaches its result (app/core/bookings.py).
+документов»): hotels with their free cancellation deadline and the flight booking with
+its validity. The specialist makes and pays for the flight booking themselves, so its price
+is an expense of the case (app/models/finance.py → CaseExpense), not a field here. Kept
+per case; the system watches the deadlines until the case reaches its result
+(app/core/bookings.py).
 """
 
 import uuid

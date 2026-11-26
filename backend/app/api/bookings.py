@@ -1,6 +1,6 @@
 """Bookings of a case (backlog 1.8): hotels with their free cancellation deadline, the
-client's flight booking with its validity, and the «Брони: дедлайны» view of all live
-bookings by the nearest deadline.
+flight booking with its validity, and the «Брони: дедлайны» view of all live bookings
+by the nearest deadline.
 
 Closed by the «clients» and «cases» modules. The account a booking was made in is only
 referred to by id: its login stays in the vault.
