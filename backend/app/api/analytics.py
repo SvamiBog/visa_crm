@@ -5,6 +5,9 @@ docs/decisions.md → «Аналитика»; the rules — app/core/analytics.p
 - Consultations count by the day they were held; channels and partners follow what the
   clients of those consultations came to (cases, visas, profit), whenever it happened.
 - Cases count by their submission day (the appointment, else the decision day).
+- Profit of the period and of its months is the money that came in and went out on those
+  days, each amount on its own day (backlog 1.18, `rules.profit_by_month`); channels and
+  partners keep the whole profit of their cases (app/core/finance.py).
 - Queues and applications count by the day of the letter, the date or the removal.
 
 Closed by the «analytics» module with «clients» and «cases»; money needs «finances».
@@ -12,7 +15,7 @@ Closed by the «analytics» module with «clients» and «cases»; money needs �
 
 import uuid
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
@@ -83,7 +86,7 @@ class Totals(BaseModel):
     visas: int
     refusals: int
     approval: int | None
-    profit: Decimal | None
+    profit: Decimal | None  # the sum of the months
 
 
 class Source(BaseModel):
@@ -107,7 +110,7 @@ class MonthRow(BaseModel):
     to_work: int
     submissions: int
     visas: int
-    profit: Decimal | None
+    profit: Decimal | None  # the money of the month's own days, may be negative
 
 
 class Decided(BaseModel):
@@ -331,10 +334,14 @@ async def analytics(
             )
         )
     )
+    # Money: the sources keep the whole profit of their cases, the months and the period
+    # take the money of their own days.
     profits: dict[uuid.UUID, Decimal] = {}
+    by_month: dict[date, Decimal] = {}
     if money_on:
-        ids = {c.id for c in cases} | {c.id for group in opened.values() for c in group}
-        profits = await _profits(session, list(ids), tenant.tax_rate)
+        ids = [c.id for group in opened.values() for c in group]
+        profits = await _profits(session, ids, tenant.tax_rate)
+        by_month = await _month_profits(session, tenant, start, end, country_id)
 
     def profit_of(case_list: list[VisaCase]) -> Decimal | None:
         if not money_on:
@@ -390,7 +397,7 @@ async def analytics(
             to_work=bucket["to_work"],
             submissions=tally.submissions,
             visas=tally.visas,
-            profit=profit_of([case for case, _ in bucket["cases"]]),
+            profit=by_month.get(month),
         )
 
     waits, attempts = await _waits(session, start, end, country_id)
@@ -406,7 +413,7 @@ async def analytics(
             visas=totals.visas,
             refusals=totals.refusals,
             approval=rules.approval(totals.visas, totals.refusals),
-            profit=profit_of(cases),
+            profit=_sum(list(by_month.values())) if money_on else None,
         ),
         channels=sorted(
             (ChannelRow(channel_id=k, **source(rows)) for k, rows in by_channel.items()),
@@ -430,6 +437,98 @@ async def analytics(
         attempts=await _attempts(session, start, end, country_id),
         money=await money_block(session, user, tenant.base_currency) if money_on else None,
     )
+
+
+async def _month_profits(
+    session: AsyncSession, tenant: Tenant, start: date, end: date, country_id: uuid.UUID | None
+) -> dict[date, Decimal]:
+    """Profit of each month of the period (backlog 1.18): the money of the cases whose
+    visa is for the country, each amount on its own day. Loaded here: payments and
+    expenses of the period, and the finances that hold a talon or a payout of the period
+    or a consultation credit, whose day `rules.credit_day` picks. An employee's session
+    reads only the cases given to them (`employee_scope`); a consultation they may not see
+    (of a person who is not an applicant of theirs) comes as no consultation, so its
+    credit counts for them on the day the case was opened."""
+    zone = ZoneInfo(tenant.timezone)
+
+    def of_country(query: Any) -> Any:
+        return query if country_id is None else query.where(VisaCase.destination_id == country_id)
+
+    opened_on: dict[uuid.UUID, date] = {}
+    payments: dict[uuid.UUID, list[rules.Payment]] = defaultdict(list)
+    for case_id, created_at, on, amount, official in await session.execute(
+        of_country(
+            select(
+                CasePayment.case_id,
+                VisaCase.created_at,
+                CasePayment.paid_on,
+                CasePayment.amount_base,
+                CasePayment.official,
+            )
+            .join(VisaCase, VisaCase.id == CasePayment.case_id)
+            .where(CasePayment.paid_on.between(start, end))
+        )
+    ):
+        opened_on[case_id] = created_at.astimezone(zone).date()
+        payments[case_id].append(rules.Payment(on, amount, official))
+    expenses: dict[uuid.UUID, list[rules.Expense]] = defaultdict(list)
+    for case_id, created_at, on, amount in await session.execute(
+        of_country(
+            select(
+                CaseExpense.case_id,
+                VisaCase.created_at,
+                CaseExpense.spent_on,
+                CaseExpense.amount_base,
+            )
+            .join(VisaCase, VisaCase.id == CaseExpense.case_id)
+            .where(CaseExpense.spent_on.between(start, end))
+        )
+    ):
+        opened_on[case_id] = created_at.astimezone(zone).date()
+        expenses[case_id].append(rules.Expense(on, amount))
+    # The finances of a case and the days its consultation was paid and held.
+    finances: dict[uuid.UUID, tuple[CaseFinance, date | None, date | None]] = {}
+    for f, created_at, paid_on, held_on in await session.execute(
+        of_country(
+            select(CaseFinance, VisaCase.created_at, Consultation.fee_paid_on, Consultation.held_on)
+            .join(VisaCase, VisaCase.id == CaseFinance.case_id)
+            .outerjoin(Consultation, Consultation.id == VisaCase.consultation_id)
+            .where(
+                or_(
+                    CaseFinance.registrar_fee_on.between(start, end),
+                    CaseFinance.partner_paid_on.between(start, end),
+                    CaseFinance.consultation_credit > 0,
+                )
+            )
+        )
+    ):
+        opened_on[f.case_id] = created_at.astimezone(zone).date()
+        finances[f.case_id] = (f, paid_on, held_on)
+
+    def case_money(case_id: uuid.UUID, day: date) -> rules.CaseMoney:
+        moved = rules.CaseMoney(
+            opened_on=day, payments=tuple(payments[case_id]), expenses=tuple(expenses[case_id])
+        )
+        if case_id not in finances:
+            return moved  # payments or expenses only: nothing else of the period
+        f, paid_on, held_on = finances[case_id]
+        return replace(
+            moved,
+            price=f.price,
+            rate=f.rate,
+            consultation_credit=f.consultation_credit,
+            consultation_paid_on=paid_on,
+            consultation_held_on=held_on,
+            registrar_fee=f.registrar_fee_base,
+            registrar_fee_on=f.registrar_fee_on,
+            partner_terms=f.partner_terms,
+            partner_percent=f.partner_percent,
+            partner_fixed=f.partner_fixed,
+            partner_paid_on=f.partner_paid_on,
+        )
+
+    cases = [case_money(case_id, day) for case_id, day in opened_on.items()]
+    return rules.profit_by_month(cases, tenant.tax_rate, start, end)
 
 
 async def _opened(

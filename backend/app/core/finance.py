@@ -13,6 +13,10 @@ base currency, converted once when entered.
 - Tax (НПД) = rate × payments marked official, in the base currency; no tax while the
   workspace has no rate (pilot fix 5). A rate of 0 is her explicit «no tax» (pilot T8).
 - Profit, in the base currency = price − talon − partner payout − tax − other expenses.
+
+This is the profit of a case as a whole. The profit of a month in «Аналитика» is the money
+of that month's days and is counted with these functions in app/core/analytics.py
+(`profit_by_month`, backlog 1.18).
 """
 
 from collections.abc import Iterable, Mapping
