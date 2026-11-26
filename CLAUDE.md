@@ -82,7 +82,7 @@ graphify update .                        # граф кода в graphify-out/: �
 | партнёр (приводит клиентов за процент) | partner |
 | канал прихода | lead_channel |
 | сейф учётных записей | vault_entry |
-| бронь (отель, авиабронь клиента) | booking |
+| бронь (отель, авиабронь) | booking |
 | визовый центр (VFS, TLScontact, BLS…) | visa_center, оператор — vac_operator |
 | результат визы | visa_outcome |
 | справочник стран и операторов ВЦ (общий) | countries, vac_operators |

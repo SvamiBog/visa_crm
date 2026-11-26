@@ -19,7 +19,7 @@ import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert, useCaseName } from "./ui";
 
 // Bookings for the document package (backlog 1.8): hotels with their free cancellation
-// deadline and the client's flight booking with its validity.
+// deadline and the flight booking with its validity.
 
 export const BOOKING_STATUS_CHIP: Record<BookingStatus, string> = {
   active: "chip st-blue",

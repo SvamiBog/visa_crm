@@ -254,7 +254,7 @@ export type BookingKind = (typeof BOOKING_KINDS)[number];
 export const BOOKING_STATUSES = ["active", "rescheduled", "cancelled"] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 export type BookingWarning = "case_closed" | "cancellation_passed" | "expires_before_submission";
-/** A hotel or the client's flight booking for the document package (backlog 1.8). */
+/** A hotel or a flight booking for the document package (backlog 1.8). */
 export type Booking = {
   id: string;
   case_id: string;
