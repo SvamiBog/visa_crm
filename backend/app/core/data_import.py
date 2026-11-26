@@ -1742,6 +1742,10 @@ class WorkbookImport:
         if due is not None and due < sent_on:
             r.warn("deadline_on", "date_order")
             due = None
+        if due is None and attempt is not None:
+            # The window it was sent with, as when the CRM corrects a sent date
+            # (decisions.md, 2026-11-04): a later change of the direction does not move it.
+            due = deadline(sent_on, (attempt.deadline_on - attempt.sent_on).days)
         if due is None:
             window = self.windows.get((case.destination_id, case.submission_country_id))
             if window is None:
@@ -1753,6 +1757,9 @@ class WorkbookImport:
         closed = v.get("closed_on")
         if closed is None and not r.blank("closed_on") and attempt is not None:
             closed = attempt.closed_on
+        if closed is None and outcome is AttemptOutcome.EXPIRED:
+            # On its last day, as «Отправить повторно» closes an expired attempt (backlog 1.25).
+            closed = due
         if closed is not None and outcome is None:
             r.warn("closed_on", "needs_outcome")
             closed = None

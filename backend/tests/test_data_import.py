@@ -500,6 +500,83 @@ async def test_an_empty_cell_of_a_file_from_the_ai_changes_nothing(
     assert case["vac_number"] == "PL123"
 
 
+# Olga and her French case alone.
+FRANCE = {"Клиенты": [CLIENTS[0], CLIENTS[3]], "Кейсы": [CASES[0], CASES[3]]}
+
+
+async def _attempts(owner_engine: AsyncEngine, tenant: uuid.UUID) -> list[tuple]:
+    found = await rows(
+        owner_engine,
+        "SELECT number, sent_on, deadline_on, outcome, closed_on FROM application_attempts "
+        "WHERE tenant_id = :t ORDER BY number",
+        t=tenant,
+    )
+    return [tuple(a.values()) for a in found]
+
+
+async def test_the_crm_counts_the_window_and_closes_an_expired_attempt_on_its_last_day(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Backlog 1.25: the file leaves «Последний день окна» empty and the CRM puts the sent
+    date plus the window of her direction (France from Belarus: 60 days). An expired attempt
+    without «Дата закрытия» is closed on its last day, as «Отправить повторно» does; a filled
+    day is taken as it is."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    book = {
+        **FRANCE,
+        "Заявки с окном": [
+            ATTEMPTS[0],
+            ["Франция-2", 1, date(2025, 2, 10), None, "истекла", None],
+            ["Франция-2", 2, date(2025, 4, 12), None, "отменена", None],
+            ["Франция-2", 3, date(2025, 6, 1), date(2025, 7, 30), None, None],
+        ],
+    }
+
+    report = await run(client, book)
+
+    assert report["skipped"] == [] and report["warnings"] == []
+    assert await _attempts(owner_engine, tenant) == [
+        (1, date(2025, 2, 10), date(2025, 4, 11), "expired", date(2025, 4, 11)),
+        (2, date(2025, 4, 12), date(2025, 6, 11), "cancelled", None),
+        (3, date(2025, 6, 1), date(2025, 7, 30), None, None),
+    ]
+    again = await run(client, book)
+    assert (again["created"], again["updated"], again["skipped"]) == ({}, {}, [])
+
+
+async def test_an_attempt_in_the_crm_keeps_the_window_it_was_sent_with(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Her direction's window changed after the attempt was sent: the file again without
+    «Последний день окна» does not move the deadline, and a corrected sent date moves it by
+    the window the attempt was sent with, as in the CRM (decisions.md, 2026-11-04)."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    attempt = ["Франция-2", 1, date(2025, 2, 10), None, None, None]
+    book = {**FRANCE, "Заявки с окном": [ATTEMPTS[0], attempt]}
+    await run(client, book)
+    countries = {c["code"]: c["id"] for c in (await client.get("/api/reference/countries")).json()}
+    [france] = [
+        r
+        for r in (await client.get("/api/reference/rules")).json()
+        if r["destination_id"] == countries["FR"]
+    ]
+    await ok(await client.patch(f"/api/reference/rules/{france['id']}", json={"window_days": 90}))
+
+    again = await run(client, book)
+    assert (again["updated"], again["skipped"]) == ({}, [])
+    assert await _attempts(owner_engine, tenant) == [
+        (1, date(2025, 2, 10), date(2025, 4, 11), None, None)
+    ]
+
+    corrected = [ATTEMPTS[0], ["Франция-2", 1, date(2025, 2, 11), None, None, None]]
+    await run(client, {**book, "Заявки с окном": corrected})
+    assert await _attempts(owner_engine, tenant) == [
+        (1, date(2025, 2, 11), date(2025, 4, 12), None, None)
+    ]
+
+
 async def _exported(owner_engine: AsyncEngine, tenant: uuid.UUID) -> dict[str, dict]:
     """The CRM's own codes of the records, as an export writes them."""
     [anna] = await rows(
