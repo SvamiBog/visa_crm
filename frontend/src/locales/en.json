@@ -1378,7 +1378,7 @@
   "analytics.kpi.profit": "Profit",
   "analytics.kpi.profitNote": "from payments in the period",
   "analytics.channels": "Lead channels",
-  "analytics.channelsHint": "Consultations in the period and what became of their clients: how many went to work, how many got a visa and what it brought.",
+  "analytics.channelsHint": "Consultations in the period and what became of their clients: how many went to work, how many got a visa and what it brought. Profit here counts whole cases, whenever the money came in, so it won't match the profit by month.",
   "analytics.noChannel": "No channel",
   "analytics.partners": "Partners",
   "analytics.months": "By month",
