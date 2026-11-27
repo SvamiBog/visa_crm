@@ -63,6 +63,8 @@ async def test_employee_sees_only_given_cases_and_their_clients(
     await switch_to(client, EMPLOYEE)
     assert await found(client) == ["Ковалёва Анна"]
     assert await found(client, "Петров") == []
+    assert await found(client, "Иван Петров") == []
+    assert await found(client, "Анна Ковалёва") == ["Ковалёва Анна"]
     assert await found(client, "2233") == ["Ковалёва Анна"]
     assert [c["id"] for c in (await card(client, anna_client["id"]))["cases"]] == [given["id"]]
     for url in (

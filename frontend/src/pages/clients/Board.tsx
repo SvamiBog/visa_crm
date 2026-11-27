@@ -113,9 +113,15 @@ type CaseDrag = {
 /** What a card from «Консультация» carries. */
 type LeadDrag = { contactId: string; name: string };
 
-/** The board is searched by name on the page: its data has names, not phones. */
+/** The board is searched by name on the page: its data has names, not phones. Every word
+ * of the search is in the name, in any order, as in the list (backlog A2). */
 function matches(name: string, query: string): boolean {
-  return name.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+  const lower = name.toLocaleLowerCase();
+  return query
+    .toLocaleLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => lower.includes(word));
 }
 
 /** Cases of one group (or a single case) at the same stage. */

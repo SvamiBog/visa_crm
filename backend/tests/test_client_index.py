@@ -115,6 +115,11 @@ async def test_filters_narrow_rows_and_counts(client: AsyncClient, make_user: Ma
     assert names(await search(client, channel_id=channel["id"])) == {"Польша"}
     assert names(await search(client, registrar_id=registrar["id"])) == {"Польша"}
     assert names(await search(client, query="фран", tab="work")) == {"Франция"}
+    # Words in any order narrow within the filters and the tabs, and the counts follow.
+    in_words = await search(client, query="польше думает", country_id=codes["PL"])
+    assert names(in_words) == {"Думает о Польше"}
+    assert in_words["counts"] == {"all": 1, "work": 0, "consult": 1, "thinking": 0, "archive": 0}
+    assert names(await search(client, query="польше думает", tab="work")) == set()
 
 
 async def test_row_shows_the_case_in_work(client: AsyncClient, make_user: MakeUser):

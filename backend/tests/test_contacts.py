@@ -203,6 +203,90 @@ async def test_search_takes_the_text_as_typed(client: AsyncClient, make_user: Ma
     assert len(await search(client, "_visa")) == 2
 
 
+async def _daria(client: AsyncClient) -> dict:
+    """Daria and two people who share one of her names each."""
+    daria = await create(
+        client,
+        last_name="Ковальчук",
+        first_name="Дарья",
+        middle_name="Игоревна",
+        last_name_latin="KOVALCHUK",
+        first_name_latin="DARIA",
+        phone="+375291112233",
+        telegram="dasha_k",
+    )
+    await create(client, last_name="Ковальчук", first_name="Алексей", middle_name=None)
+    await create(client, last_name="Лебедева", first_name="Дарья", middle_name="Игоревна")
+    return daria
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Дарья Ковальчук",  # as copied from Telegram: the given name first
+        "Ковальчук Дарья",
+        "ковальчук дарья",
+        "ДАРЬЯ КОВАЛЬЧУК",
+        "Daria Kovalchuk",
+        "kovalchuk daria",
+        "дар ков",
+        "Дарья Игоревна Ковальчук",
+        "игоревна ковальчук дарья",
+        "  Дарья \t  Ковальчук  ",
+        "Daria Ковальчук",  # each word in either spelling of the name
+    ],
+)
+async def test_search_finds_a_name_whatever_the_order_of_its_words(
+    client: AsyncClient, make_user: MakeUser, query: str
+):
+    """Every word of the query is in the name, Cyrillic or Latin, in any order and case
+    (backlog A2): «Дарья Ковальчук» finds the card kept as «Ковальчук Дарья Игоревна»."""
+    await as_specialist(client, make_user)
+    daria = await _daria(client)
+    assert [c["id"] for c in await search(client, query)] == [daria["id"]]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Дарья Петрова",  # one word of two is nobody's
+        "Дарья Ковальчук Сергеевна",
+        "Daria Lebedeva",
+        "Алексей Игоревна",  # each word is somebody's, no one has both
+        "дар_я ковальчук",  # «_» and «%» stay characters in every word
+        "ковальчук %",
+    ],
+)
+async def test_search_needs_every_word_in_the_name(
+    client: AsyncClient, make_user: MakeUser, query: str
+):
+    await as_specialist(client, make_user)
+    await _daria(client)
+    assert await search(client, query) == []
+
+
+async def test_search_in_words_keeps_what_one_line_found(client: AsyncClient, make_user: MakeUser):
+    """One word, a phone typed with spaces, a nick and a profile link find as before:
+    they are looked for as the whole query, not word by word."""
+    await as_specialist(client, make_user)
+    daria = await _daria(client)
+    assert len(await search(client, "ковальчук")) == 2
+    assert len(await search(client, "Дарья Игоревна")) == 2
+    for query in (
+        "8 029 111-22-33",
+        "+375 29 111 22 33",
+        "29 111 22",
+        "@dasha_k",
+        "https://t.me/dasha_k",
+    ):
+        assert [c["id"] for c in await search(client, query)] == [daria["id"]], query
+
+    # Another specialist finds no one by the same words.
+    client.cookies.clear()
+    await as_specialist(client, make_user, "bella@example.com")
+    assert await search(client, "Дарья Ковальчук") == []
+
+
 async def test_search_terms_never_go_into_urls(client: AsyncClient, make_user: MakeUser):
     """Names and phones are personal data: search takes them in the body, not the URL."""
     await as_specialist(client, make_user)
