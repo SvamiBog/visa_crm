@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import rates
 from tests.conftest import FAKE_RATES_ON
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 
 DICT = "/api/dictionaries"
 

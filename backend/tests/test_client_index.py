@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api import cases as cases_api
-from tests.helpers import MakeUser, give_cases, login, workspace_today
+from tests.support.helpers import MakeUser, give_cases, login, workspace_today
 
 CONTACTS = "/api/contacts"
 

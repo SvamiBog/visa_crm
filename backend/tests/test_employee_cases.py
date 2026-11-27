@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import AuditEvent, Contact, ContactNote, VisaCase
-from tests.helpers import MakeUser, give_cases, login
+from tests.support.helpers import MakeUser, give_cases, login
 from tests.test_cases import CONTACTS, as_specialist, card, new_contact, open_case
 
 EMPLOYEE = "olga@example.com"

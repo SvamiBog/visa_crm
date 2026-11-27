@@ -25,6 +25,9 @@ frontend/public/assets/ocr/
 .claude/worktrees/
 # Local code graph, rebuilt by `graphify update .` (CLAUDE.md → «graphify»)
 graphify-out/
+# Reports of a security check of the running site (agent ecc-site-security-tester): they
+# stay with the owner, outside the repository
+security-audit/
 # OS / editors
 .DS_Store
 Thumbs.db

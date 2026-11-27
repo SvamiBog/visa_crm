@@ -23,7 +23,7 @@ from app.core.vault import (
     tenant_key_aad,
 )
 from app.models import ContactNote, Tenant
-from tests.helpers import TOTP_SECRET
+from tests.support.helpers import TOTP_SECRET
 
 # How long a session that must not wait for the workspace row may wait for a lock.
 NO_WAIT = "1s"

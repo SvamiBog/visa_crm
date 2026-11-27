@@ -19,7 +19,7 @@ from app.core.documents import MAX_BYTES as MAX_DOCUMENT_BYTES
 from app.core.request_limit import MAX_FORM_BYTES, MAX_UPLOAD_BYTES, takes_a_file
 from app.core.workbook import MAX_BYTES as MAX_IMPORT_BYTES
 from app.main import MAX_VALIDATION_ERRORS, create_app
-from tests.helpers import MakeUser, login, login_first_step
+from tests.support.helpers import MakeUser, login, login_first_step
 from tests.test_documents import PDF, contact
 
 LOGIN = "/api/auth/login"

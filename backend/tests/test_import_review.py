@@ -12,7 +12,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import import_uploads
-from tests.helpers import MakeUser, finished_import, import_report, login, uploaded
+from tests.support.helpers import MakeUser, finished_import, import_report, login, uploaded
 from tests.test_data_import import BOOK, PAYMENTS, body, count, mail_system, rows
 
 API = "/api/imports"

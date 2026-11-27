@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_system
 from app.core.demo import DemoSettings, seed, specialist_email
-from tests.helpers import (
+from tests.support.helpers import (
     CLOCK,
     PASSWORD,
     TOTP_SECRET,
@@ -28,8 +28,8 @@ from tests.helpers import (
     login,
     workspace_today,
 )
-from tests.pilot_book_visacrm import SYSTEMS
-from tests.pilot_book_visacrm import xlsx as pilot_xlsx
+from tests.support.pilot_book_visacrm import SYSTEMS
+from tests.support.pilot_book_visacrm import xlsx as pilot_xlsx
 from tests.test_data_import import BOOK, CASES, CLIENTS, mail_system, rows, run
 
 EXPORT = "/api/imports/export"

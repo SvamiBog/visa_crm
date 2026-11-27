@@ -25,7 +25,7 @@ You are a security reviewer for VisaCRM, a multi-tenant CRM that holds clients' 
 | Sessions | `auth.py` | cookie `httponly`, `secure` from settings, `samesite=lax`; same origin, no CORS |
 | Vault | `backend/app/core/vault.py`, `crypto.py` | AES-GCM with the tenant key wrapped by `VAULT_MASTER_KEY`; decrypt only on an explicit action; every reveal audited |
 | Files | `backend/app/core/documents.py`, `storage.py` | encrypted with the tenant key before upload; download only; every download audited |
-| Uploads | `backend/app/core/import_files.py`, `docx_fill.py` | XML through `defusedxml` or the hardened `lxml` parser (no entities, no network, no DTD); size limits |
+| Uploads | `backend/app/core/workbook.py`, `docx_fill.py` | XML through `defusedxml` or the hardened `lxml` parser (no entities, no network, no DTD); size limits |
 | Headers | `backend/app/core/http_headers.py` | CSP to own origin, no framing, no caching of API responses, no indexing outside production |
 | Audit | `backend/app/core/audit.py` | insert-only; `details` with ids and technical facts only |
 | Secrets | `backend/app/core/config.py` | from the environment only; none in code, docs, tests or commits |

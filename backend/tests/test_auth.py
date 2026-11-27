@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.api.auth import CLIENT_WINDOW, MAX_CLIENT_FAILURES, MAX_FAILED_LOGINS
 from app.api.deps import SESSION_COOKIE
 from app.core import security
-from tests.helpers import (
+from tests.support.helpers import (
     CLOCK,
     NEW_PASSWORD,
     PASSWORD,

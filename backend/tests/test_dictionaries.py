@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import Registrar
-from tests.helpers import MakeUser, enable_two_factor, login
+from tests.support.helpers import MakeUser, enable_two_factor, login
 
 BASE = "/api/dictionaries"
 

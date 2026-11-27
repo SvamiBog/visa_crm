@@ -11,7 +11,7 @@ from collections.abc import Callable
 import pytest
 
 from app.cli import remove_telegram_webhook, set_telegram_webhook
-from tests.helpers import BOT_TOKEN, WEBHOOK_SECRET, FakeTelegram
+from tests.support.helpers import BOT_TOKEN, WEBHOOK_SECRET, FakeTelegram
 
 SITE = "https://crm.example.com"
 WEBHOOK = f"{SITE}/api/telegram/webhook"

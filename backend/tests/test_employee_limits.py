@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, a
 
 from app.core.db import scope_to_tenant
 from app.models import AuditEvent
-from tests.helpers import WALL_CLOCK, MakeUser, give_cases
+from tests.support.helpers import WALL_CLOCK, MakeUser, give_cases
 from tests.test_cases import CONTACTS, countries, new_contact, open_case
 from tests.test_documents import upload as upload_document
 from tests.test_employee_cases import EMPLOYEE, switch_to, user_id, with_employee

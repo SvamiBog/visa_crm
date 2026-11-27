@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import passport_purge
 from app.core.config import get_settings
-from tests.helpers import MakeUser, give_cases, login, workspace_today
+from tests.support.helpers import MakeUser, give_cases, login, workspace_today
 
 PASSPORT = {
     "passport_number": "MP1234567",

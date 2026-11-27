@@ -10,7 +10,7 @@ import logging
 import pytest
 from httpx import AsyncClient
 
-from tests.helpers import PASSWORD, MakeUser
+from tests.support.helpers import PASSWORD, MakeUser
 
 # The test client's own address (conftest.py: base_url="http://testserver").
 OWN = "http://testserver"

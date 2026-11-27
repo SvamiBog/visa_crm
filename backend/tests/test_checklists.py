@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import OwnChecklistItem
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 
 
 async def turn_on(owner_engine: AsyncEngine, tenant_id: uuid.UUID | None) -> None:

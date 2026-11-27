@@ -1,5 +1,6 @@
 """Dates the CRM takes (app/core/days.py): a year typed wrong is refused where it comes in
-— the API and an import file — and never breaks a card or «Требует внимания»."""
+— the API and an import file — and never breaks a card or «Требует внимания». Which days
+are taken is tests/test_days_rules.py."""
 
 from datetime import date
 from typing import Annotated, Any, get_args, get_origin
@@ -11,24 +12,18 @@ from httpx import AsyncClient
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from app.core.days import FIRST_DAY, LAST_DAY, in_range
+from app.core.days import FIRST_DAY
 from app.core.questionnaire import Passport, Questionnaire, VisaRecord
 from app.main import create_app
-from tests.helpers import MakeUser, login, workspace_today
+from tests.support.helpers import MakeUser, login, workspace_today
 
 # «26» typed for the year stays the year 26 in a browser's date field.
 TYPO = "0026-11-05"
 FAR = "9999-12-31"
 # Kept on the card as JSON and read back through the same models, so a bound added to
 # them would stop a card saved before it from opening. Their dates only feed the passport
-# checks, which take any date (tests/test_consultation_checks.py).
+# checks, which take any date (tests/test_consultation_check_rules.py).
 STORED_AS_JSON = (Passport, Questionnaire, VisaRecord)
-
-
-def test_the_days_taken_are_the_years_the_work_is_about():
-    assert in_range(FIRST_DAY) and in_range(LAST_DAY) and in_range(date(2026, 11, 10))
-    assert not in_range(date(26, 11, 5)) and not in_range(date(1899, 12, 30))
-    assert not in_range(date(2101, 1, 1)) and not in_range(date.max)
 
 
 def _bounded(metadata: Any) -> bool:

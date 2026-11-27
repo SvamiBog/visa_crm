@@ -1,3 +1,12 @@
+"""Settings of the site, read once from the environment (and backend/.env on a developer's
+machine): the database, the server and vault keys, file storage, mail, error reports, the
+client bot and the flags of features still switched off in production.
+
+Secrets come only from here (CLAUDE.md → «Как работать»). An environment the site may not
+run in — an unknown ENV, a weak server key outside development (backlog S19) — stops the
+server at start instead of running it half-configured.
+"""
+
 import re
 from datetime import date
 from functools import lru_cache

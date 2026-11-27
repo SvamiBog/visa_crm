@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from app.api import documents as documents_api
 from app.core import storage
 from app.core.config import get_settings
-from tests.helpers import MakeUser, give_cases, login
+from tests.support.helpers import MakeUser, give_cases, login
 from tests.test_cases import open_case
 
 PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"

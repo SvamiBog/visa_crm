@@ -1,6 +1,6 @@
 """Перенос таблиц перед пилотом (backlog 1.15, 1.21; docs/pilot.md): the made-up book of the
-first specialist (tests/pilot_book.py), turned into the VisaCRM data format by following the
-prompt (tests/pilot_book_visacrm.py), loads in one go. One person is one card across the
+first specialist (tests/support/pilot_book.py), turned into the VisaCRM data format by following the
+prompt (tests/support/pilot_book_visacrm.py), loads in one go. One person is one card across the
 years, the queues and France find the case of «Подача», old talons are no debt, a case of
 2023 stays in 2023, and loading the file again changes nothing. Before it loads, the check
 shows a card for every person of the book."""
@@ -11,8 +11,8 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, finished_import, import_report, login, uploaded
-from tests.pilot_book_visacrm import SYSTEMS, xlsx
+from tests.support.helpers import MakeUser, finished_import, import_report, login, uploaded
+from tests.support.pilot_book_visacrm import SYSTEMS, xlsx
 
 API = "/api/imports"
 TABLES = {

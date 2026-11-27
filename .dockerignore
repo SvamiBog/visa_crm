@@ -3,7 +3,18 @@
 **/__pycache__
 **/.pytest_cache
 **/.ruff_cache
-frontend/dist
+# The frontend is built inside the image; a build left on the machine stays out, in the
+# desktop app's worktrees too.
+**/dist
 **/.env
 .git
 docs
+# The image runs the app, not its tests (backend/tests holds the made-up pilot books too).
+backend/tests
+frontend/test-results
+frontend/playwright-report
+# Claude Code's files and worktrees, the local code graph and security reports: none of
+# them is part of the app, and a local `docker build .` would send them all to the builder.
+.claude
+graphify-out
+security-audit

@@ -13,7 +13,7 @@ from app.core import import_jobs, storage
 from app.core.db import Base, scope_to_system
 from app.core.demo import DemoSettings, seed, specialist_email
 from app.core.erase import KEPT_TABLES
-from tests.helpers import CLOCK, PASSWORD, TOTP_SECRET, MakeUser, enable_two_factor, login
+from tests.support.helpers import CLOCK, PASSWORD, TOTP_SECRET, MakeUser, enable_two_factor, login
 from tests.test_documents import upload as upload_document
 from tests.test_templates import upload as upload_template
 

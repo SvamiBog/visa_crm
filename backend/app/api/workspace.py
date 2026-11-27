@@ -1,3 +1,10 @@
+"""The workspace of the signed-in user: what the interface needs to start (name, base
+currency, tax, time zone, the modules this user may open, the subscription's state), the
+list of product modules, the specialist's details as the controller of her clients' data
+for the client portal's notice (backlog 2.9), and deleting all the workspace's data for
+good (docs/decisions.md → «Удаление всех данных кабинета»).
+"""
+
 import logging
 from decimal import Decimal
 from typing import Annotated

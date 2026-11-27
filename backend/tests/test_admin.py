@@ -1,6 +1,6 @@
 from httpx import AsyncClient
 
-from tests.helpers import PASSWORD, MakeUser, enable_two_factor, login
+from tests.support.helpers import PASSWORD, MakeUser, enable_two_factor, login
 
 NEW_PASSWORD = "my-own-password-1"
 

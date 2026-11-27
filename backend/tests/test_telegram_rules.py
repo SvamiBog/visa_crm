@@ -18,7 +18,7 @@ from app.core.client_bot import GREETING, Reply, reply_to
 from app.core.config import InvalidSettings, Settings, get_settings
 from app.core.error_reports import scrub_breadcrumb
 from app.core.telegram import MAX_ANSWER_BYTES, MAX_CALLS, TelegramFailed, webhook_address
-from tests.helpers import (
+from tests.support.helpers import (
     BOT_TOKEN,
     TELEGRAM_CHAT,
     WEBHOOK_SECRET,

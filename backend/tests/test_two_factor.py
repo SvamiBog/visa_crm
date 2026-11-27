@@ -14,7 +14,7 @@ from app.core import two_factor
 from app.core.config import InvalidSettings, get_settings
 from app.core.crypto import generate_master_key
 from app.core.two_factor import verify_totp
-from tests.helpers import (
+from tests.support.helpers import (
     CLOCK,
     PASSWORD,
     TOTP_SECRET,

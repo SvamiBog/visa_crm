@@ -9,7 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 
 DICT = "/api/dictionaries"
 MONEY = f"{DICT}/money"

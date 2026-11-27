@@ -1,3 +1,10 @@
+"""The admin panel's specialists (backlog 0.6): the platform owner creates a specialist's
+workspace with a temporary password, changes its name, base currency, tax and modules,
+blocks and unblocks it and resets the password.
+
+Admin only, in the system scope; every change is in the audit log of the workspace.
+"""
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
