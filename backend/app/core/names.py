@@ -60,3 +60,10 @@ def split_latin_name(line: str) -> dict[str, str | None]:
     if len(words) <= 1:
         return latin_fields(None, words[0] if words else None)
     return latin_fields(words[0], " ".join(words[1:]))
+
+
+def search_words(query: str) -> list[str]:
+    """A typed search word by word. The search looks for each word in the whole name, so
+    «Дарья Ковальчук», as a messenger shows the name, finds the card kept surname first
+    (backlog A2). The words stay as typed: the query compares them whatever the case."""
+    return query.split()

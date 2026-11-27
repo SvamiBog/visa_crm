@@ -15,7 +15,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import delete, exists, func, or_, select, true
+from sqlalchemy import and_, delete, exists, func, or_, select, true
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,7 +48,15 @@ from app.core.days import Day
 from app.core.db import BIGINT_MAX
 from app.core.documents import object_key
 from app.core.employee_limits import LimitKind, watch
-from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
+from app.core.names import (
+    LATIN_PARTS,
+    NAME_PARTS,
+    NamePart,
+    latin_fields,
+    name_fields,
+    search_words,
+    tidy,
+)
 from app.core.phone import normalize_phone, phone_search_digits
 from app.core.questionnaire import Passport, Questionnaire, has_answers, has_passport
 from app.models import (
@@ -357,6 +365,17 @@ def _has(column: Any, term: str) -> Any:
     return column.icontains(term, autoescape=True)
 
 
+def _named(term: str) -> Any:
+    """Every word of the search is in the name, Cyrillic or Latin, in any order: «Дарья
+    Ковальчук» finds «Ковальчук Дарья Игоревна» (backlog A2)."""
+    return and_(
+        *(
+            or_(_has(Contact.full_name, word), _has(Contact.full_name_latin, word))
+            for word in search_words(term)
+        )
+    )
+
+
 async def _notes(session: AsyncSession, contact_id: uuid.UUID) -> list[NoteOut]:
     rows = await session.execute(
         select(ContactNote, User.email)
@@ -415,11 +434,11 @@ async def _own_note(
 
 @router.post("/search")
 async def search_contacts(body: SearchIn, user: Member, session: TenantSession) -> SearchOut:
-    """By name (Cyrillic or Latin), part of the phone number or Telegram, within a tab of
-    the client index and its filters; newest first or by the sorted column. What a module
-    holds is searched only with that module: without «cases» nothing in a case finds,
-    filters or sorts a contact, nor decides their tab (audit L3), as the card shows no
-    cases."""
+    """By name (Cyrillic or Latin, its words in any order), part of the phone number or
+    Telegram, within a tab of the client index and its filters; newest first or by the
+    sorted column. What a module holds is searched only with that module: without «cases»
+    nothing in a case finds, filters or sorts a contact, nor decides their tab (audit L3),
+    as the card shows no cases."""
     modules = await effective_modules(session, user)
     with_cases = "cases" in modules
     latest = latest_consultation()
@@ -427,11 +446,8 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
     query = select(Contact, tab.label("tab")).outerjoin(latest, true())
     term = telegram_nick(body.query)
     if term:
-        conditions = [
-            _has(Contact.full_name, term),
-            _has(Contact.full_name_latin, term),
-            _has(Contact.telegram, term),
-        ]
+        # The name is looked for word by word; a nick, a number and a login as typed.
+        conditions = [_named(term), _has(Contact.telegram, term)]
         if with_cases:
             # The number the visa center knows the client by (ID, application number…).
             conditions.append(

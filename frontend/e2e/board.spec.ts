@@ -235,5 +235,25 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
       await expect(from).toHaveValue("2025-01-01");
       await expect(to).toHaveValue("2024-12-31");
     });
+
+    test("the search finds a card by the words of the name in any order", async ({ page }) => {
+      // Backlog A2: «Имя Фамилия», as a messenger shows a name, finds the card kept
+      // surname first, as the list's search does.
+      const named = (await board(page)).cases.find(
+        (c) => c.stage !== "result" && c.full_name.split(" ").length >= 2,
+      );
+      expect(named, "the demo has no case in work with a name of two words").toBeTruthy();
+      const [surname, given] = named!.full_name.split(" ");
+      expect(given, "the demo's names read the same both ways").not.toBe(surname);
+
+      await page.goto("/app/clients?view=board");
+      const card = boardCard(page, named!.full_name).first();
+      await expect(card).toBeVisible();
+      const search = page.getByRole("searchbox", { name: t("contacts.search"), exact: true });
+      await search.fill(`${given}   ${surname.toLocaleUpperCase()}`);
+      await expect(card, "the given name first, another case").toBeVisible();
+      await search.fill(`${given} ${surname} nobody-is-called-so`);
+      await expect(card, "every word must be in the name").toHaveCount(0);
+    });
   });
 }

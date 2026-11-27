@@ -2,7 +2,13 @@
 
 import pytest
 
-from app.core.names import latin_fields, name_fields, split_full_name, split_latin_name
+from app.core.names import (
+    latin_fields,
+    name_fields,
+    search_words,
+    split_full_name,
+    split_latin_name,
+)
 
 
 def test_the_whole_name_is_the_parts_joined():
@@ -40,3 +46,21 @@ def test_a_latin_name_is_the_surname_and_the_given_names(line: str, parts: tuple
     fields = split_latin_name(line)
     assert (fields["last_name_latin"], fields["first_name_latin"]) == parts
     assert fields["full_name_latin"] == line
+
+
+@pytest.mark.parametrize(
+    ("query", "words"),
+    [
+        ("Ковальчук", ["Ковальчук"]),
+        ("Дарья Ковальчук", ["Дарья", "Ковальчук"]),
+        ("  дар \t ков игор  ", ["дар", "ков", "игор"]),
+        ("Daria KOVALCHUK", ["Daria", "KOVALCHUK"]),
+        ("anna_k 100%", ["anna_k", "100%"]),
+        ("", []),
+        ("   ", []),
+    ],
+)
+def test_a_search_is_read_word_by_word(query: str, words: list[str]):
+    """The search looks for each word of the query in the name, so the order the words
+    were typed in does not matter (backlog A2); the words stay as typed."""
+    assert search_words(query) == words
