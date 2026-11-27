@@ -695,6 +695,7 @@
   "contacts.visaFrom": "с {{date}}",
   "contacts.visaActive": "действует",
   "contacts.visaExpired": "истекла",
+  "contacts.visaCase": "Кейс №{{number}}",
   "contacts.year": "Год",
   "contacts.reason": "Причина",
   "contacts.addRefusal": "+ Отказ",

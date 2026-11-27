@@ -154,17 +154,21 @@ export function CaseChip({ stage, outcome }: { stage: CaseStage; outcome?: Outco
 
 /** `creating`: a consultation to open cases from («Создать кейс»), "blank" for a case
  * without one, null when no form is open. `resultCaseId`: a case whose form opens at its
- * result (dropped on «Результат» of the board without one). */
+ * result (dropped on «Результат» of the board without one). `asked`: a case asked for
+ * from another block of the card (a visa of the questionnaire granted in it), each ask a
+ * new number: it unfolds and comes into view like one picked in the list. */
 export function Cases({
   card,
   creating,
   onCreating,
   resultCaseId = null,
+  asked = null,
 }: {
   card: ContactCard;
   creating: Consultation | "blank" | null;
   onCreating: (value: Consultation | "blank" | null) => void;
   resultCaseId?: string | null;
+  asked?: { id: string; times: number } | null;
 }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLElement>(null);
@@ -177,6 +181,10 @@ export function Cases({
   const several = cases.length > 1;
   // A case picked in the list: it unfolds and comes into view; each pick counts again.
   const [picked, setPicked] = useState<{ id: string; times: number } | null>(null);
+  const pick = (id: string) => setPicked((last) => ({ id, times: (last?.times ?? 0) + 1 }));
+  useEffect(() => {
+    if (asked !== null) pick(asked.id);
+  }, [asked]);
 
   useEffect(() => {
     if (creating !== null || repeating !== null) {
@@ -216,10 +224,7 @@ export function Cases({
         <p className="muted small">{t("cases.empty")}</p>
       )}
       {several && (
-        <CaseList
-          cases={cases}
-          onPick={(id) => setPicked((last) => ({ id, times: (last?.times ?? 0) + 1 }))}
-        />
+        <CaseList cases={cases} onPick={pick} />
       )}
       <div className="cases">
         {cases.map((c) => (
