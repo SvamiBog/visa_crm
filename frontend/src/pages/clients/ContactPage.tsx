@@ -130,6 +130,9 @@ export function ContactPage() {
   // A case without a result dropped on «Результат» of the board: its form opens at the
   // result, once, the same way.
   const [resultCaseId, setResultCaseId] = useState<string | null>(null);
+  // A case asked for from the questionnaire (a visa granted in it): the cases block
+  // unfolds it and brings it into view, each ask anew.
+  const [askedCase, setAskedCase] = useState<{ id: string; times: number } | null>(null);
   useEffect(() => {
     const caseId = caseToEnterResult(location.state);
     if (!card.data || caseId === null) return;
@@ -276,7 +279,12 @@ export function ContactPage() {
               <PassportCard card={card.data} />
             </Slot>
             <Slot name="questionnaire">
-              <QuestionnaireCard card={card.data} />
+              <QuestionnaireCard
+                card={card.data}
+                onOpenCase={(caseId) =>
+                  setAskedCase((last) => ({ id: caseId, times: (last?.times ?? 0) + 1 }))
+                }
+              />
             </Slot>
             {workspace.data?.modules.includes("stay_calculator") && (
               <Slot name="trips">
@@ -300,6 +308,7 @@ export function ContactPage() {
                   creating={creatingCase}
                   onCreating={setCreatingCase}
                   resultCaseId={resultCaseId}
+                  asked={askedCase}
                 />
               </Slot>
             )}

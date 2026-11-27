@@ -1973,6 +1973,22 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   overflow-wrap: anywhere;
 }
 
+/* A visa granted in a case names the case; the link opens it lower in the card. As small
+   as the chips beside it. On a touch screen it is a finger's 44px tall (backlog 2.15), but
+   takes a chip's 22px in the line: a visa from a case stands as high as one written by hand. */
+.q-case {
+  font-size: 12px;
+}
+
+@media (pointer: coarse) {
+  .q-case {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-block: -11px;
+  }
+}
+
 .q-deportation {
   display: flex;
   flex-direction: column;
