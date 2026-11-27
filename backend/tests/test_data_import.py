@@ -8,13 +8,16 @@ import base64
 import io
 import uuid
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import openpyxl
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.core import rates
 from tests.support.helpers import MakeUser, import_report, login
 
 API = "/api/imports"
@@ -1081,3 +1084,262 @@ async def test_a_city_of_her_direction_is_found_without_an_english_name(
     response = await client.get(f"{API}/template", params={"language": "en"})
     book = openpyxl.load_workbook(io.BytesIO(response.content))
     assert "Минск" in [c.value for column in book["Reference"].iter_cols() for c in column]
+
+
+# --- Rates and currencies on a repeated upload (backlog A4) --------------------------------
+
+# Anna's case with a payment in euros, an expense in dollars and a talon in złoty; no rates.
+MONEY_EXPENSES = [
+    ["Код кейса", "Дата", "Описание", "Сумма", "Валюта"],
+    ["Подача25-2", date(2025, 5, 12), "Перевод справки", 10, "USD"],
+]
+MONEY = {"Клиенты": CLIENTS, "Кейсы": CASES, "Платежи": PAYMENTS, "Расходы": MONEY_EXPENSES}
+
+
+def site_rates(monkeypatch: pytest.MonkeyPatch, **byn: str) -> None:
+    """The site has downloaded other rates of the National Bank since."""
+    held = {currency: (date(2026, 11, 27), Decimal(rate)) for currency, rate in byn.items()}
+    monkeypatch.setattr(rates, "_latest", held)
+
+
+async def money_kept(owner_engine: AsyncEngine, tenant: uuid.UUID) -> dict[str, list[tuple]]:
+    """Rates and sums in the accounting currency of what is in another currency."""
+    payments = await rows(
+        owner_engine,
+        "SELECT amount, currency, rate, amount_base FROM case_payments "
+        "WHERE tenant_id = :t AND currency <> 'BYN' ORDER BY paid_on",
+        t=tenant,
+    )
+    expenses = await rows(
+        owner_engine,
+        "SELECT amount, currency, rate, amount_base FROM case_expenses WHERE tenant_id = :t",
+        t=tenant,
+    )
+    talons = await rows(
+        owner_engine,
+        "SELECT registrar_fee_amount, registrar_fee_currency, registrar_fee_rate, "
+        "registrar_fee_base FROM case_finances "
+        "WHERE tenant_id = :t AND registrar_fee_amount IS NOT NULL",
+        t=tenant,
+    )
+    return {
+        "payments": [tuple(p.values()) for p in payments],
+        "expenses": [tuple(e.values()) for e in expenses],
+        "talons": [tuple(f.values()) for f in talons],
+    }
+
+
+async def test_a_repeated_file_keeps_the_rate_of_what_it_already_loaded(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await run(client, MONEY)
+    assert await money_kept(owner_engine, tenant) == {
+        "payments": [(150, "EUR", Decimal("3.4"), 510)],
+        "expenses": [(10, "USD", Decimal("3.1"), 31)],
+        "talons": [(300, "PLN", Decimal("0.8"), 240)],
+    }
+    # She corrected the rate of the payment in the case (to the rate of her bank).
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE case_payments SET rate = 3.25, amount_base = 487.50 "
+                "WHERE tenant_id = :t AND currency = 'EUR'"
+            ),
+            {"t": tenant},
+        )
+    site_rates(monkeypatch, EUR="3.5", USD="3.2", PLN="0.9")
+
+    again = await run(client, MONEY)
+
+    assert again["created"] == {} and again["updated"] == {}
+    assert again["skipped_count"] == 0, again["skipped"]
+    assert await money_kept(owner_engine, tenant) == {
+        "payments": [(150, "EUR", Decimal("3.25"), Decimal("487.50"))],
+        "expenses": [(10, "USD", Decimal("3.1"), 31)],
+        "talons": [(300, "PLN", Decimal("0.8"), 240)],
+    }
+
+
+async def test_a_repeated_file_needs_no_rate_for_what_it_does_not_change(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await run(client, MONEY)
+    before = await money_kept(owner_engine, tenant)
+    # The site has no rates at the moment: nothing of the file needs one.
+    monkeypatch.setattr(rates, "_latest", {})
+
+    again = await run(client, MONEY)
+
+    assert again["skipped_count"] == 0, again["skipped"]
+    assert "rate_unavailable" not in {issue["reason"] for issue in again["warnings"]}
+    assert again["updated"] == {}
+    assert await money_kept(owner_engine, tenant) == before
+
+
+async def test_a_new_record_takes_the_latest_rate_and_a_rate_in_the_file_is_applied(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await run(client, MONEY)
+    site_rates(monkeypatch, EUR="3.5", USD="3.2", PLN="0.9")
+
+    payments = [
+        [*PAYMENTS[0], "Курс"],
+        [*PAYMENTS[1], None],
+        # The file says the rate of the payment that is in the CRM: it is applied.
+        [*PAYMENTS[2], Decimal("3.3")],
+        # A payment the CRM has not: the latest rate of the site.
+        ["Подача25-2", "Петрова Анна Сергеевна", date(2025, 6, 1), 100, "EUR", "нет", None],
+    ]
+    expenses = [[*MONEY_EXPENSES[0], "Курс"], [*MONEY_EXPENSES[1], Decimal("3.05")]]
+    cases = [
+        [*CASES[0], "Курс талона"],
+        [*CASES[1], Decimal("0.85")],
+        *([*row, None] for row in CASES[2:]),
+    ]
+    report = await run(
+        client, {"Клиенты": CLIENTS, "Кейсы": cases, "Платежи": payments, "Расходы": expenses}
+    )
+
+    assert report["skipped_count"] == 0, report["skipped"]
+    assert report["created"] == {"payments": 1}
+    assert report["updated"] == {"payments": 1, "expenses": 1, "finances": 1}
+    assert await money_kept(owner_engine, tenant) == {
+        "payments": [(150, "EUR", Decimal("3.3"), 495), (100, "EUR", Decimal("3.5"), 350)],
+        "expenses": [(10, "USD", Decimal("3.05"), Decimal("30.50"))],
+        "talons": [(300, "PLN", Decimal("0.85"), 255)],
+    }
+
+
+async def test_a_changed_sum_or_currency_is_counted_at_the_latest_rate(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The record's own rate was the rate of another sum: the file gives none, so the
+    site's latest one is taken, as for a new record (docs/decisions.md)."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await run(client, MONEY)
+    site_rates(monkeypatch, EUR="3.5", USD="3.2", PLN="0.9")
+
+    # The talon is 350 złoty now, and the expense was in euros, not dollars.
+    talon = CASES[0].index("Талон")
+    cases = [CASES[0], [*CASES[1][:talon], 350, *CASES[1][talon + 1 :]], *CASES[2:]]
+    expenses = [MONEY_EXPENSES[0], [*MONEY_EXPENSES[1][:4], "EUR"]]
+    report = await run(
+        client, {"Клиенты": CLIENTS, "Кейсы": cases, "Платежи": PAYMENTS, "Расходы": expenses}
+    )
+
+    assert report["skipped_count"] == 0, report["skipped"]
+    assert report["updated"] == {"expenses": 1, "finances": 1}
+    assert await money_kept(owner_engine, tenant) == {
+        "payments": [(150, "EUR", Decimal("3.4"), 510)],
+        "expenses": [(10, "EUR", Decimal("3.5"), 35)],
+        "talons": [(350, "PLN", Decimal("0.9"), 315)],
+    }
+
+
+async def test_an_unknown_currency_never_becomes_the_accounting_currency(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    currency = CASES[0].index("Валюта талона")
+    fee = CONSULTATIONS[0].index("Валюта")
+    book = {
+        "Клиенты": CLIENTS,
+        "Консультации": [
+            CONSULTATIONS[0],
+            [*CONSULTATIONS[1][:fee], "руб.", *CONSULTATIONS[1][fee + 1 :]],
+        ],
+        "Кейсы": [CASES[0], [*CASES[1][:currency], "RUB", *CASES[1][currency + 1 :]], *CASES[2:]],
+        "Платежи": [
+            PAYMENTS[0],
+            ["Подача25-2", "Петрова Анна Сергеевна", date(2025, 1, 15), 5000, "RUB", "нет"],
+            ["Подача25-2", "Петрова Анна Сергеевна", date(2025, 1, 16), 100, "евро", "нет"],
+            # An empty «Валюта» is the accounting currency, as the format says.
+            ["Подача25-2", "Петрова Анна Сергеевна", date(2025, 1, 17), 70, None, "нет"],
+        ],
+        "Расходы": [MONEY_EXPENSES[0], [*MONEY_EXPENSES[1][:3], 3000, "RUB"]],
+    }
+
+    report = await run(client, book)
+
+    # The rows of the payments and the expense are not loaded, and the report says why.
+    refused = [(i["reason"], i["sheet"], i["row"], i["column"]) for i in report["skipped"]]
+    assert refused == [
+        ("currency", "Платежи", 2, "Валюта"),
+        ("currency", "Платежи", 3, "Валюта"),
+        ("currency", "Расходы", 2, "Валюта"),
+    ]
+    assert report["created"]["payments"] == 1 and "expenses" not in report["created"]
+    payments = await rows(
+        owner_engine,
+        "SELECT amount, currency, rate, amount_base FROM case_payments WHERE tenant_id = :t",
+        t=tenant,
+    )
+    assert [tuple(p.values()) for p in payments] == [(70, "BYN", 1, 70)]
+    assert await count(owner_engine, "case_expenses", tenant) == 0
+    # The talon and the fee of the consultation are left out; their rows are loaded.
+    assert await money_kept(owner_engine, tenant) == {"payments": [], "expenses": [], "talons": []}
+    [consultation] = await rows(
+        owner_engine,
+        "SELECT fee_amount, fee_currency, fee_paid FROM consultations WHERE tenant_id = :t",
+        t=tenant,
+    )
+    assert consultation == {"fee_amount": None, "fee_currency": None, "fee_paid": True}
+    warned = [(i["reason"], i["sheet"], i["row"], i["column"]) for i in report["warnings"]]
+    assert ("currency", "Кейсы", 2, "Талон") in warned
+    assert ("currency", "Консультации", 2, "Стоимость") in warned
+
+
+async def test_an_unknown_currency_does_not_touch_the_talon_and_the_fee_in_the_crm(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    book = {"Клиенты": CLIENTS, "Консультации": CONSULTATIONS, "Кейсы": CASES}
+    await run(client, book)
+    currency = CASES[0].index("Валюта талона")
+    fee = CONSULTATIONS[0].index("Валюта")
+
+    report = await run(
+        client,
+        book
+        | {
+            "Консультации": [
+                CONSULTATIONS[0],
+                [*CONSULTATIONS[1][:fee], "евро", *CONSULTATIONS[1][fee + 1 :]],
+            ],
+            "Кейсы": [
+                CASES[0],
+                [*CASES[1][:currency], "злотые", *CASES[1][currency + 1 :]],
+                *CASES[2:],
+            ],
+        },
+    )
+
+    assert report["updated"] == {}
+    assert (await money_kept(owner_engine, tenant))["talons"] == [(300, "PLN", Decimal("0.8"), 240)]
+    [consultation] = await rows(
+        owner_engine,
+        "SELECT fee_amount, fee_currency FROM consultations WHERE tenant_id = :t",
+        t=tenant,
+    )
+    assert consultation == {"fee_amount": 50, "fee_currency": "BYN"}

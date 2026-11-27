@@ -20,8 +20,10 @@ savepoint: a row the database refuses is skipped and reported, and what it did i
 back from the memory too — the records it made are forgotten, the ones it changed are read
 again (the rollback expired them) — without loading the workspace anew.
 
-A row in another currency without a rate of its own takes the site's latest National Bank
-rate (app/core/rates.py): the import asks the bank nothing. A run reports how far it is in
+A new record in another currency without a rate of its own takes the site's latest
+National Bank rate (app/core/rates.py): the import asks the bank nothing. A record that is
+already in the CRM keeps its rate unless the file gives one or changes its sum or currency
+(backlog A4). A run reports how far it is in
 its Progress, which the page shows while the file loads in the background
 (app/core/import_jobs.py), and stops at the next row when asked to.
 """
@@ -32,7 +34,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
-from typing import Any
+from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import inspect, select, text
@@ -310,6 +312,15 @@ def _price_in_base(finance: CaseFinance, base: str) -> _PricedIn:
     return kept
 
 
+class _Counted(NamedTuple):
+    """A sum as a record of the CRM holds it: with its rate and in the base currency."""
+
+    amount: Decimal | None
+    currency: str | None
+    rate: Decimal | None
+    base: Decimal | None
+
+
 class WorkbookImport:
     """One run of the import over a parsed workbook (app/core/workbook.py)."""
 
@@ -572,6 +583,7 @@ class WorkbookImport:
             for row in sheet.rows:
                 row.values.pop(key, None)
                 row.blank.discard(key)
+                row.invalid.discard(key)
 
     async def _row(self, sheet: SheetData, row: Row, handler: Any) -> None:
         self.report.rows += 1
@@ -815,6 +827,27 @@ class WorkbookImport:
             return await rate_to_base(currency, self.base)
         except RateUnavailable as error:
             raise SkipRow("rate_unavailable") from error
+
+    async def _in_base(
+        self,
+        r: _Row,
+        amount: Decimal,
+        currency: str,
+        given: Decimal | None,
+        was: _Counted | None = None,
+    ) -> tuple[Decimal, Decimal]:
+        """The rate of a sum and the sum in the base currency. A record found in the CRM
+        (`was`) keeps its own while the file gives no rate and changes neither its sum nor
+        its currency: the site's latest rate is for what is new. Otherwise every repeated
+        upload would move the money of past months to the rate of the day and undo a rate
+        corrected by hand (backlog A4)."""
+        kept = (
+            given is None and was is not None and (was.amount, was.currency) == (amount, currency)
+        )
+        if kept and was.rate is not None and was.base is not None:
+            return was.rate, was.base
+        rate = await self._rate(r, currency, given)
+        return rate, to_base(amount, rate)
 
     def _starts(self, case: VisaCase, day: date | None) -> None:
         """A case made in this run without «Дата открытия» starts at its earliest date."""
@@ -1062,6 +1095,10 @@ class WorkbookImport:
             fee = None
             if r.snapshot:
                 r.row.blank.add("fee_amount")
+        if fee is not None and "fee_currency" in r.row.invalid:
+            # «Валюта» is written and not understood: not a fee in the base currency.
+            r.warn("fee_amount", "currency")
+            fee = None
         currency = v.get("fee_currency") or (self.base if fee is not None else None)
         if fee is None and consultation.fee_amount is None:
             # A currency alone is not a fee.
@@ -1437,11 +1474,21 @@ class WorkbookImport:
             # A talon is paid to the registrar: the case has none.
             r.warn("registrar_fee", "talon_without_registrar")
             return False
+        if "registrar_fee_currency" in r.row.invalid:
+            # «Валюта талона» is written and not understood: not a talon in the base currency.
+            r.warn("registrar_fee", "currency")
+            return False
         currency = v.get("registrar_fee_currency") or self.base
         day = v.get("registrar_fee_on") or finance.registrar_fee_on or case.submission_on
         day = day or self.today
+        was = _Counted(
+            finance.registrar_fee_amount,
+            finance.registrar_fee_currency,
+            finance.registrar_fee_rate,
+            finance.registrar_fee_base,
+        )
         try:
-            rate = await self._rate(r, currency, v.get("registrar_fee_rate"))
+            rate, base = await self._in_base(r, amount, currency, v.get("registrar_fee_rate"), was)
         except SkipRow:
             r.warn("registrar_fee", "rate_unavailable")
             return False
@@ -1449,7 +1496,7 @@ class WorkbookImport:
             "registrar_fee_amount": amount,
             "registrar_fee_currency": currency,
             "registrar_fee_rate": rate,
-            "registrar_fee_base": to_base(amount, rate),
+            "registrar_fee_base": base,
             "registrar_fee_on": day,
         }
         if "registrar_fee_settled" in v:
@@ -1557,7 +1604,6 @@ class WorkbookImport:
         if amount <= 0:
             raise SkipRow("money", "amount")
         currency = v.get("currency") or self.base
-        rate = await self._rate(r, currency, v.get("rate"))
         if payment is None:
             payment = next(
                 (
@@ -1569,6 +1615,12 @@ class WorkbookImport:
                 None,
             )
         made = payment is None
+        was = (
+            None
+            if payment is None
+            else _Counted(payment.amount, payment.currency, payment.rate, payment.amount_base)
+        )
+        rate, base = await self._in_base(r, amount, currency, v.get("rate"), was)
         if payment is None:
             payment = CasePayment(
                 id=uuid.uuid4(),
@@ -1577,7 +1629,7 @@ class WorkbookImport:
                 amount=amount,
                 currency=currency,
                 rate=rate,
-                amount_base=to_base(amount, rate),
+                amount_base=base,
                 paid_on=v["paid_on"],
                 official=False,
                 created_by=self.user_id,
@@ -1596,7 +1648,7 @@ class WorkbookImport:
                 "amount": ("amount", amount),
                 "currency": ("currency", currency),
                 "rate": ("rate", rate),
-                "amount_base": ("amount", to_base(amount, rate)),
+                "amount_base": ("amount", base),
                 "note": ("note", v.get("note")),
             },
         )
@@ -1620,7 +1672,6 @@ class WorkbookImport:
         if amount <= 0:
             raise SkipRow("money", "amount")
         currency = v.get("currency") or self.base
-        rate = await self._rate(r, currency, v.get("rate"))
         description = v["description"]
         if expense is None:
             expense = next(
@@ -1634,6 +1685,12 @@ class WorkbookImport:
                 None,
             )
         made = expense is None
+        was = (
+            None
+            if expense is None
+            else _Counted(expense.amount, expense.currency, expense.rate, expense.amount_base)
+        )
+        rate, base = await self._in_base(r, amount, currency, v.get("rate"), was)
         if expense is None:
             expense = CaseExpense(
                 id=uuid.uuid4(),
@@ -1642,7 +1699,7 @@ class WorkbookImport:
                 amount=amount,
                 currency=currency,
                 rate=rate,
-                amount_base=to_base(amount, rate),
+                amount_base=base,
                 spent_on=v["spent_on"],
                 description=description,
                 created_by=self.user_id,
@@ -1662,7 +1719,7 @@ class WorkbookImport:
                 "amount": ("amount", amount),
                 "currency": ("currency", currency),
                 "rate": ("rate", rate),
-                "amount_base": ("amount", to_base(amount, rate)),
+                "amount_base": ("amount", base),
             },
         )
         if not made:
