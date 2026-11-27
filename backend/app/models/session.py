@@ -1,3 +1,9 @@
+"""Login sessions (backlog 0.4): one row per signed-in browser, found by the hash of the
+cookie's token (app/api/deps.py). A workspace sees only the sessions of its own users
+(migration 0007) — that is how a specialist signs an employee out; only the system scope
+writes them (migration 0043).
+"""
+
 import uuid
 from datetime import datetime
 

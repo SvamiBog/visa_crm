@@ -1,3 +1,7 @@
+"""What the tests share besides the fixtures of tests/conftest.py: the test clocks,
+signing in with the second factor, giving cases to an employee, the fake Telegram and
+waiting for an import to finish."""
+
 import asyncio
 import json
 import time

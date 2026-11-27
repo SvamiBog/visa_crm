@@ -1,3 +1,12 @@
+"""Login (backlog 0.4, 0.5; hardened in S9): email and password, the second-factor code
+when two-factor login is on, logout, the signed-in user with their preferences, and the
+change of password that a temporary password requires.
+
+Sessions are server-side, in the system scope; the cookie is kept in app/api/deps.py. Ten
+misses lock an account for 15 minutes and answer like an unknown address; every login,
+miss and lockout is in the audit log, without the password or the code.
+"""
+
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta

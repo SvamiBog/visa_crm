@@ -36,7 +36,7 @@ from app.core.modules import DEFAULT_MODULES
 from app.core.security import hash_password
 from app.core.two_factor import seal_secret
 from app.main import create_app
-from tests.helpers import (
+from tests.support.helpers import (
     BOT_TOKEN,
     CLOCK,
     PASSWORD,

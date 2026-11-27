@@ -1,3 +1,9 @@
+"""Passwords and session tokens (backlog 0.4): argon2 hashes checked off the event loop,
+the count of failed logins of one client address (backlog S9), temporary passwords an
+admin or a specialist hands over, and the token of a login session, of which only the
+SHA-256 is stored.
+"""
+
 import asyncio
 import hashlib
 import secrets

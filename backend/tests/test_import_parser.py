@@ -19,7 +19,7 @@ from httpx import AsyncClient
 
 from app.core import workbook
 from app.core.workbook import Workbook, WorkbookError, parse_upload
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 from tests.test_workbook_rules import book, repacked, stuffed_styles
 
 MiB = 1024 * 1024

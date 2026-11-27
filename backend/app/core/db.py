@@ -1,3 +1,13 @@
+"""The database: the engine, the base class of the models and the scope of a session
+(backlog 0.3, CLAUDE.md → «Мультиарендность с первого дня»).
+
+Every transaction switches to the role `visacrm_app`, which cannot bypass Row-Level
+Security, and names whose rows it may see: one workspace (scope_to_tenant, with the
+employee when one is signed in) or the system (scope_to_system: login and the admin
+panel). A session without a scope sees no rows. The limits on the app's connections are
+backlog S6.
+"""
+
 import asyncio
 import time
 import uuid

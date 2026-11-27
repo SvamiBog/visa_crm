@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from httpx import AsyncClient
 
-from tests.helpers import MakeUser, login, workspace_today
+from tests.support.helpers import MakeUser, login, workspace_today
 
 CONTACTS = "/api/contacts"
 

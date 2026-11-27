@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import import_jobs, rates
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 from tests.test_finances import countries, finance_url, open_case
 
 MONEY = "/api/dictionaries/money"

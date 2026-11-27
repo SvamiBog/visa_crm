@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api import contacts
 from app.core import import_jobs, storage
-from tests.helpers import MakeUser, give_cases, login, workspace_today
+from tests.support.helpers import MakeUser, give_cases, login, workspace_today
 from tests.test_cases import open_case
 from tests.test_documents import _all_waiting, upload
 

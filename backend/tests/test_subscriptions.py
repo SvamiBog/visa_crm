@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, a
 from app.core.consultation_checks import add_months
 from app.core.db import scope_to_system, scope_to_tenant
 from app.models import SubscriptionPayment, Tariff
-from tests.helpers import MakeUser, login, workspace_today
+from tests.support.helpers import MakeUser, login, workspace_today
 
 
 async def _pay(conn: AsyncConnection, tenant_id: uuid.UUID) -> None:

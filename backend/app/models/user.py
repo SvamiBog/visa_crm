@@ -1,3 +1,11 @@
+"""Accounts (backlog 0.3–0.5, 0.7): the platform's admin without a workspace, the
+specialist who owns one, and her employees with the modules and daily limits she gave.
+
+Carries what login needs — the password hash, the lockout counter, the sealed TOTP secret
+— and the interface style the user picked. `account_fk` is the composite key every column
+naming the account that made a row uses (migration 0043).
+"""
+
 import uuid
 from datetime import datetime
 from enum import StrEnum

@@ -5,7 +5,7 @@ the rest (audit 2026-11, backlog S3)."""
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, give_cases, login
+from tests.support.helpers import MakeUser, give_cases, login
 from tests.test_cases import new_contact, open_case
 from tests.test_employee_cases import EMPLOYEE, switch_to, user_id, with_employee
 from tests.test_vault import ENTRIES, entry, reveal, system

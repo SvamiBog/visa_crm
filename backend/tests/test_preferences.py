@@ -1,6 +1,6 @@
 from httpx import AsyncClient
 
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 
 
 async def test_theme_defaults_to_blue(client: AsyncClient, make_user: MakeUser):

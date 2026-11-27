@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.api.deps import require_module
 from app.core.modules import DEFAULT_MODULES, MODULES, normalize_modules
 from app.main import create_app
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 
 
 async def as_admin(client: AsyncClient, make_user: MakeUser) -> None:

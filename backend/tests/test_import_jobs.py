@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import rates
 from app.core.data_import import WorkbookImport
-from tests.helpers import MakeUser, finished_import, import_report, login, uploaded
+from tests.support.helpers import MakeUser, finished_import, import_report, login, uploaded
 from tests.test_data_import import body
 
 API = "/api/imports"

@@ -1,3 +1,12 @@
+"""The audit log (журнал действий, backlog 0.8): the events the app records and the
+table they are kept in.
+
+Insert-only: a trigger refuses UPDATE, DELETE and TRUNCATE (migration 0005). Written
+through app/core/audit.py in the transaction of the action itself. A new event is a value
+of AuditAction and its text `audit.action.*` in both locales; `details` holds ids and
+short technical facts, never a client's data.
+"""
+
 import uuid
 from datetime import datetime
 from enum import StrEnum

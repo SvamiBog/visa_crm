@@ -30,7 +30,7 @@ from app.core.demo import (
 )
 from app.core.security import verify_password
 from app.models import User, UserRole
-from tests.helpers import TOTP_SECRET, login
+from tests.support.helpers import TOTP_SECRET, login
 
 PASSWORD = "demo-password-42"
 

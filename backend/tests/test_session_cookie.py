@@ -20,7 +20,7 @@ from app.api import deps
 from app.api.deps import HOST_SESSION_COOKIE, SESSION_COOKIE
 from app.core.config import get_settings
 from app.core.request_limit import MAX_FORM_BYTES, MAX_UPLOAD_BYTES
-from tests.helpers import CLOCK, MakeUser, login, login_first_step
+from tests.support.helpers import CLOCK, MakeUser, login, login_first_step
 from tests.test_request_limit import JSON, MIB, NO_CONTACT, pdf, upload
 
 ME = "/api/auth/me"

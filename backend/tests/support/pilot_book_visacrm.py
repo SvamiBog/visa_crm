@@ -1,4 +1,4 @@
-"""The made-up pilot book (tests/pilot_book.py) turned into the VisaCRM data format by
+"""The made-up pilot book (tests/support/pilot_book.py) turned into the VisaCRM data format by
 following the universal prompt (docs/import-prompt.md) in mode 2 — passwords included —,
 the way an AI would after asking the specialist. Her answers assumed here:
 
@@ -14,7 +14,7 @@ the zero rows and totals of every sheet, «согласие: да» of 2023 (no 
 husband and son of «Орлова Нина + супруг + сын» (a note), «Стоимость в злотых».
 
 Also written to an .xlsx for a rehearsal of the import on a test stand:
-    uv run python -m tests.pilot_book_visacrm VisaCRM-импорт.xlsx
+    uv run python -m tests.support.pilot_book_visacrm VisaCRM-импорт.xlsx
 """
 
 # One row of a sheet per line: the file reads as the workbook does.

@@ -1,3 +1,7 @@
+"""The health check Railway and CI ask (docs/deploy.md): the app answers, and with ?db=1
+the database does too. Open to anyone, so it says nothing about the environment.
+"""
+
 from fastapi import APIRouter
 from sqlalchemy import text
 
