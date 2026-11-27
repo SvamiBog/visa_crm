@@ -37,7 +37,14 @@ from app.api.client_status import (
     sort_contacts,
     tab_of,
 )
-from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
+from app.api.consultations import (
+    ConsultationOut,
+    HintOut,
+    VisaHistoryOut,
+    consultations_of,
+    hints_for,
+    visa_history_of,
+)
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.api.package_files import remove_objects
@@ -276,6 +283,9 @@ class ContactCard(BaseModel):
     notes: list[NoteOut]
     consultations: list[ConsultationOut]
     questionnaire: Questionnaire
+    # The visas of the questionnaire and of the client's cases, as the card shows them
+    # (app/core/visa_history.py).
+    visa_history: list[VisaHistoryOut]
     # Questionnaire checks against the latest consultation and the cases in work
     # (app/core/consultation_checks.py).
     hints: list[HintOut]
@@ -410,6 +420,7 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
         notes=await _notes(session, contact.id),
         consultations=consultations,
         questionnaire=Questionnaire.model_validate(contact.questionnaire),
+        visa_history=await visa_history_of(session, contact, with_cases=with_cases),
         hints=await hints_for(session, contact),
         cases=await cases_of(session, contact.id) if with_cases else None,
         documents=await documents_of(session, contact.id),

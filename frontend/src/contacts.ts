@@ -107,6 +107,16 @@ export type VisaRecord = {
   valid_to: string | null;
   note: string | null;
 };
+/** A line of the client's visa history (backend/app/core/visa_history.py): a visa written
+ * in the questionnaire, or one granted in the client's case — then with the case, and
+ * with no kind where the case's country does not name one. */
+export type HistoryVisa = Omit<VisaRecord, "kind"> & {
+  kind: VisaRecord["kind"] | null;
+  /** Counted on the server by today's date in the specialist's time zone. */
+  status: "active" | "expired" | null;
+  case_id: string | null;
+  case_number: number | null;
+};
 export type Refusal = { country: string; year: number | null; reason: string | null };
 
 /** Questionnaire answers kept on the contact (backend/app/core/questionnaire.py). */
@@ -293,6 +303,8 @@ export type ContactCard = {
   notes: Note[];
   consultations: Consultation[];
   questionnaire: Questionnaire;
+  /** The questionnaire's visas, then the visas of the client's cases. */
+  visa_history: HistoryVisa[];
   hints: Hint[];
   /** null when the user has no «cases» module. */
   cases: VisaCase[] | null;
@@ -458,13 +470,6 @@ export function formatDateShort(value: string | null, language: string): string 
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(Date.UTC(y, m - 1, d)));
-}
-
-/** Today's date (ISO) in the specialist's time zone, to tell a valid visa from an expired one. */
-export function todayIn(timeZone: string | undefined): string | undefined {
-  if (!timeZone) return undefined;
-  // The Swedish format is year-month-day, which is what an ISO date is.
-  return new Intl.DateTimeFormat("sv-SE", { timeZone }).format(new Date());
 }
 
 export function formatDate(value: string | null, language: string): string {

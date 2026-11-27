@@ -11,18 +11,17 @@ import {
   contactKey,
   formatDate,
   passportOf,
-  todayIn,
   useContactLists,
   type Consultation,
   type ContactCard,
   type Decision,
   type Hint,
+  type HistoryVisa,
   type Questionnaire,
   type Refusal,
   type VisaRecord,
 } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
-import { useWorkspace } from "../../workspace";
 import { useMoney } from "./Finance";
 import { useSortedCountries } from "./ui";
 
@@ -523,19 +522,21 @@ function AnswerList({
   );
 }
 
-/** «Польша · Шенген · Туризм» with the term on the right and whether it is still valid. */
+/** «Польша · Шенген · Туризм» with the term on the right and whether it is still valid.
+ * A visa granted in the client's case names the case and leads to it (backlog A3). */
 function VisaLine({
   visa: v,
   country,
-  today,
+  onOpenCase,
 }: {
-  visa: VisaRecord;
+  visa: HistoryVisa;
   country: string;
-  today: string | undefined;
+  onOpenCase: (caseId: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const date = (value: string | null) => formatDate(value, i18n.language);
-  const kind = t(`contacts.visaKind.${v.kind}`);
+  // A case's country does not always name a kind (backend/app/core/visa_history.py).
+  const kind = v.kind ? t(`contacts.visaKind.${v.kind}`) : "";
   // A visa with no country (the USA, say) is named by its kind alone.
   const title = country || kind;
   const period =
@@ -546,20 +547,26 @@ function VisaLine({
         : v.valid_from
           ? t("contacts.visaFrom", { date: date(v.valid_from) })
           : "";
-  const status =
-    !today || !v.valid_to
-      ? null
-      : v.valid_to < today
-        ? "expired"
-        : !v.valid_from || v.valid_from <= today
-          ? "active"
-          : null;
+  const { status, case_id: caseId } = v;
   return (
     <li className="q-item">
       <div className="q-main">
         <strong>{title}</strong>
-        {country && country !== kind && <span className="chip st-gray">{kind}</span>}
+        {country && kind && country !== kind && <span className="chip st-gray">{kind}</span>}
         {v.purpose && <span className="chip st-gray">{t(`purposeKind.${v.purpose}`)}</span>}
+        {caseId !== null && (
+          // A link to the block, opened by the page itself, as in the list of cases.
+          <a
+            className="q-case"
+            href={`#case-${caseId}`}
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenCase(caseId);
+            }}
+          >
+            {t("contacts.visaCase", { number: v.case_number })}
+          </a>
+        )}
       </div>
       {(period || status) && (
         <div className="q-meta">
@@ -575,12 +582,17 @@ function VisaLine({
   );
 }
 
-export function QuestionnaireCard({ card }: { card: ContactCard }) {
+/** `onOpenCase`: brings a case of the card into view, for a visa granted in it. */
+export function QuestionnaireCard({
+  card,
+  onOpenCase,
+}: {
+  card: ContactCard;
+  onOpenCase: (caseId: string) => void;
+}) {
   const { t } = useTranslation();
   const name = useLocalName();
   const countries = useCountries();
-  const workspace = useWorkspace();
-  const today = todayIn(workspace.data?.timezone);
   const byCode = useMemo(
     () => new Map((countries.data ?? []).map((c) => [c.code, c])),
     [countries.data],
@@ -606,9 +618,14 @@ export function QuestionnaireCard({ card }: { card: ContactCard }) {
         <QuestionnaireForm card={card} onDone={() => setEditing(false)} />
       ) : (
         <>
-          <AnswerList label={t("contacts.visas")} empty={q.visas.length === 0}>
-            {q.visas.map((v, i) => (
-              <VisaLine key={i} visa={v} country={country(v.country)} today={today} />
+          <AnswerList label={t("contacts.visas")} empty={card.visa_history.length === 0}>
+            {card.visa_history.map((v, i) => (
+              <VisaLine
+                key={v.case_id ?? i}
+                visa={v}
+                country={country(v.country)}
+                onOpenCase={onOpenCase}
+              />
             ))}
           </AnswerList>
           <AnswerList label={t("contacts.refusals")} empty={q.refusals.length === 0}>

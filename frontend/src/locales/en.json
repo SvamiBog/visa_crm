@@ -691,6 +691,7 @@
   "contacts.visaFrom": "from {{date}}",
   "contacts.visaActive": "valid",
   "contacts.visaExpired": "expired",
+  "contacts.visaCase": "Case #{{number}}",
   "contacts.year": "Year",
   "contacts.reason": "Reason",
   "contacts.addRefusal": "+ Refusal",
