@@ -4,10 +4,11 @@
 The sheets go in the order their records depend on each other: clients, notes,
 consultations, cases, payments, expenses, the queue, windowed applications, accounts,
 bookings. Codes link the sheets of one file. A row finds its record by the CRM's own code
-(an export), else by its content — a client by phone, Telegram nick or a unique name, a
-case by the client, the country, its source and which such row it is, a payment by its
-day, sum and currency and which such row it is — else the record is made. So a file made
-again by the AI, with other codes, finds what the last one made.
+(an export), else by its content — a client by phone, Telegram nick, the card the same row
+became before or a unique name, a case by the client, the country, its source and which
+such row it is, a payment by its day, sum and currency and which such row it is — else the
+record is made. So a file made again by the AI, with other codes, finds what the last one
+made, namesakes without a phone too (backlog A5).
 
 A file from the AI or made by hand only adds: an empty cell changes nothing, and a client's
 card only gets what it does not have yet. A row of an export (its own code is the CRM's and
@@ -88,6 +89,7 @@ from app.models.booking import BookingStatus
 from app.models.contact import Messenger
 from app.models.dictionaries import Hall
 from app.models.queue import AttemptOutcome
+from app.models.vault import VaultSystemKind
 
 # Sheets in the order their records depend on each other.
 SHEET_ORDER = (
@@ -407,10 +409,12 @@ class WorkbookImport:
         self.lists[ValueType.SYSTEM] = {}
         # Every system, switched off too: an export's row keeps its account where it is.
         self.system_names: dict[uuid.UUID, str] = {}
-        for item_id, name, active in await s.execute(
-            select(VaultSystem.id, VaultSystem.name, VaultSystem.is_active)
+        self.system_kinds: dict[uuid.UUID, VaultSystemKind] = {}
+        for item_id, name, kind, active in await s.execute(
+            select(VaultSystem.id, VaultSystem.name, VaultSystem.kind, VaultSystem.is_active)
         ):
             self.system_names[item_id] = normalize(name)
+            self.system_kinds[item_id] = kind
             if active:
                 self.lists[ValueType.SYSTEM][normalize(name)] = item_id
         countries: dict[str, uuid.UUID] = {}
@@ -490,7 +494,7 @@ class WorkbookImport:
         self.bookings_of = _by_case(self.bookings.values())
         self.vault: dict[uuid.UUID, VaultEntry] = {}
         self.accounts: dict[tuple[uuid.UUID | None, uuid.UUID, str], uuid.UUID] = {}
-        self.logins: dict[str, uuid.UUID] = {}
+        self.logins: defaultdict[str, list[uuid.UUID]] = defaultdict(list)
         if "vault" in self.modules:
             for v in await s.scalars(select(VaultEntry), execution_options=FRESH):
                 self._index_account(v)
@@ -504,6 +508,15 @@ class WorkbookImport:
         self.claimed |= {
             uuid.UUID(r.entities["case"]) for r in self.memory.values() if "case" in r.entities
         }
+        # The key of a client's row is worked out from the person's name: once the card is
+        # deleted, its row is forgotten too.
+        for gone in [
+            r
+            for r in self.memory.values()
+            if "contact" in r.entities and uuid.UUID(r.entities["contact"]) not in self.contacts
+        ]:
+            del self.memory[gone.key]
+            await s.delete(gone)
 
     def _index_cases(self) -> None:
         """What is worked out from the cases: the consultations that became one, and the
@@ -531,9 +544,9 @@ class WorkbookImport:
         self.vault[entry.id] = entry
         login = entry.login.casefold()
         self.accounts[(entry.contact_id, entry.system_id, login)] = entry.id
-        # A booking names its account by the login: the specialist's own ones first.
-        if entry.contact_id is None or login not in self.logins:
-            self.logins[login] = entry.id
+        # A booking names its account by the login (_account).
+        if entry.id not in (ids := self.logins[login]):
+            ids.append(entry.id)
 
     # --- Running ------------------------------------------------------------------------
 
@@ -636,7 +649,7 @@ class WorkbookImport:
         for contact in contacts:
             self._index_contact(contact)
         entries = list(self.vault.values())
-        self.vault, self.accounts, self.logins = {}, {}, {}
+        self.vault, self.accounts, self.logins = {}, {}, defaultdict(list)
         for entry in entries:
             self._index_account(entry)
         self._index_cases()
@@ -851,20 +864,40 @@ class WorkbookImport:
 
     def _starts(self, case: VisaCase, day: date | None) -> None:
         """A case made in this run without «Дата открытия» starts at its earliest date."""
-        if day is not None and case.id in self.dated and _midnight(day) < case.created_at:
-            case.created_at = _midnight(day)
+        if day is None or case.id not in self.dated:
+            return
+        if (at := self._opened_at(day)) < case.created_at:
+            case.created_at = at
 
     # --- Clients ------------------------------------------------------------------------
 
-    def _match(self, v: dict[str, Any]) -> uuid.UUID | None:
+    def _client_key(self, v: dict[str, Any]) -> str | None:
+        """A client row's identity across files: the name, the phone and the nick as the row
+        has them, and which such row it is. Namesakes without a phone are told apart by it,
+        as a case row by its own (backlog A5)."""
+        name = joined(v.get("last_name"), v.get("first_name"), v.get("middle_name"))
+        if name is None:
+            return None
+        nick = (v.get("telegram") or "").casefold()
+        base = f"clients|{name_key(name)}|{v.get('phone') or ''}|{nick}"
+        self.occurrences[base] += 1
+        return hashlib.sha256(f"{base}|{self.occurrences[base]}".encode()).hexdigest()
+
+    def _match(self, v: dict[str, Any], key: str | None) -> uuid.UUID | None:
         """The card of a person: by phone or by Telegram nick, unless that card has another
-        given name (a family shares them); else by a unique name, unless that card has
-        another phone or nick than the row. Never a card born on another day."""
+        given name (a family shares them); else the card the same row became before; else by
+        a unique name, unless that card has another phone or nick than the row. Never a card
+        born on another day."""
         phone, nick = v.get("phone"), (v.get("telegram") or "").casefold() or None
         if phone and phone in self.by_phone and self._fits(v, self.by_phone[phone]):
             return self.by_phone[phone]
         if nick and (same := [c for c in self.by_telegram.get(nick, []) if self._fits(v, c)]):
             return same[0]
+        remembered = self.memory.get(key) if key else None
+        if remembered is not None and "contact" in remembered.entities:
+            cid = uuid.UUID(remembered.entities["contact"])
+            if cid in self.contacts and self._fits(v, cid):
+                return cid
         name = joined(v.get("last_name"), v.get("first_name"), v.get("middle_name"))
         if name is None:
             return None
@@ -905,8 +938,11 @@ class WorkbookImport:
     async def _clients(self, r: _Row) -> None:
         v = r.values
         contact: Contact | None = self._own(r, self.contacts)
-        if contact is None and (cid := self._match(v)) is not None:
-            contact = self.contacts[cid]
+        key = None
+        if contact is None:
+            key = self._client_key(v)
+            if (cid := self._match(v, key)) is not None:
+                contact = self.contacts[cid]
         if contact is None and not (v.get("last_name") or v.get("first_name")):
             raise SkipRow("no_name")
         channel = self._lookup(r, ValueType.CHANNEL, "channel")
@@ -957,6 +993,8 @@ class WorkbookImport:
         changed |= self._passport(r, contact, made)
         if not made:
             self._changed(r, contact, "contacts", changed)
+        if key is not None:
+            self._remember(r, key, {"contact": str(contact.id)})
         self._made_id = contact.id
 
     def _names(self, r: _Row, contact: Contact) -> bool:
@@ -1239,7 +1277,7 @@ class WorkbookImport:
         if not made:
             self._changed(r, case, "cases", changed)
         if key is not None:
-            self._remember(r, key, case)
+            self._remember(r, key, {"case": str(case.id)})
         self._made_id = case.id
 
     def _opened_at(self, day: date) -> datetime:
@@ -1272,17 +1310,15 @@ class WorkbookImport:
     ) -> VisaCase:
         """A case started from the given consultation, else from the person's last one
         before it; a consultation that was «thinking» becomes «yes», as when a case is
-        opened by hand. It starts on «Дата открытия», else on its earliest date."""
+        opened by hand. It starts on «Дата открытия», else on its earliest date, and never
+        after today: a submission ahead is a plan, and «Анкета до» a deadline (backlog A5)."""
         v = r.values
-        dates = [v.get(k) for k in ("submission_on", "decided_on", "questionnaire_due_on")]
-        started = min((d for d in dates if d is not None), default=None)
+        dates = [v.get(k) for k in ("submission_on", "decided_on")]
+        started = min((d for d in dates if d is not None), default=self.today)
+        started = min(started, self.today)
         if consultation is None:
             consultation = max(
-                (
-                    c
-                    for c in self.consultations_of[contact.id]
-                    if c.held_on <= min(started or self.today, self.today)
-                ),
+                (c for c in self.consultations_of[contact.id] if c.held_on <= started),
                 key=lambda c: c.held_on,
                 default=None,
             )
@@ -1299,8 +1335,9 @@ class WorkbookImport:
             created_by=self.user_id,
         )
         self.next_number += 1
-        known = [d for d in (consultation.held_on if consultation else None, started) if d]
-        case.created_at = _midnight(min(known)) if known else _midnight(self.today)
+        if consultation is not None:
+            started = min(started, consultation.held_on)
+        case.created_at = self._opened_at(started)
         if "opened_on" not in v:
             self.dated.add(case.id)
         if consultation is not None:
@@ -1382,9 +1419,9 @@ class WorkbookImport:
         case.stage = stage
         return True
 
-    def _remember(self, r: _Row, key: str, case: VisaCase) -> None:
+    def _remember(self, r: _Row, key: str, entities: dict[str, str]) -> None:
+        """What the row of this key became: a case, or a client's card."""
         record = self.memory.get(key)
-        entities = {"case": str(case.id)}
         if record is None:
             record = ImportRow(
                 id=uuid.uuid4(),
@@ -1943,6 +1980,36 @@ class WorkbookImport:
         entry.password_updated_at = datetime.now(UTC)
         return True
 
+    def _account(
+        self, r: _Row, case: VisaCase, booking: Booking | None, login: str
+    ) -> uuid.UUID | None:
+        """The account «Аккаунт» names (backlog A5): the booking's own while it has this login;
+        else one of the case's client — of this case or of none — or, when the client has
+        none, one of the specialist's own. Of several, the case's own, then one with no case,
+        then one of a booking site. Several left, or none — no account, and a warning."""
+        login = login.casefold()
+        entries = [
+            e
+            for i in self.logins.get(login, [])
+            if (e := self.vault[i]).contact_id in (case.contact_id, None)
+        ]
+        if booking is not None and booking.vault_entry_id in {e.id for e in entries}:
+            return booking.vault_entry_id
+        found = [
+            e for e in entries if e.contact_id == case.contact_id and e.case_id in (None, case.id)
+        ] or [e for e in entries if e.contact_id is None]
+        for keep in (
+            lambda e: e.case_id == case.id,
+            lambda e: e.case_id is None,
+            lambda e: self.system_kinds.get(e.system_id) == VaultSystemKind.BOOKING,
+        ):
+            if len(found) > 1 and (narrowed := [e for e in found if keep(e)]):
+                found = narrowed
+        if len(found) == 1:
+            return found[0].id
+        r.warn("account", "account_ambiguous" if found else "unknown_value")
+        return None
+
     async def _bookings(self, r: _Row) -> None:
         v = r.values
         case = self._case_of(r)
@@ -1981,9 +2048,7 @@ class WorkbookImport:
                 dates[key] = (key, None)
         account = None
         if (login := v.get("account")) is not None:
-            account = self.logins.get(login.casefold())
-            if account is None:
-                r.warn("account", "unknown_value")
+            account = self._account(r, case, booking, login)
         made = booking is None
         if booking is None:
             booking = Booking(
