@@ -535,3 +535,148 @@ async def test_without_a_tax_rate_the_case_says_so_instead_of_zero(
     assert finance["tax"] is None and finance["official"] == "300.00"
     priced = (await client.patch(finance_url(case), json={"price": "300"})).json()
     assert (priced["balance"], priced["tax"], priced["profit"]) == ("0.00", None, "300.00")
+
+
+async def test_an_amount_too_large_for_the_base_currency_is_refused_with_its_code(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Audit H1: each field fits on its own, amount × rate did not fit NUMERIC(14, 2) and the
+    # site answered 500. A rate typed without its decimal point: 34000000 for 3.4.
+    tenant_id = await as_specialist(client, make_user, owner_engine)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE tenants SET payment_currencies = '{EUR}' WHERE id = :t"), {"t": tenant_id}
+        )
+    case = await open_case(client)
+    payments, expenses = f"/api/cases/{case['id']}/payments", f"/api/cases/{case['id']}/expenses"
+    slip = {"amount": "150000", "currency": "EUR", "rate": "34000000"}
+
+    def refused(response) -> bool:
+        return response.status_code == 422 and response.json()["detail"] == "amount_too_large"
+
+    assert refused(await client.post(payments, json={"paid_on": "2026-05-15"} | slip))
+    assert refused(
+        await client.post(expenses, json={"spent_on": "2026-05-15", "description": "Х"} | slip)
+    )
+    # Up to the column's limit an amount is taken.
+    at_limit = await client.post(
+        payments, json={"paid_on": "2026-05-15", "amount": "999999999999.99", "currency": "BYN"}
+    )
+    assert at_limit.status_code == 201, at_limit.text
+    paid = await client.post(
+        payments, json={"paid_on": "2026-05-15", "amount": "100", "currency": "EUR"}
+    )
+    payment = next(p for p in paid.json()["payments"] if p["currency"] == "EUR")
+    spent = await client.post(
+        expenses,
+        json={"spent_on": "2026-05-15", "amount": "10", "currency": "EUR", "description": "Х"},
+    )
+    [expense] = spent.json()["expenses"]
+    assert refused(await client.patch(f"/api/payments/{payment['id']}", json=slip))
+    assert refused(await client.patch(f"/api/expenses/{expense['id']}", json=slip))
+    # The talon and the price of the case.
+    assert refused(
+        await client.patch(
+            finance_url(case),
+            json={
+                "registrar_fee_amount": "150000",
+                "registrar_fee_currency": "EUR",
+                "registrar_fee_rate": "34000000",
+            },
+        )
+    )
+    assert refused(await client.patch(finance_url(case), json={"price": "150000"} | slip))
+
+    # Nothing of the refused writes was kept.
+    finance = (await client.get(finance_url(case))).json()
+    assert sorted(p["amount_base"] for p in finance["payments"]) == [
+        "340.00",
+        "999999999999.99",
+    ]
+    assert [(e["amount"], e["amount_base"]) for e in finance["expenses"]] == [("10.00", "34.00")]
+    assert finance["registrar_fee_amount"] is None and finance["price"] is None
+    assert (finance["currency"], finance["rate"]) == ("BYN", "1")
+
+
+async def test_an_expense_counts_in_the_base_currency_and_its_changes_move_the_profit(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Audit H5: an expense is in the profit of the case, so each change of it is a change
+    # of money: in the base currency at the rate, written to the journal without amounts.
+    await as_specialist(client, make_user, owner_engine)
+    case = await open_case(client)
+    await client.patch(finance_url(case), json={"price": "1000"})
+    added = await client.post(
+        f"/api/cases/{case['id']}/expenses",
+        json={
+            "spent_on": "2026-06-02",
+            "amount": "10",
+            "currency": "USD",
+            "description": "Перевод",
+        },
+    )
+    assert added.status_code == 201, added.text
+    [expense] = added.json()["expenses"]
+    assert (expense["rate"], expense["amount_base"]) == ("3.100000", "31.00")
+    assert (added.json()["expenses_total"], added.json()["profit"]) == ("31.00", "969.00")
+    url = f"/api/expenses/{expense['id']}"
+
+    def first(response) -> tuple:
+        [e] = response.json()["expenses"]
+        # The rate as a number: right after a change the answer has it as it was sent.
+        return (e["spent_on"], e["amount"], e["currency"], Decimal(e["rate"]), e["amount_base"])
+
+    more = await client.patch(url, json={"amount": "20"})
+    assert more.status_code == 200, more.text
+    assert first(more) == ("2026-06-02", "20.00", "USD", Decimal("3.1"), "62.00")
+    assert more.json()["profit"] == "938.00"
+    corrected = await client.patch(url, json={"rate": "3.2", "spent_on": "2026-06-03"})
+    assert first(corrected) == ("2026-06-03", "20.00", "USD", Decimal("3.2"), "64.00")
+    assert corrected.json()["profit"] == "936.00"
+    # Into the base currency: at 1. A null description (it is required) leaves it as is.
+    in_byn = await client.patch(url, json={"currency": "BYN", "description": None})
+    assert first(in_byn) == ("2026-06-03", "20.00", "BYN", Decimal(1), "20.00")
+    assert in_byn.json()["expenses"][0]["description"] == "Перевод"
+    assert in_byn.json()["profit"] == "980.00"
+    # The same values again change nothing and write no event.
+    assert (await client.patch(url, json={"amount": "20"})).status_code == 200
+
+    # Another workspace finds neither the expense nor a way to change it.
+    client.cookies.clear()
+    await as_specialist(client, make_user, owner_engine, "boris@example.com")
+    assert (await client.patch(url, json={"amount": "1"})).status_code == 404
+    assert (await client.delete(url)).status_code == 404
+    client.cookies.clear()
+    await login(client, "anna@example.com")
+    assert first(await client.get(finance_url(case))) == (
+        "2026-06-03",
+        "20.00",
+        "BYN",
+        Decimal(1),
+        "20.00",
+    )
+
+    deleted = await client.delete(url)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["expenses"] == []
+    assert (deleted.json()["expenses_total"], deleted.json()["profit"]) == ("0.00", "1000.00")
+    assert (await client.delete(url)).status_code == 404
+
+    events = (await client.get("/api/audit")).json()["events"]
+    expense_events = [e for e in events if e["action"].startswith("finances.expense_")]
+    assert sorted(e["action"] for e in expense_events) == [
+        "finances.expense_added",
+        "finances.expense_deleted",
+        "finances.expense_updated",
+        "finances.expense_updated",
+        "finances.expense_updated",
+    ]
+    updated = [e for e in expense_events if e["action"] == "finances.expense_updated"]
+    assert sorted(sorted(e["details"]["fields"].split(",")) for e in updated) == [
+        ["amount"],
+        ["currency"],
+        ["rate", "spent_on"],
+    ]
+    for event in expense_events:
+        assert set(event["details"]) <= {"case", "contact", "fields"}
+        assert event["details"]["case"] == case["id"]

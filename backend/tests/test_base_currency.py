@@ -430,3 +430,31 @@ async def test_the_admin_change_makes_the_new_base_accepted_and_logs_it_once(
         (CHANGED, None),
         ("admin.specialist_updated", ["name"]),
     ]
+
+
+async def test_a_new_base_an_amount_would_not_fit_in_changes_nothing(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    # Audit H1: 300 000 000 000 EUR at a rate of 0.001 is 300 000 000 BYN, but
+    # 1 275 000 000 000 PLN does not fit NUMERIC(14, 2).
+    await specialist(client, make_user, owner_engine)
+    case = await open_case(client)
+    await pay(client, case, "300000000000", "EUR", rate="0.001")
+    response = await client.patch(MONEY, json={"base_currency": "PLN"})
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "base_amount_too_large"
+    assert (await client.get(MONEY)).json()["base_currency"] == "BYN"
+    finance = (await client.get(finance_url(case))).json()
+    assert rows(finance["payments"]) == [("300000000000.00", "EUR", "0.001000", "300000000.00")]
+    assert await changed_events(client) == []
+
+    # A partner's fixed payout, kept in the base currency: 999 999 999 999 BYN is
+    # 1 249 999 999 998.75 PLN.
+    other = await open_case(client)
+    await client.delete(f"/api/payments/{finance['payments'][0]['id']}")
+    await client.patch(
+        finance_url(other), json={"partner_terms": "fixed", "partner_fixed": "999999999999"}
+    )
+    response = await client.patch(MONEY, json={"base_currency": "PLN"})
+    assert response.json()["detail"] == "base_amount_too_large"
+    assert (await client.get(finance_url(other))).json()["partner_fixed"] == "999999999999.00"

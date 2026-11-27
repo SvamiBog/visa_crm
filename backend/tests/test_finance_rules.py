@@ -3,14 +3,20 @@ case and the edge cases around it."""
 
 from decimal import Decimal as D
 
+import pytest
+
 from app.core.base_currency import rebased
 from app.core.finance import (
+    MAX_AMOUNT,
+    AmountTooLarge,
     Paid,
     balance,
     converted,
     in_case_currency,
     partner_payout,
     profit,
+    storable,
+    stored_base,
     summarize,
     tax,
     tax_rate_set,
@@ -25,6 +31,29 @@ def test_foreign_amounts_are_converted_and_rounded_once():
     assert to_base(D("60"), D("3.4")) == D("204.00")
     assert to_base(D("10.01"), D("3.37065")) == D("33.74")  # 33.7402… → kopecks
     assert to_base(D("0.03"), D("0.5")) == D("0.02")  # half up, never float
+
+
+def test_an_amount_kept_in_the_base_currency_must_fit_its_column():
+    # NUMERIC(14, 2): up to 999 999 999 999.99. Each field fits on its own, the product
+    # may not: a rate typed without its decimal point (34000000 for 3.4000000).
+    assert stored_base(D("150000"), D("3.4")) == D("510000.00")
+    assert stored_base(D("999999999999.99"), D("1")) == MAX_AMOUNT
+    assert storable(D("999999999999.99")) == MAX_AMOUNT
+    with pytest.raises(AmountTooLarge):
+        stored_base(D("150000"), D("34000000"))
+    with pytest.raises(AmountTooLarge):
+        stored_base(D("999999999999.99"), D("1.000001"))
+    with pytest.raises(AmountTooLarge):
+        storable(D("1000000000000.00"))
+    # Rounding first: 999 999 999 999.994 is kept as …999.99, which fits.
+    assert stored_base(D("999999999999.994"), D("1")) == MAX_AMOUNT
+
+
+def test_a_rebased_amount_that_no_longer_fits_is_refused():
+    byn = {"EUR": D("3.4"), "PLN": D("0.8")}
+    assert rebased(D("100"), "EUR", "PLN", byn) == (D("4.250000"), D("425.00"))
+    with pytest.raises(AmountTooLarge):
+        rebased(D("300000000000"), "EUR", "PLN", byn)  # 1 275 000 000 000 PLN
 
 
 def test_partner_payout_follows_the_terms():

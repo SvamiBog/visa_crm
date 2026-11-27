@@ -297,3 +297,63 @@ async def test_ledgers_need_finances_and_stay_in_the_workspace(
     await login(client, "olga@example.com")
     denied = await client.get("/api/registrars/ledgers")
     assert denied.status_code == 403 and denied.json()["detail"] == "module_disabled"
+
+
+async def test_a_talon_too_large_for_the_base_currency_is_refused(
+    client: AsyncClient, make_user: MakeUser
+):
+    # Audit H1: a price of 400 000 000 000 EUR is 1 360 000 000 000 BYN.
+    await as_specialist(client, make_user)
+    codes = await countries(client)
+    reg = await registrar(client, codes, prices=(("PL", "400000000000", "EUR"),), currency="EUR")
+    case = await open_case(client, codes, "Анна", reg)
+    charged = await client.post(f"/api/registrars/{reg['id']}/talons", json={"case_id": case["id"]})
+    assert charged.status_code == 422, charged.text
+    assert charged.json()["detail"] == "amount_too_large"
+    finance = (await client.get(f"/api/cases/{case['id']}/finance")).json()
+    assert finance["registrar_fee_amount"] is None
+
+
+async def test_the_currency_stays_while_payments_or_talons_are_in_it(
+    client: AsyncClient, make_user: MakeUser
+):
+    # Audit H-2: a payment keeps only its amount, in the registrar's currency; after a change
+    # 100 EUR would read as 100 PLN and the balance would be wrong without a word.
+    await as_specialist(client, make_user)
+    codes = await countries(client)
+    paid_reg = await registrar(client, codes, currency="EUR")
+    url = f"{DICT}/registrars/{paid_reg['id']}"
+    await client.post(
+        f"/api/registrars/{paid_reg['id']}/payments",
+        json={"paid_on": "2026-05-01", "amount": "100", "method": "cash"},
+    )
+    locked = await client.patch(url, json={"currency": "PLN"})
+    assert locked.status_code == 409 and locked.json()["detail"] == "registrar_currency_locked"
+    # The same currency and the other fields are saved as before.
+    same = await client.patch(url, json={"currency": "EUR", "low_balance": "50"})
+    assert same.status_code == 200, same.text
+    ledger = (await client.get(ledger_url(paid_reg))).json()
+    assert (ledger["currency"], ledger["balance"]) == ("EUR", "100.00")
+
+    # A talon charged to one of the registrar's clients locks it too.
+    talon_reg = await registrar(client, codes, name="Пётр", currency="EUR")
+    case = await open_case(client, codes, "Анна", talon_reg)
+    charged = await client.post(
+        f"/api/registrars/{talon_reg['id']}/talons", json={"case_id": case["id"]}
+    )
+    assert charged.status_code == 201, charged.text
+    talon_url = f"{DICT}/registrars/{talon_reg['id']}"
+    locked = await client.patch(talon_url, json={"currency": "USD"})
+    assert locked.status_code == 409 and locked.json()["detail"] == "registrar_currency_locked"
+    # Taken off again, the talon no longer holds it.
+    await client.patch(f"/api/cases/{case['id']}/finance", json={"registrar_fee_amount": None})
+    assert (await client.patch(talon_url, json={"currency": "USD"})).status_code == 200
+
+    # Without payments and talons the currency changes; another workspace's registrar is
+    # not found.
+    fresh = await registrar(client, codes, name="Олег", currency="EUR")
+    fresh_url = f"{DICT}/registrars/{fresh['id']}"
+    assert (await client.patch(fresh_url, json={"currency": "PLN"})).json()["currency"] == "PLN"
+    client.cookies.clear()
+    await as_specialist(client, make_user, "boris@example.com")
+    assert (await client.patch(fresh_url, json={"currency": "USD"})).status_code == 404
