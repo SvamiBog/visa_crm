@@ -637,6 +637,11 @@ async def update_registrar(
     changes = body.model_dump(exclude_unset=True)
     currency = changes.get("currency")
     if currency is not None and currency != registrar.currency:
+        # FOR UPDATE: a payment being added holds the row FOR KEY SHARE (its foreign key),
+        # so it is either seen by the check or waits and comes in the new currency.
+        await session.execute(
+            select(Registrar.id).where(Registrar.id == registrar.id).with_for_update()
+        )
         await _check_currency_free(session, registrar)
     _apply(registrar, changes, nullable=frozenset({"contact", "note", "low_balance"}))
     _audit(session, AuditAction.REFERENCE_UPDATED, user, "registrar", registrar.id, registrar.name)
