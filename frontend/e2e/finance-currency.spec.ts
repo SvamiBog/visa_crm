@@ -90,7 +90,7 @@ for (const [lang, width] of [
     )!;
 
     try {
-      await page.goto(`/app/clients/${contact}`);
+      await page.goto(`/app/clients/${contact}?tab=cases`);
       // The card's one case, loaded, before anything is read from it.
       await expect(page.locator("article.case-panel")).toHaveCount(1);
       const section = page.locator("section.finance");

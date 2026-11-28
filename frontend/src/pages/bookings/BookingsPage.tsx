@@ -10,6 +10,7 @@ import { useSortedTable, type SortColumns } from "../../sorting";
 import { DeadlineChip, useBookingAccounts, useStay } from "../clients/Bookings";
 import { CaseChip } from "../clients/Cases";
 import { ErrorAlert } from "../clients/ui";
+import { cardPath } from "../clients/cardTabs";
 
 // «Брони: дедлайны» (backlog 1.8): every live booking of every client, nearest
 // cancellation date (or flight validity) first. By default the passed ones and the next
@@ -135,7 +136,7 @@ export function BookingsPage() {
                       )}
                     </td>
                     <td>
-                      <Link to={`/app/clients/${r.contact_id}`}>{r.contact_name}</Link>
+                      <Link to={cardPath(r.contact_id, "cases")}>{r.contact_name}</Link>
                       <div className="muted small">
                         {t("cases.number", { number: r.case_number })} ·{" "}
                         {name.country(countryById.get(r.destination_id))}

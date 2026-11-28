@@ -10,6 +10,7 @@ import { CaseChip } from "../clients/Cases";
 import { useMoney } from "../clients/Finance";
 import { Field, useFieldErrors } from "../../components/Field";
 import { ErrorAlert, todayIso } from "../clients/ui";
+import { cardPath } from "../clients/cardTabs";
 
 // Settlements with registrars (backlog 1.10): each registrar's balance in their own
 // currency — the specialist's payments minus the talons of the clients they queued.
@@ -297,7 +298,11 @@ function RegistrarLedger({ id }: { id: string }) {
                       <td className="nowrap">{date(line.on)}</td>
                       <td>
                         {t("registrars.talon")} ·{" "}
-                        <Link to={`/app/clients/${line.contact_id}`}>{line.contact_name}</Link>
+                        {line.contact_id ? (
+                          <Link to={cardPath(line.contact_id, "cases")}>{line.contact_name}</Link>
+                        ) : (
+                          line.contact_name
+                        )}
                         <div className="muted small">{where(line)}</div>
                       </td>
                       <td className="mono money-cell">−{money(line.amount)}</td>
@@ -321,7 +326,7 @@ function RegistrarLedger({ id }: { id: string }) {
           <ul className="plain-list">
             {l.other_currency.map((o) => (
               <li key={o.case_id}>
-                <Link to={`/app/clients/${o.contact_id}`}>{o.contact_name}</Link>{" "}
+                <Link to={cardPath(o.contact_id, "cases")}>{o.contact_name}</Link>{" "}
                 <span className="muted small">
                   {where(o)} · {date(o.on)}
                 </span>{" "}
@@ -367,7 +372,7 @@ function MissingTalons({
             {l.missing_talons.map((m) => (
               <tr key={m.case_id}>
                 <td>
-                  <Link to={`/app/clients/${m.contact_id}`}>{m.contact_name}</Link>
+                  <Link to={cardPath(m.contact_id, "cases")}>{m.contact_name}</Link>
                   <div className="muted small">{where(m)}</div>
                 </td>
                 <td>

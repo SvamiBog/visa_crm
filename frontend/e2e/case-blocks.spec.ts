@@ -120,7 +120,7 @@ for (const [lang, width] of [
     const spainCase = `${t("cases.number", { number: inWork.number })} · ${name(spain)}`;
     const polandCase = `${t("cases.number", { number: done.number })} · ${name(poland)}`;
 
-    await page.goto(`/app/clients/${contactId}`);
+    await page.goto(`/app/clients/${contactId}?tab=cases`);
     const spainBlock = block(page, `${spainCase} · ${purpose.name}`);
     const polandBlock = block(page, polandCase);
 

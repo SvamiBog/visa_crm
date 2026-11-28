@@ -85,7 +85,7 @@ for (const [lang, width] of [
     const own = cases.find((c) => c.contact_id === contactId)!;
     const family = cases.find((c) => c.contact_id !== contactId)!;
 
-    await page.goto(`/app/clients/${contactId}`);
+    await page.goto(`/app/clients/${contactId}?tab=cases`);
     const panel = page.locator("article.case-panel");
     await expect(panel).toHaveCount(1);
     // «Изменить» of the case itself, in its head (its blocks have their own).

@@ -25,12 +25,13 @@ type Form = {
   open: (page: Page, t: (key: string) => string) => Promise<void>;
 };
 
-async function openCard(page: Page): Promise<void> {
+/** The oldest card on one of its tabs (backlog 1.15.17); «Клиент» without a parameter. */
+async function openCard(page: Page, tab = ""): Promise<void> {
   const found = await page.request.post("/api/contacts/search", { data: {} });
   expect(found.ok()).toBe(true);
   // Oldest first: a demo card, not one other tests make and delete meanwhile.
   const [first] = ((await found.json()).items as { id: string }[]).reverse();
-  await page.goto(`/app/clients/${first.id}`);
+  await page.goto(`/app/clients/${first.id}${tab && `?tab=${tab}`}`);
   await page.locator("h1").waitFor();
 }
 
@@ -65,7 +66,7 @@ const FORMS: Form[] = [
   {
     name: "trip check in the card",
     open: async (page, t) => {
-      await openCard(page);
+      await openCard(page, "trips");
       await card(page, t("stay.cardTitle"))
         .getByRole("button", { name: t("stay.checkTitle"), exact: true })
         .click();
@@ -81,14 +82,14 @@ const FORMS: Form[] = [
   {
     name: "new case",
     open: async (page, t) => {
-      await openCard(page);
+      await openCard(page, "cases");
       await page.getByRole("button", { name: t("cases.add"), exact: true }).click();
     },
   },
   {
     name: "vault account",
     open: async (page, t) => {
-      await openCard(page);
+      await openCard(page, "vault");
       await card(page, t("vault.title"))
         .getByRole("button", { name: t("vault.add"), exact: true })
         .click();
@@ -97,7 +98,7 @@ const FORMS: Form[] = [
   {
     name: "trip",
     open: async (page, t) => {
-      await openCard(page);
+      await openCard(page, "trips");
       await card(page, t("stay.cardTitle")).getByRole("button").first().click();
     },
   },

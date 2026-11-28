@@ -1873,41 +1873,51 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   min-width: 0;
 }
 
-/* The client's card in one column (below two 380px columns): the work comes first —
-   contact, cases, notes, consultations, vault — then the reference blocks in their order.
-   The columns step aside so the blocks line up in the grid's single column. */
-.contact-layout {
-  container-type: inline-size;
+/* The client's card by tabs (backlog 1.15.17): one row that scrolls sideways on a narrow
+   screen instead of wrapping; the tabs of other pages do not change. The line under the
+   row is an inset shadow, not a border, so the scrolling box does not clip the open tab's
+   underline (`.tab` steps 1px down onto the border in plain `.tabs`). */
+.tabs-scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scroll-padding-inline: 16px;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--c-border);
 }
 
-.card-slot {
+.tabs-scroll .tab {
+  flex: none;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+/* The scrolling row clips anything outside a tab, so the keyboard ring goes inside it. */
+.tabs-scroll .tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.card-panel {
   min-width: 0;
 }
 
-@container (width < 780px) {
-  .contact-layout .column {
-    display: contents;
-  }
+/* The client's cases in short under the contact details: the look of `.case-list`,
+   without its gap below, as it ends the card. */
+.contact-cases {
+  margin-top: 12px;
+}
 
-  .slot-contact {
-    order: -5;
-  }
+.contact-cases .h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-muted);
+}
 
-  .slot-cases {
-    order: -4;
-  }
-
-  .slot-notes {
-    order: -3;
-  }
-
-  .slot-consultations {
-    order: -2;
-  }
-
-  .slot-vault {
-    order: -1;
-  }
+.contact-cases ol {
+  margin: 0;
 }
 
 .kv {

@@ -226,7 +226,7 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
       });
       expect(partner.ok(), await partner.text()).toBe(true);
 
-      await page.goto(`/app/clients/${contactId}`, { waitUntil: "networkidle" });
+      await page.goto(`/app/clients/${contactId}?tab=cases`, { waitUntil: "networkidle" });
       const panel = casePanel(page, kept.number);
       const remove = panel.getByRole("button", { name: t("cases.delete"), exact: true });
 
@@ -324,7 +324,7 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
           base_currency: string;
         };
 
-        await page.goto(`/app/clients/${contactId}`, { waitUntil: "networkidle" });
+        await page.goto(`/app/clients/${contactId}?tab=cases`, { waitUntil: "networkidle" });
         const finance = casePanel(page, kept.number).locator("section.finance");
         const edit = finance
           .locator(".card-head")
@@ -389,7 +389,7 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
       });
       expect(paid.ok(), await paid.text()).toBe(true);
 
-      await page.goto(`/app/clients/${contactId}`, { waitUntil: "networkidle" });
+      await page.goto(`/app/clients/${contactId}?tab=cases`, { waitUntil: "networkidle" });
       const panel = casePanel(page, kept.number);
       await panel
         .locator("section.finance")
@@ -433,7 +433,7 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
         base_currency: string;
       };
 
-      await page.goto(`/app/clients/${contactId}`, { waitUntil: "networkidle" });
+      await page.goto(`/app/clients/${contactId}?tab=cases`, { waitUntil: "networkidle" });
       const panel = casePanel(page, kept.number);
       await panel.getByRole("button", { name: t("cases.delete"), exact: true }).click();
       const ask = page.getByRole("dialog");
@@ -460,7 +460,7 @@ for (const [index, lang] of (["ru", "en"] as const).entries()) {
     test("a case opened twice by mistake is deleted after the question", async ({ page }) => {
       const contactId = await demoCard(page, index);
       const poland = await countryId(page, "PL");
-      await page.goto(`/app/clients/${contactId}`);
+      await page.goto(`/app/clients/${contactId}?tab=cases`);
       await page.locator("h1").waitFor();
 
       // «Создать кейсы» pressed twice while the request is on its way: one request.

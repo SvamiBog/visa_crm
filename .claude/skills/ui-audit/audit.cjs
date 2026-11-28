@@ -36,6 +36,8 @@ const KEY_SCREENS = [
   "/app",
   "/app/clients",
   "/app/clients/{case-client}",
+  // The card's cases are on a tab of their own (backlog 1.15.17).
+  "/app/clients/{case-client}?tab=cases",
   "/app/queues",
   "/app/bookings",
   "/app/vault",

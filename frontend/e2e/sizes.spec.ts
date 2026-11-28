@@ -181,7 +181,7 @@ for (const lang of ["ru", "en"] as const) {
         page,
       }) => {
         const client = await demoCardWithPortal(page);
-        await page.goto(`/app/clients/${client}`);
+        await page.goto(`/app/clients/${client}?tab=cases`);
         const link = page.getByRole("textbox", { name: t("portal.link"), exact: true });
         await expect(link).toBeVisible();
         await page.getByRole("button", { name: t("finance.addPayment"), exact: true }).first().click();

@@ -177,7 +177,7 @@ for (const [lang, width] of [
       ).toHaveValue(before.base_currency);
 
       // A case's price in another currency: what was typed is not converted, the form says so.
-      await page.goto(`/app/clients/${await cardWithOneCase(page)}`);
+      await page.goto(`/app/clients/${await cardWithOneCase(page)}?tab=cases`);
       const section = page.locator("section.finance").first();
       await section.getByRole("button", { name: t("reference.edit"), exact: true }).first().click();
       const form = section.locator("form.finance-form");

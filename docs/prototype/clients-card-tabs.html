@@ -1,0 +1,457 @@
+<!doctype html>
+<!-- Mockup of backlog 1.15.17 «Карточка клиента по вкладкам». Static HTML on the app's own
+     stylesheet; every client, number and address here is made up. -->
+<html lang="ru" data-ui-theme="blue">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Макет: карточка клиента по вкладкам (1.15.17)</title>
+<link rel="stylesheet" href="../../frontend/src/styles.css">
+<style>
+/* NEW: goes to styles.css — the client's card tabs: one row that scrolls sideways on a
+   narrow screen instead of wrapping; other pages' `.tabs` do not change. The line under
+   the row is an inset shadow, not a border, so the scrolling box does not clip the
+   selected tab's underline (`.tab` steps 1px down onto the border in plain `.tabs`). */
+.tabs-scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scroll-padding-inline: 16px;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--c-border);
+}
+
+.tabs-scroll .tab {
+  flex: none;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+/* NEW: goes to styles.css — short rows of the client's cases under the contact details
+   (the look of `.case-list`, without its gap below: it ends the card). */
+.contact-cases {
+  margin-top: 12px;
+}
+
+.contact-cases .h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-muted);
+}
+
+.contact-cases ol {
+  margin: 0;
+}
+
+/* Mockup only, not for styles.css: state captions and a phone-wide frame. */
+.mock-state {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 40px;
+  border-bottom: 1px dashed var(--c-border-strong);
+}
+
+.mock-state > p.muted {
+  margin: 0;
+}
+
+.mock-phone {
+  max-width: 390px;
+}
+</style>
+</head>
+<body>
+<main class="content">
+<div class="page">
+
+<!-- ================================================================== -->
+<section class="mock-state" aria-label="Состояние 1">
+  <p class="muted">Состояние 1: вкладка «Клиент» (все модули включены). На 1280px два столбца, на 390px один.</p>
+
+  <a href="#" class="small">← Все клиенты</a>
+  <header class="page-header">
+    <div class="contact-head">
+      <span class="avatar" aria-hidden="true">МК</span>
+      <div>
+        <h1>Ковалёва Марина Игоревна</h1>
+        <div class="muted">KAVALIOVA MARYNA · как в паспорте</div>
+      </div>
+    </div>
+    <div class="actions">
+      <a class="btn btn-telegram" href="#">Написать в Telegram</a>
+      <button type="button" class="btn">Изменить</button>
+      <button type="button" class="btn btn-danger">Удалить карточку</button>
+    </div>
+  </header>
+
+  <section class="card hints" aria-label="Проверка анкеты">
+    <h2 class="h2">Проверка анкеты</h2>
+    <ul class="plain-list">
+      <li><span><span class="chip st-orange">риск</span> Был отказ Франции в 2024 году: укажите его в анкете и приложите письмо о причинах.</span></li>
+    </ul>
+  </section>
+
+  <section class="card attention">
+    <h2 class="h2">Требует внимания</h2>
+    <ul class="attention-list">
+      <li class="attention-item">
+        <div class="attention-main">
+          <div>Срок сдачи документов по кейсу — 2 декабря</div>
+          <div class="muted small">№12 · Испания</div>
+        </div>
+      </li>
+    </ul>
+  </section>
+
+  <!-- key: contacts.tabs (aria-label «Разделы карточки») -->
+  <div class="tabs tabs-scroll" role="tablist" aria-label="Разделы карточки">
+    <button type="button" role="tab" class="tab active" aria-selected="true" id="s1-client" aria-controls="s1-panel">Клиент</button><!-- key: contacts.tab.client -->
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Кейсы<span class="tab-count">2</span></button><!-- key: contacts.tab.cases -->
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Паспорт и документы</button><!-- key: contacts.tab.documents -->
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Поездки 90/180</button><!-- key: contacts.tab.trips -->
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Сейф</button><!-- key: contacts.tab.vault -->
+  </div>
+
+  <div role="tabpanel" id="s1-panel" aria-labelledby="s1-client">
+    <div class="card-grid">
+      <div class="column">
+        <section class="card">
+          <h2 class="h2">Контакт</h2>
+          <div class="kv"><span class="muted">Телефон</span><span>+375 29 000-12-34</span></div>
+          <div class="kv"><span class="muted">Telegram</span><span>@marina_demo</span></div>
+          <div class="kv"><span class="muted">E-mail</span><span>marina.demo@example.com</span></div>
+          <div class="kv"><span class="muted">Дата рождения</span><span>14 мар. 1989 г.</span></div>
+          <div class="kv"><span class="muted">Канал прихода</span><span>Instagram</span></div>
+          <div class="kv"><span class="muted">Первое обращение</span><span>3 окт. 2026 г.</span></div>
+          <!-- Each row opens the «Кейсы» tab with that case in view and the focus on its heading. -->
+          <nav class="contact-cases case-list" aria-label="Кейсы клиента"><!-- key: caseBlocks.list (exists) -->
+            <h3 class="h3">Кейсы</h3><!-- key: cases.title (exists) -->
+            <ol>
+              <li><a href="#">№12 · Испания</a><span class="chip st-blue">Сбор документов</span></li>
+              <li><a href="#">№9 · Франция</a><span class="chip st-green">Виза</span></li>
+            </ol>
+          </nav>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <h2 class="h2">Анкета</h2>
+            <div class="actions"><button type="button" class="btn btn-sm">Изменить</button></div>
+          </div>
+          <div class="q-section">
+            <h3 class="h3">Визы за 5 лет</h3>
+            <ul class="q-list">
+              <li class="q-item">
+                <div class="q-main"><strong>Франция · Шенген · Туризм</strong> <a href="#">Кейс №9</a></div>
+                <div class="q-meta">до 20 авг. 2027 г. <span class="chip st-green">действует</span></div>
+              </li>
+              <li class="q-item">
+                <div class="q-main"><strong>Польша · Шенген · Туризм</strong></div>
+                <div class="q-meta">до 1 мая 2024 г.</div>
+              </li>
+            </ul>
+          </div>
+          <div class="q-section">
+            <h3 class="h3">Отказы</h3>
+            <ul class="q-list">
+              <li class="q-item">
+                <div class="q-main"><strong>Франция</strong> <span class="chip st-gray">2024</span></div>
+                <div class="q-note">Не подтверждена цель поездки</div>
+              </li>
+            </ul>
+          </div>
+          <div class="kv"><span class="muted">Другое по анкете</span><span>—</span></div>
+        </section>
+      </div>
+
+      <div class="column">
+        <section class="card">
+          <div class="card-head">
+            <h2 class="h2">Консультации</h2>
+            <button type="button" class="btn btn-sm">+ Консультация</button>
+          </div>
+          <ul class="plain-list consultations">
+            <li>
+              <div>
+                <strong>12 нояб. 2026 г.</strong> <span class="chip st-green">Да</span>
+                <div class="muted small">1 заявитель · Испания · поездка 15 янв. 2027 г. · Оплата консультации: 60,00 BYN · оплачена</div>
+              </div>
+            </li>
+            <li>
+              <div>
+                <strong>3 окт. 2026 г.</strong> <span class="chip st-green">Да</span>
+                <div class="muted small">1 заявитель · Франция · Оплата консультации: 60,00 BYN · оплачена</div>
+              </div>
+            </li>
+          </ul>
+        </section>
+
+        <section class="card timeline">
+          <h2 class="h2">Лента заметок</h2>
+          <form class="form-card" onsubmit="return false">
+            <label class="field">
+              <span class="visually-hidden">Новая заметка</span>
+              <textarea rows="3" placeholder="Что обсудили, что решили, что сделать дальше"></textarea>
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-sm" disabled>Добавить заметку</button>
+            </div>
+          </form>
+          <ol class="notes">
+            <li>
+              <div class="muted small">25 нояб. 2026 г., 14:10</div>
+              <p class="note-body">Справку с работы пришлёт до пятницы. Бронь отеля в Барселоне — на 15–22 января.</p>
+              <div class="note-actions">
+                <button type="button" class="link-button">Изменить</button>
+                <button type="button" class="link-button">Удалить</button>
+              </div>
+            </li>
+            <li>
+              <div class="muted small">12 нояб. 2026 г., 11:42</div>
+              <p class="note-body">Хочет в Испанию на зимние праздники, едет одна.</p>
+              <div class="note-actions">
+                <button type="button" class="link-button">Изменить</button>
+                <button type="button" class="link-button">Удалить</button>
+              </div>
+            </li>
+          </ol>
+        </section>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== -->
+<section class="mock-state" aria-label="Состояние 2">
+  <p class="muted">Состояние 2: вкладка «Кейсы», открыта строкой «№12 · Испания» с вкладки «Клиент». Шапка, подсказки и «Требует внимания» над вкладками те же, что в состоянии 1.</p>
+
+  <div class="tabs tabs-scroll" role="tablist" aria-label="Разделы карточки">
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Клиент</button>
+    <button type="button" role="tab" class="tab active" aria-selected="true" id="s2-cases" aria-controls="s2-panel">Кейсы<span class="tab-count">2</span></button>
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Паспорт и документы</button>
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Поездки 90/180</button>
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Сейф</button>
+  </div>
+
+  <div role="tabpanel" id="s2-panel" aria-labelledby="s2-cases">
+    <section class="card">
+      <div class="card-head">
+        <h2 class="h2">Кейсы</h2>
+        <button type="button" class="btn btn-sm">+ Новый кейс</button>
+      </div>
+      <nav class="case-list" aria-label="Кейсы клиента">
+        <ol>
+          <li><a href="#">№12 · Испания</a><span class="chip st-blue">Сбор документов</span></li>
+          <li><a href="#">№9 · Франция</a><span class="chip st-green">Виза</span></li>
+        </ol>
+      </nav>
+      <div class="cases">
+        <article class="case-panel">
+          <div class="case-head">
+            <div class="case-name">
+              <h3 class="h3 case-title" tabindex="-1">№12 · Испания · Туризм</h3>
+              <span class="chip st-blue">Сбор документов</span>
+            </div>
+            <div class="head-actions">
+              <button type="button" class="btn btn-sm">Изменить</button>
+              <button type="button" class="btn btn-sm btn-danger">Удалить кейс</button>
+              <button type="button" class="btn btn-sm" aria-expanded="true">Свернуть</button>
+            </div>
+          </div>
+          <div class="case-body">
+            <div class="kv"><span class="muted">Откуда кейс</span><span>из консультации 12 нояб. 2026 г.</span></div>
+            <ol class="stepper" aria-label="Этап">
+              <li class="done"><button type="button">Ожидание записи</button></li>
+              <li class="current"><button type="button">Сбор документов</button></li>
+              <li><button type="button">Подача</button></li>
+              <li><button type="button">Рассмотрение</button></li>
+              <li><button type="button">Результат</button></li>
+            </ol>
+            <div class="kv"><span class="muted">Цель</span><span>Туризм</span></div>
+            <div class="kv"><span class="muted">Где подаётся</span><span>Минск · BLS</span></div>
+            <div class="kv"><span class="muted">Подача</span><span>9 дек. 2026 г.</span></div>
+            <div class="kv"><span class="muted">Документы</span><span>сдать до 2 дек. 2026 г.</span></div>
+          </div>
+        </article>
+        <article class="case-panel folded">
+          <div class="case-head">
+            <div class="case-name">
+              <h3 class="h3 case-title" tabindex="-1">№9 · Франция · Туризм</h3>
+              <span class="chip st-green">Виза</span>
+            </div>
+            <div class="head-actions">
+              <button type="button" class="btn btn-sm" aria-expanded="false">Показать</button>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+  </div>
+</section>
+
+<!-- ================================================================== -->
+<section class="mock-state" aria-label="Состояние 3">
+  <p class="muted">Состояние 3: вкладка «Паспорт и документы». На 1280px паспорт слева, согласие и договор с шаблонами справа.</p>
+
+  <div class="tabs tabs-scroll" role="tablist" aria-label="Разделы карточки">
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Клиент</button>
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Кейсы<span class="tab-count">2</span></button>
+    <button type="button" role="tab" class="tab active" aria-selected="true" id="s3-docs" aria-controls="s3-panel">Паспорт и документы</button>
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Поездки 90/180</button>
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Сейф</button>
+  </div>
+
+  <div role="tabpanel" id="s3-panel" aria-labelledby="s3-docs">
+    <div class="card-grid">
+      <div class="column">
+        <section class="card">
+          <div class="card-head">
+            <h2 class="h2">Паспорт</h2>
+            <div class="actions"><button type="button" class="btn btn-sm">Распознать паспорт</button></div>
+          </div>
+          <div class="kv"><span class="muted">Номер паспорта</span><span>№ MP0001234</span></div>
+          <div class="kv"><span class="muted">Паспорт выдан</span><span>5 июн. 2021 г.</span></div>
+          <div class="kv"><span class="muted">Паспорт действует до</span><span>5 июн. 2031 г.</span></div>
+          <button type="button" class="link-button">Показать все поля</button>
+        </section>
+      </div>
+      <div class="column">
+        <section class="card">
+          <h2 class="h2">Согласие и договор</h2>
+          <div class="kv"><span class="muted">Согласие</span><span>подписано 3 окт. 2026 г.</span></div>
+          <div class="kv"><span class="muted">Договор</span><span class="chip st-orange">нет договора</span></div>
+          <div class="documents">
+            <label class="btn btn-sm file-button">+ Файл договора<input type="file" class="visually-hidden"></label>
+          </div>
+          <p class="muted small">PDF или фото (JPEG, PNG, WebP, HEIC) до 10 МБ. Файлы хранятся зашифрованными, каждое скачивание записывается в журнал.</p>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2 class="h2">Документы по шаблонам</h2>
+          </div>
+          <p class="muted small">Шаблонов пока нет. Возьмите свой документ, вставьте в него коды по инструкции ниже и загрузите файл.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== -->
+<section class="mock-state" aria-label="Состояние 4">
+  <p class="muted">Состояние 4: телефон, выбран «Сейф» — ряд вкладок прокручен, выбранная видна (рамка 390px и на десктопе).</p>
+
+  <div class="mock-phone">
+    <div class="tabs tabs-scroll" role="tablist" aria-label="Разделы карточки" id="s4-tabs">
+      <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Клиент</button>
+      <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Кейсы<span class="tab-count">2</span></button>
+      <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Паспорт и документы</button>
+      <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Поездки 90/180</button>
+      <button type="button" role="tab" class="tab active" aria-selected="true" id="s4-vault" aria-controls="s4-panel">Сейф</button>
+    </div>
+  </div>
+
+  <div role="tabpanel" id="s4-panel" aria-labelledby="s4-vault" class="mock-phone">
+    <section class="card">
+      <div class="card-head">
+        <h2 class="h2">Сейф доступов</h2>
+        <button type="button" class="btn btn-sm">+ Учётная запись</button>
+      </div>
+      <div class="vault-list">
+        <div class="vault-entry">
+          <div class="card-head">
+            <h3 class="h3">BLS Испания</h3>
+          </div>
+          <div class="kv"><span class="muted">Логин</span><span>marina.demo@example.com</span></div>
+          <button type="button" class="link-button">Показать пароль</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<!-- ================================================================== -->
+<section class="mock-state" aria-label="Состояние 5">
+  <p class="muted">Состояние 5: модуль «Кейсы» выключен, поездок нет — нет вкладок «Кейсы» и «Поездки 90/180», нет строк кейсов под контактом. Длинное имя.</p>
+
+  <a href="#" class="small">← Все клиенты</a>
+  <header class="page-header">
+    <div class="contact-head">
+      <span class="avatar" aria-hidden="true">КА</span>
+      <div>
+        <h1>Константинопольская-Воскресенская Александра Владимировна</h1>
+        <div class="muted">KANSTANTSINOPALSKAYA-VASKRASENSKAYA ALIAKSANDRA · как в паспорте</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn">Изменить</button>
+      <button type="button" class="btn btn-danger">Удалить карточку</button>
+    </div>
+  </header>
+
+  <div class="tabs tabs-scroll" role="tablist" aria-label="Разделы карточки">
+    <button type="button" role="tab" class="tab active" aria-selected="true" id="s5-client" aria-controls="s5-panel">Клиент</button>
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Паспорт и документы</button>
+    <button type="button" role="tab" class="tab" aria-selected="false" tabindex="-1">Сейф</button>
+  </div>
+
+  <div role="tabpanel" id="s5-panel" aria-labelledby="s5-client">
+    <div class="card-grid">
+      <div class="column">
+        <section class="card">
+          <h2 class="h2">Контакт</h2>
+          <div class="kv"><span class="muted">Телефон</span><span>+375 33 000-56-78</span></div>
+          <div class="kv"><span class="muted">E-mail</span><span>aleksandra.demo@example.com</span></div>
+          <div class="kv"><span class="muted">Канал прихода</span><span>Рекомендация</span></div>
+          <div class="kv"><span class="muted">Первое обращение</span><span>20 нояб. 2026 г.</span></div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2 class="h2">Анкета</h2>
+            <div class="actions"><button type="button" class="btn btn-sm">Изменить</button></div>
+          </div>
+          <div class="kv"><span class="muted">Визы за 5 лет</span><span>—</span></div>
+          <div class="kv"><span class="muted">Отказы</span><span>—</span></div>
+        </section>
+      </div>
+      <div class="column">
+        <section class="card">
+          <div class="card-head">
+            <h2 class="h2">Консультации</h2>
+            <button type="button" class="btn btn-sm">+ Консультация</button>
+          </div>
+          <p class="muted small">Консультаций пока нет.</p>
+        </section>
+        <section class="card timeline">
+          <h2 class="h2">Лента заметок</h2>
+          <form class="form-card" onsubmit="return false">
+            <label class="field">
+              <span class="visually-hidden">Новая заметка</span>
+              <textarea rows="3" placeholder="Что обсудили, что решили, что сделать дальше"></textarea>
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-sm" disabled>Добавить заметку</button>
+            </div>
+          </form>
+          <p class="muted small">Заметок пока нет.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+</main>
+<script>
+  // What the component does on open and on each switch: the selected tab is scrolled
+  // into the row's view (`scrollIntoView({ block: "nearest", inline: "nearest" })`).
+  document.querySelectorAll(".tabs-scroll .tab.active").forEach((tab) => {
+    const row = tab.parentElement;
+    row.scrollLeft = tab.offsetLeft + tab.offsetWidth - row.clientWidth + 16;
+  });
+</script>
+</body>
+</html>

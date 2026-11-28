@@ -115,7 +115,8 @@ for (const [lang, width] of [
       const name = `E2E passport ${lang} ${Date.now()} ${test.info().parallelIndex}`;
       contactId = await decidedClient(page.request, name);
       await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/app/clients/${contactId}`);
+      // The passport is on «Паспорт и документы» (backlog 1.15.17).
+      await page.goto(`/app/clients/${contactId}?tab=documents`);
     });
 
     test.afterEach(async ({ page }) => {

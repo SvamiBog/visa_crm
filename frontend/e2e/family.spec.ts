@@ -72,7 +72,7 @@ for (const lang of ["ru", "en"] as const) {
     const daughterId = await newContact(page, "Семейная", `Дочь ${tag}`);
     const daughterName = `Семейная Дочь ${tag}`;
 
-    await page.goto(`/app/clients/${motherId}`, { waitUntil: "networkidle" });
+    await page.goto(`/app/clients/${motherId}?tab=cases`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: t("cases.add"), exact: true }).click();
     const form = page.locator("form").filter({
       has: page.getByRole("heading", { name: t("cases.newTitle"), exact: true }),
@@ -123,7 +123,7 @@ for (const lang of ["ru", "en"] as const) {
     const motherCase = await openCase(page, motherId);
     const sonCase = await openCase(page, sonId);
 
-    await page.goto(`/app/clients/${motherId}`, { waitUntil: "networkidle" });
+    await page.goto(`/app/clients/${motherId}?tab=cases`, { waitUntil: "networkidle" });
     const panel = page.locator("article.case-panel");
     await panel.getByRole("button", { name: t("cases.addToGroup"), exact: true }).click();
     await panel.getByLabel(t("contacts.findContact"), { exact: true }).fill(sonName);

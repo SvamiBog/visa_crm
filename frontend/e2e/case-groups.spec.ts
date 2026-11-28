@@ -56,7 +56,7 @@ for (const lang of ["ru", "en"] as const) {
     const addToGroup = panel.getByRole("button", { name: t("cases.addToGroup"), exact: true });
     const leaveGroup = panel.getByRole("button", { name: t("cases.leaveGroup"), exact: true });
 
-    await page.goto(`/app/clients/${given.contact_id}`, { waitUntil: "networkidle" });
+    await page.goto(`/app/clients/${given.contact_id}?tab=cases`, { waitUntil: "networkidle" });
     await expect(panel).toBeVisible();
     if (given.group_id !== null) {
       await expect(
@@ -68,7 +68,7 @@ for (const lang of ["ru", "en"] as const) {
     await expect(leaveGroup).toHaveCount(0);
 
     await logIn(page, EMAIL);
-    await page.goto(`/app/clients/${given.contact_id}`, { waitUntil: "networkidle" });
+    await page.goto(`/app/clients/${given.contact_id}?tab=cases`, { waitUntil: "networkidle" });
     await expect(addToGroup).toBeVisible();
     await expect(leaveGroup).toHaveCount(given.group_id !== null ? 1 : 0);
   });

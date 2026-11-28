@@ -101,6 +101,7 @@ for (const lang of ["ru", "en"] as const) {
         consultations.getByRole("button", { name: t("cases.createFromHere"), exact: true }),
       ).toHaveCount(0);
       await consultations.getByRole("link", { name: fatherName, exact: true }).click();
+      await page.getByRole("tab", { name: t("cardTabs.cases") }).click();
 
       // His case: where it came from, with a link back to her card.
       const panel = page.locator("article.case-panel").first();
