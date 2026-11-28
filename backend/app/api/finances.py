@@ -25,7 +25,16 @@ from app.core.audit import record
 from app.core.base_currency import hold_base
 from app.core.days import Day
 from app.core.employee_limits import LimitKind, watch
-from app.core.finance import Paid, Summary, in_case_currency, money, summarize, to_base
+from app.core.finance import (
+    Paid,
+    Summary,
+    check_case_amounts,
+    in_case_currency,
+    money,
+    stored_base,
+    summarize,
+    to_base,
+)
 from app.core.money import Amount, Currency, Percent, ordered_currencies
 from app.core.rates import RateUnavailable, convert, latest, rate_to_base
 from app.models import (
@@ -636,8 +645,9 @@ async def update_finance(
     for field, value in changes.items():
         setattr(finance, field, value)
     _check_finance(finance)
+    check_case_amounts(finance.rate, finance.price, finance.prepayment, finance.consultation_credit)
     finance.registrar_fee_base = (
-        to_base(finance.registrar_fee_amount, finance.registrar_fee_rate)
+        stored_base(finance.registrar_fee_amount, finance.registrar_fee_rate)
         if finance.registrar_fee_amount is not None and finance.registrar_fee_rate is not None
         else None
     )
@@ -708,7 +718,7 @@ async def add_payment(
         created_by=user.id,
         **body.model_dump(exclude={"rate"}),
         rate=rate,
-        amount_base=to_base(body.amount, rate),
+        amount_base=stored_base(body.amount, rate),
     )
     session.add(payment)
     await session.flush()
@@ -735,7 +745,7 @@ async def _update_money(
         setattr(item, field, value)
     if new_rate is not None or "currency" in changed:
         item.rate = await _rate(item.currency, tenant.base_currency, new_rate)
-    item.amount_base = to_base(item.amount, item.rate)
+    item.amount_base = stored_base(item.amount, item.rate)
     return changed
 
 
@@ -777,7 +787,7 @@ async def add_expense(
         created_by=user.id,
         **body.model_dump(exclude={"rate"}),
         rate=rate,
-        amount_base=to_base(body.amount, rate),
+        amount_base=stored_base(body.amount, rate),
     )
     session.add(expense)
     await session.flush()

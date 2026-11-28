@@ -28,6 +28,8 @@ from app.models import PartnerTermsType
 
 CENT = Decimal("0.01")
 ZERO = Decimal("0.00")
+# The largest amount NUMERIC(14, 2) keeps.
+MAX_AMOUNT = Decimal("999999999999.99")
 
 
 def money(value: Decimal) -> Decimal:
@@ -37,6 +39,33 @@ def money(value: Decimal) -> Decimal:
 def to_base(amount: Decimal, rate: Decimal) -> Decimal:
     """An amount in the base currency; `rate` is base units for one unit of the currency."""
     return money(amount * rate)
+
+
+class AmountTooLarge(ValueError):
+    """An amount counted into the base currency does not fit NUMERIC(14, 2) (audit H1):
+    each field fits on its own, their product may not, e.g. a rate typed without its
+    decimal point. The API answers 422 `amount_too_large` (app/main.py)."""
+
+
+def storable(value: Decimal) -> Decimal:
+    """`value` as it is, if a NUMERIC(14, 2) column can keep it; AmountTooLarge if not."""
+    if abs(value) > MAX_AMOUNT:
+        raise AmountTooLarge
+    return value
+
+
+def stored_base(amount: Decimal, rate: Decimal) -> Decimal:
+    """`to_base` for an amount that is kept, or counted, in the base currency."""
+    return storable(to_base(amount, rate))
+
+
+def check_case_amounts(rate: Decimal, *amounts: Decimal | None) -> None:
+    """The price, prepayment and consultation credit of a case are in its currency; the
+    card, the profit and «Аналитика» count them in the base one at the case's rate, so
+    each must fit there too."""
+    for amount in amounts:
+        if amount is not None:
+            stored_base(amount, rate)
 
 
 def converted(amount: Decimal, currency: str, into: str, byn: Mapping[str, Decimal]) -> Decimal:

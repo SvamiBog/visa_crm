@@ -20,7 +20,8 @@ currency), the registrars' settlements and prices, partners' terms, consultation
 the prepayments list (each in its own currency, owner's answer of 2026-11-20).
 
 All of it in the caller's one transaction, so the change is whole or nothing: every rate
-it needs is read before a row changes, and a rate the site lacks (RateMissing) stops it.
+it needs is read and every new amount counted before a row changes; a rate the site lacks
+(RateMissing) or an amount the new base cannot keep (AmountTooLarge) stops it.
 An import writing now (it holds the old base) refuses the change; a sample or a check of
 a file, counted in the old base, is stopped.
 
@@ -40,7 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import import_jobs
-from app.core.finance import converted, to_base
+from app.core.finance import check_case_amounts, converted, storable, stored_base
 from app.core.money import CENT, ordered_currencies
 from app.core.rates import RateUnavailable, byn_rate, cross_rate
 from app.models import CaseExpense, CaseFinance, CasePayment, Tenant
@@ -60,7 +61,7 @@ def rebased(
     """A row's rate to the new `base` and its amount in it, from its own amount and
     currency: the stored rate (six places) times the amount, rounded once."""
     rate = cross_rate(currency, base, byn)
-    return rate, to_base(amount, rate)
+    return rate, stored_base(amount, rate)
 
 
 @dataclass(frozen=True)
@@ -112,7 +113,7 @@ async def change_base_currency(session: AsyncSession, tenant: Tenant, new: str) 
     """Make `new` the workspace's base currency and count again what is kept in the base
     one, in the caller's transaction (it records the audit event and commits). The caller
     holds the workspace's row FOR NO KEY UPDATE, so no other change of the settings runs at
-    once. Raises ImportRunning or RateMissing before anything changes."""
+    once. Raises ImportRunning, RateMissing or AmountTooLarge before anything changes."""
     old = tenant.base_currency
     if new == old:
         return Recounted()
@@ -134,20 +135,30 @@ async def change_base_currency(session: AsyncSession, tenant: Tenant, new: str) 
     own |= {f.registrar_fee_currency for f in talons if f.registrar_fee_currency is not None}
     byn = await _byn_rates(own | ({old} if payouts else set()), new)
 
-    # Nothing has changed so far: from here on it cannot fail for a missing rate.
-    for row in (*payments, *expenses):
-        row.rate, row.amount_base = rebased(row.amount, row.currency, new, byn)
-    for f in finances:
-        f.rate = cross_rate(f.currency, new, byn)
+    # Every new value is counted before a row changes: an amount the new base cannot keep
+    # (AmountTooLarge, audit H1) stops the change like a missing rate.
+    moneys = [(row, rebased(row.amount, row.currency, new, byn)) for row in (*payments, *expenses)]
+    case_rates = [(f, cross_rate(f.currency, new, byn)) for f in finances]
+    for f, rate in case_rates:
+        check_case_amounts(rate, f.price, f.prepayment, f.consultation_credit)
+    fees = []
     for f in talons:
         assert f.registrar_fee_amount is not None and f.registrar_fee_currency is not None
-        f.registrar_fee_rate, f.registrar_fee_base = rebased(
-            f.registrar_fee_amount, f.registrar_fee_currency, new, byn
-        )
+        fees.append((f, rebased(f.registrar_fee_amount, f.registrar_fee_currency, new, byn)))
     # A payout of 0 would read as nothing to pay (the API takes no 0): a cent at least.
+    fixed = []
     for f in payouts:
         assert f.partner_fixed is not None
-        f.partner_fixed = max(converted(f.partner_fixed, old, new, byn), CENT)
+        fixed.append((f, max(storable(converted(f.partner_fixed, old, new, byn)), CENT)))
+
+    for row, (rate, base) in moneys:
+        row.rate, row.amount_base = rate, base
+    for f, rate in case_rates:
+        f.rate = rate
+    for f, (rate, base) in fees:
+        f.registrar_fee_rate, f.registrar_fee_base = rate, base
+    for f, payout in fixed:
+        f.partner_fixed = payout
     # The old base stays accepted: the payments she took in it are still there.
     tenant.payment_currencies = ordered_currencies(new, [*tenant.payment_currencies, old])
     tenant.base_currency = new
