@@ -1782,6 +1782,11 @@ a:not(.btn, .kpi, .nav-a, .settings-a):active,
   margin-top: 8px;
 }
 
+/* A hint under a row of fields (the fee of a consultation) stands off it */
+.module-block > .row-editor + p {
+  margin-top: 8px;
+}
+
 .module-block > .rows-editor + .form-actions {
   margin: 4px 0 12px;
 }

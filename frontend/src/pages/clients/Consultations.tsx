@@ -937,20 +937,9 @@ export function AnswersInputs<T extends Answers>({
         {q.visas.map((v, i) => (
           <div key={i} className="q-edit">
             <div className="form-grid">
-              <label className="field">
-                <span>{t("contacts.visaKindLabel")}</span>
-                <select
-                  value={v.kind}
-                  onChange={(e) => setVisa(i, { kind: e.target.value as VisaRecord["kind"] })}
-                >
-                  {VISA_KINDS.map((k) => (
-                    <option key={k} value={k}>
-                      {t(`contacts.visaKind.${k}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
+              {/* Lists on a whole row each: «Великобритания» does not fit a narrow one (a
+                  country, and a kind too); the dates go as a pair below. */}
+              <label className="field q-wide">
                 <span>{t("dict.country")}</span>
                 <select
                   value={v.country ?? ""}
@@ -971,6 +960,19 @@ export function AnswersInputs<T extends Answers>({
                   {PURPOSE_KINDS.map((k) => (
                     <option key={k} value={k}>
                       {t(`purposeKind.${k}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field q-wide">
+                <span>{t("contacts.visaKindLabel")}</span>
+                <select
+                  value={v.kind}
+                  onChange={(e) => setVisa(i, { kind: e.target.value as VisaRecord["kind"] })}
+                >
+                  {VISA_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {t(`contacts.visaKind.${k}`)}
                     </option>
                   ))}
                 </select>

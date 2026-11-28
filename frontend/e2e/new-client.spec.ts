@@ -128,6 +128,46 @@ for (const [lang, width] of [
       expect(card.questionnaire.visas).toEqual([]);
     });
 
+    test("a visa's country shows whole and the fee's hint stands off its row", async ({
+      page,
+    }) => {
+      const form = await openForm(page, `${NEW_CARD} ${unique()}`);
+      const visas = form.getByRole("group", { name: t("contacts.visas"), exact: true });
+      await visas.getByRole("button", { name: t("contacts.addVisa"), exact: true }).click();
+      // The longest name of each list (a country, a kind of visa) is what must fit.
+      for (const label of [t("dict.country"), t("contacts.visaKindLabel")]) {
+        const list = visas.getByRole("combobox", { name: label, exact: true });
+        const longest = await list.evaluate((select: HTMLSelectElement) => {
+          const names = [...select.options].map((o) => o.text);
+          return names.reduce((a, b) => (b.length > a.length ? b : a));
+        });
+        await list.selectOption({ label: longest });
+        const room = await list.evaluate((select: HTMLSelectElement) => {
+          const style = getComputedStyle(select);
+          const context = document.createElement("canvas").getContext("2d")!;
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          const text = context.measureText(select.selectedOptions[0].text).width;
+          // Padding on both sides; the right one holds the arrow of the list.
+          const inner =
+            select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+          return inner - text;
+        });
+        expect(room, `«${longest}» fits the list «${label}»`).toBeGreaterThanOrEqual(0);
+      }
+      // On a wide screen the dates of a visa stand as a pair (a phone takes one a line).
+      if (width >= 768) {
+        const valid = (key: string) => visas.getByLabel(t(key), { exact: true }).boundingBox();
+        const [from, to] = [(await valid("contacts.validFrom"))!, (await valid("contacts.validTo"))!];
+        expect(Math.abs(from.y - to.y), "«valid from» and «valid to» share a row").toBeLessThan(2);
+      }
+
+      await form.getByRole("button", { name: t("newClient.consultationMore"), exact: true }).click();
+      const fee = form.getByRole("group", { name: t("contacts.fee"), exact: true });
+      const row = (await fee.locator(".row-editor").boundingBox())!;
+      const hint = (await fee.getByText(t("contacts.feeHint"), { exact: true }).boundingBox())!;
+      expect(hint.y - (row.y + row.height), "the hint stands 8px off the fee's row").toBeGreaterThanOrEqual(8);
+    });
+
     test("a mistake in the folded passport opens it with the focus on the field", async ({
       page,
     }) => {
@@ -135,9 +175,9 @@ for (const [lang, width] of [
       const papers = form.getByRole("button", { name: t("newClient.paperwork"), exact: true });
       await expect(papers).toHaveAttribute("aria-expanded", "false");
 
-      // The API turns down a date nobody signs on.
+      // The API turns down a passport date out of the calendar.
       await papers.click();
-      const issued = form.getByLabel(t("contacts.consentSignedOn"), { exact: true });
+      const issued = form.getByLabel(t("contacts.passportIssuedOn"), { exact: true });
       await issued.fill("1800-01-01");
       await papers.click();
       await expect(issued).toBeHidden();

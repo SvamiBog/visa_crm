@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.days import Day
 from app.models import PurposeKind
 
 CountryCode = Annotated[str, Field(pattern=r"^[A-Z]{2}$")]
@@ -71,6 +72,15 @@ class Passport(BaseModel):
     @classmethod
     def blank_is_none(cls, value: str | None) -> str | None:
         return " ".join((value or "").split()) or None
+
+
+class PassportIn(Passport):
+    """The passport as a form or the API sends it: its dates within the calendar the CRM
+    takes (app/core/days.py), refused under their field. The stored model takes any date,
+    so a card saved before the bound keeps opening (tests/test_days.py)."""
+
+    passport_issued_on: Day | None = None
+    passport_expires_on: Day | None = None
 
 
 class Answers(BaseModel):

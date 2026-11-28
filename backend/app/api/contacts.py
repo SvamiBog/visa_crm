@@ -69,7 +69,7 @@ from app.core.names import (
 from app.core.phone import normalize_phone, phone_search_digits
 from app.core.questionnaire import (
     Answers,
-    Passport,
+    PassportIn,
     Questionnaire,
     has_answers,
     has_passport,
@@ -129,7 +129,7 @@ class ContactFields(BaseModel):
     contract_number: Annotated[str, Field(max_length=50)] | None = None
     contract_signed_on: Day | None = None
     # Kept with the questionnaire; on a change, only the fields sent are changed.
-    passport: Passport | None = None
+    passport: PassportIn | None = None
 
     _name_parts = field_validator(*NAME_PARTS, *LATIN_PARTS)(tidy)
 

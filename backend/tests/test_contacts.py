@@ -150,6 +150,25 @@ async def test_the_passport_is_entered_with_the_card(client: AsyncClient, make_u
     assert all("MP" not in str(e["details"]) for e in events)
 
 
+@pytest.mark.parametrize("field", ["passport_issued_on", "passport_expires_on"])
+@pytest.mark.parametrize("day", ["1800-01-01", "0026-03-04", "9999-12-31"])
+async def test_a_passport_date_out_of_the_calendar_is_refused(
+    client: AsyncClient, make_user: MakeUser, field: str, day: str
+):
+    """A year typed wrong in the passport's dates is refused under its field, as every
+    other date the CRM takes (app/core/days.py); a card saved before keeps opening."""
+    await as_specialist(client, make_user)
+    created = await client.post(BASE, json={"first_name": "Анна", "passport": {field: day}})
+    assert created.status_code == 422
+    assert created.json()["detail"][0]["loc"] == ["body", "passport", field]
+    assert await search(client) == []
+
+    anna = await create(client)
+    changed = await client.patch(f"{BASE}/{anna['id']}", json={"passport": {field: day}})
+    assert changed.status_code == 422
+    assert changed.json()["detail"][0]["loc"] == ["body", "passport", field]
+
+
 async def test_duplicate_phone_points_to_existing_card(client: AsyncClient, make_user: MakeUser):
     await as_specialist(client, make_user)
     first = await create(client, phone="+375 29 000-12-34")
