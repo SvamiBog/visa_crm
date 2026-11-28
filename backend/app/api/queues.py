@@ -27,7 +27,8 @@ from app.api.cases import Member, _audit, _case
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
 from app.core.cases import advance
 from app.core.days import Day
-from app.core.queues import SUBMITTED_STAGES, QueueStatus, deadline
+from app.core.employee_limits import open_card
+from app.core.queues import SUBMITTED_STAGES, QueueStatus, deadline, open_attempt
 from app.models import (
     ApplicationAttempt,
     AttemptOutcome,
@@ -191,6 +192,10 @@ async def put_in_queue(
                 select(VisaCase).where(VisaCase.group_id == case.group_id).order_by(VisaCase.number)
             )
         )
+    # The queue is a section of each client's card: putting cases in it opens their cards
+    # for an employee's daily limit (Т.14), the case's own first.
+    for opened in dict.fromkeys([case.contact_id, *(c.contact_id for c in cases)]):
+        await open_card(session, user, opened)
     open_ids = set(
         await session.scalars(
             select(WaitingListEntry.case_id).where(
@@ -232,6 +237,8 @@ async def update_queue_entry(
     members = [await _case(session, member_id) for member_id in set(body.group_cases)]
     if any(m.id == case.id or m.group_id is None or m.group_id != case.group_id for m in members):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "not_in_group")
+    for opened in dict.fromkeys([case.contact_id, *(m.contact_id for m in members)]):
+        await open_card(session, user, opened)
     if changes.get("queued_on", ...) is None:
         changes.pop("queued_on", None)  # required: null means «leave as is»
     if "removed_on" in changes and changes["removed_on"] is None:
@@ -304,6 +311,7 @@ async def send_attempt(
     """Send an application (again). The window comes from the country rule; an open
     attempt past its deadline is closed as expired, an open one within it is refused."""
     case = await _case(session, case_id)
+    await open_card(session, user, case.contact_id)  # an attempt of the card (Т.14)
     window = await session.scalar(
         select(CountryRule.window_days).where(
             CountryRule.destination_id == case.destination_id,
@@ -353,6 +361,7 @@ async def update_attempt(
     by cancelling and sending again, which would count a false attempt."""
     attempt = await _attempt(session, attempt_id)
     case = await _case(session, attempt.case_id)
+    await open_card(session, user, case.contact_id)
     today = await workspace_today(session, user.tenant_id)
     changes: dict[str, Any] = body.model_dump(exclude_unset=True)
     appointment_on = changes.pop("appointment_on", None)
@@ -412,7 +421,7 @@ async def queue_summary(user: Member, session: TenantSession) -> list[QueueCount
         select(VisaCase.destination_id, func.count())
         .select_from(ApplicationAttempt)
         .join(VisaCase, VisaCase.id == ApplicationAttempt.case_id)
-        .where(ApplicationAttempt.outcome.is_(None))
+        .where(open_attempt())
         .group_by(VisaCase.destination_id)
     )
     summary: dict[uuid.UUID, QueueCountry] = {}

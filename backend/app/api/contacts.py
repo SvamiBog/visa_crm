@@ -54,7 +54,7 @@ from app.core.data_values import TELEGRAM_NICK, telegram_nick
 from app.core.days import Day
 from app.core.db import BIGINT_MAX
 from app.core.documents import object_key
-from app.core.employee_limits import LimitKind, watch
+from app.core.employee_limits import LimitKind, open_card, watch
 from app.core.names import (
     LATIN_PARTS,
     NAME_PARTS,
@@ -431,10 +431,12 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
 async def _own_note(
     session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID, note_id: uuid.UUID
 ) -> ContactNote:
-    """Employees change only their own notes; the specialist changes any."""
+    """Employees change only their own notes; the specialist changes any. A note is on
+    the client's card, so changing one opens the card (Т.14)."""
     note = await session.get(ContactNote, note_id)
     if note is None or note.contact_id != contact_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    await open_card(session, user, contact_id)
     if user.role != UserRole.SPECIALIST and note.author_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
     return note
@@ -807,6 +809,7 @@ async def add_note(
     contact_id: uuid.UUID, body: NoteIn, user: Member, session: TenantSession
 ) -> NoteOut:
     contact = await _contact(session, contact_id)
+    await open_card(session, user, contact.id)
     note = ContactNote(
         tenant_id=user.tenant_id, contact_id=contact.id, body=body.body, author_id=user.id
     )

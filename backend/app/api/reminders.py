@@ -43,7 +43,8 @@ from app.core.bookings import deadline as booking_deadline_of
 from app.core.cases import appeal_until
 from app.core.config import get_settings as app_settings
 from app.core.consultation_checks import add_months
-from app.core.employee_limits import LimitKind, day_start
+from app.core.employee_limits import LimitKind, day_start, open_card
+from app.core.queues import open_attempt
 from app.core.reminders import ReminderKind
 from app.models import (
     ApplicationAttempt,
@@ -363,7 +364,7 @@ async def _application_deadlines(
         .join(VisaCase, VisaCase.id == ApplicationAttempt.case_id)
         .join(Contact, Contact.id == VisaCase.contact_id)
         .where(
-            ApplicationAttempt.outcome.is_(None),
+            open_attempt(),
             ApplicationAttempt.deadline_on
             <= date.fromordinal(out.today.toordinal() + s.application_days),
         )
@@ -875,6 +876,9 @@ async def _due(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
     if await session.scalar(select(Contact.id).where(Contact.id == contact_id)) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    # The button changes the client's passport data: it opens the card (Т.14), before the
+    # client's row is locked, since the limit check may commit.
+    await open_card(session, user, contact_id)
     locked = await passport_purge.locked_due(session, tenant.timezone, contact_id)
     if locked is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "passport_purge_not_due")

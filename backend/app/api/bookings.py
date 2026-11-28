@@ -3,7 +3,9 @@ flight booking with its validity, and the «Брони: дедлайны» view 
 by the nearest deadline.
 
 Closed by the «clients» and «cases» modules. The account a booking was made in is only
-referred to by id: its login stays in the vault.
+referred to by id: its login stays in the vault. A booking is a section of the client's
+card: adding, editing or deleting one opens the card for an employee's daily limit (Т.14).
+«Брони: дедлайны» is a list over many clients and costs nothing.
 """
 
 import uuid
@@ -19,6 +21,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.bookings import LIVE, BookingWarning, days_left, deadline, warnings
 from app.core.days import Day
+from app.core.employee_limits import open_card
 from app.models import (
     AuditAction,
     Booking,
@@ -203,6 +206,7 @@ async def add_booking(
     case_id: uuid.UUID, body: BookingIn, user: Member, session: TenantSession
 ) -> BookingOut:
     case = await _get(session, VisaCase, case_id)
+    await open_card(session, user, case.contact_id)
     booking = Booking(
         tenant_id=user.tenant_id, case_id=case.id, created_by=user.id, **body.model_dump()
     )
@@ -222,6 +226,7 @@ async def update_booking(
 ) -> BookingOut:
     booking = await _get(session, Booking, booking_id)
     case = await _get(session, VisaCase, booking.case_id)
+    await open_card(session, user, case.contact_id)
     changes = body.model_dump(exclude_unset=True)
     for field in ("kind", "status", "place"):
         if field in changes and changes[field] is None:
@@ -245,6 +250,7 @@ async def delete_booking(booking_id: uuid.UUID, user: Member, session: TenantSes
     """For a booking entered by mistake; a cancelled booking is kept as «отменена»."""
     booking = await _get(session, Booking, booking_id)
     case = await _get(session, VisaCase, booking.case_id)
+    await open_card(session, user, case.contact_id)
     _audit(session, AuditAction.BOOKING_DELETED, user, booking, case)
     await session.delete(booking)
     await session.commit()

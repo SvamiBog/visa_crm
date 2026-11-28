@@ -1,12 +1,15 @@
 """Waiting list and application attempt rules (docs/clients-module.md → «Очереди и
-попытки записи»). Pure functions with «today» passed in.
+попытки записи»). Pure functions with «today» passed in, and the one condition every
+count of open applications shares (`open_attempt`).
 """
 
 from datetime import date, timedelta
 from enum import StrEnum
 
-from app.models.queue import AttemptOutcome
-from app.models.visa_case import CaseStage
+from sqlalchemy import ColumnElement, and_
+
+from app.models.queue import ApplicationAttempt, AttemptOutcome
+from app.models.visa_case import CaseStage, VisaCase
 
 
 class QueueStatus(StrEnum):
@@ -24,6 +27,15 @@ class AttemptStatus(StrEnum):
 
 
 SUBMITTED_STAGES = (CaseStage.REVIEW, CaseStage.RESULT)
+
+
+def open_attempt() -> ColumnElement[bool]:
+    """An application still open, for a query that joins its case: no outcome marked and
+    the case not yet submitted. Once the case is in review or has its result the window
+    no longer matters, so the summary of the queues, the home page and the reminder of
+    the window's end leave it out, as the country's page does; the attempt itself is
+    kept as it was (audit 2026-11-27, H3)."""
+    return and_(ApplicationAttempt.outcome.is_(None), VisaCase.stage.not_in(SUBMITTED_STAGES))
 
 
 def queue_status(

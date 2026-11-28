@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TenantSession, require_module
 from app.core.audit import record
-from app.core.employee_limits import LimitKind, watch
+from app.core.employee_limits import LimitKind, open_card, watch
 from app.core.passwords import PasswordRules, generate_password
 from app.core.vault import decrypt_for_tenant, encrypt_for_tenant, get_tenant_key
 from app.models import (
@@ -251,6 +251,7 @@ async def create_entry(body: EntryIn, user: Member, session: TenantSession) -> E
     system = await _get(session, VaultSystem, body.system_id)
     if body.contact_id is not None:
         await _get(session, Contact, body.contact_id)
+        await open_card(session, user, body.contact_id)  # an account of the card (Т.14)
     await _check_case(session, body.case_id, body.contact_id)
     # The id is set first: the password is encrypted bound to it.
     entry = VaultEntry(
@@ -313,6 +314,8 @@ async def delete_entry(entry_id: uuid.UUID, user: Member, session: TenantSession
     The site account stays, so a password the employee saw is kept on the list to change
     when they leave (app/api/employees.py)."""
     entry = await _get(session, VaultEntry, entry_id)
+    if entry.contact_id is not None:
+        await open_card(session, user, entry.contact_id)
     if user.role != UserRole.SPECIALIST and entry.created_by != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
     system = await _get(session, VaultSystem, entry.system_id)
@@ -328,6 +331,9 @@ async def reveal_password(
     """The password in clear text. Every call is written to the audit log."""
     assert user.tenant_id is not None
     entry = await _get(session, VaultEntry, entry_id)
+    if entry.contact_id is not None:
+        # A client's password is on the client's card: the reveal opens it as well (Т.14).
+        await open_card(session, user, entry.contact_id)
     if entry.password_encrypted is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "no_password")
     # An employee reveals only so many passwords a day (Т.14); the reveal is logged below.

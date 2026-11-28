@@ -345,6 +345,7 @@ async def delete_trip(
     trip_id: uuid.UUID, user: Member, _card: CardMember, session: TenantSession
 ) -> None:
     trip = await _trip(session, trip_id)
+    await _open_card(session, user, trip.contact_id)
     _audit(session, AuditAction.TRIP_DELETED, user, trip)
     await session.delete(trip)
     await session.commit()

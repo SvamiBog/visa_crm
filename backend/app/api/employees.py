@@ -18,7 +18,7 @@ from app.api.deps import CurrentUser, TenantSession, effective_modules, require_
 from app.core.audit import record
 from app.core.employee_limits import MAX_LIMIT
 from app.core.modules import ModuleList
-from app.core.security import generate_temporary_password, hash_password
+from app.core.security import generate_temporary_password, make_password_hash
 from app.core.two_factor import reset_two_factor
 from app.models import (
     AuditAction,
@@ -194,7 +194,7 @@ async def create_employee(
         tenant_id=specialist.tenant_id,
         full_name=body.full_name.strip(),
         email=body.email.strip().lower(),
-        password_hash=hash_password(password),
+        password_hash=await make_password_hash(password),
         role=UserRole.EMPLOYEE,
         must_change_password=True,
         modules=body.modules,
@@ -270,7 +270,7 @@ async def reset_employee_password(
     """New temporary password; also lifts a lockout, resets 2FA and signs the employee out."""
     employee = await _get_employee(session, specialist, employee_id)
     password = generate_temporary_password()
-    employee.password_hash = hash_password(password)
+    employee.password_hash = await make_password_hash(password)
     employee.must_change_password = True
     employee.failed_login_count = 0
     employee.locked_until = None

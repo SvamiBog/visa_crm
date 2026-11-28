@@ -117,3 +117,14 @@ async def watch(
     if opened is not None and target not in seen:
         record(session, opened, actor=user, target_type=target_type, target_id=target_id)
         await session.commit()
+
+
+async def open_card(session: AsyncSession, user: "CurrentUser", contact_id: uuid.UUID) -> None:
+    """A handler that takes one client (by the client's id, or by the id of a case,
+    booking, note, trip, attempt, file or account of theirs) and reads or changes their
+    data opens the client's card for the daily limit: called before anything is read or
+    changed, since `watch` may commit. A handler of several clients calls it for each in
+    turn, so the cards opened before the one past the limit stay counted. Lists over many
+    clients do not call it: an employee sees in them only the cases given to them
+    (docs/decisions.md → «Что тратит дневной лимит карточек»)."""
+    await watch(session, user, LimitKind.CARDS, "contact", contact_id, AuditAction.CONTACT_VIEWED)
