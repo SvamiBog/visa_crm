@@ -30,7 +30,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import ARRAY, bindparam, delete, exists, func, or_, select, text
@@ -137,6 +137,21 @@ def postponed_until(purge_day: date, today: date) -> date:
 def filled_fields(questionnaire: dict) -> list[str]:
     """The fields of the passport that hold something, in PURGED_FIELDS order."""
     return [field for field in PURGED_FIELDS if questionnaire.get(field) is not None]
+
+
+def brings_back(
+    current: dict, sent: dict, opened_at: datetime | None, updated_at: datetime
+) -> bool:
+    """Whether a form opened from another version of the card would fill passport fields
+    that are empty now (backlog A11; docs/decisions.md → «Удаление паспортных данных после
+    решения»). The removal changes the card's `updated_at`: what the form shows was removed
+    meanwhile, by the daily run or «Удалить сейчас», and must not come back. The version is
+    a mark, not a time: the daily run stamps the start of its transaction, so a card saved
+    during the run gets an older `updated_at` again. A request without a version (the
+    passport read from a photo, the API) enters new data on purpose and is let through."""
+    if opened_at is None or opened_at == updated_at:
+        return False
+    return any(current.get(f) is None and sent.get(f) is not None for f in PURGED_FIELDS)
 
 
 @dataclass(frozen=True)

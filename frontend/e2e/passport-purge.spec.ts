@@ -7,6 +7,11 @@ import { readFileSync } from "node:fs";
 // Remove now: the site's window lists the fields first; Escape keeps them, the red
 // button removes them and the line goes. Both languages, on a phone and a computer.
 //
+// Removed (backlog A11): the card shows the passport empty at once, the edit form opened
+// afterwards has no removed values, and a form opened before the removal cannot put them
+// back on «Save»: the site says the data was removed, the API keeps it empty and the card
+// shows it as it is now.
+//
 // Each test makes a client of its own with a passport and a decided case and deletes it
 // afterwards (as confirm-undo.spec.ts does), so the demo's clients stay as they were.
 
@@ -73,6 +78,22 @@ async function passportNumber(page: Page, contactId: string): Promise<string | n
     .questionnaire.passport_number;
 }
 
+/** The removed fields that hold something in the API (none after the removal). */
+async function removedLeft(page: Page, contactId: string): Promise<string[]> {
+  const card = await page.request.get(`/api/contacts/${contactId}`);
+  expect(card.ok(), await card.text()).toBe(true);
+  const q = ((await card.json()) as { questionnaire: Record<string, string | null> })
+    .questionnaire;
+  return [
+    "passport_number",
+    "personal_number",
+    "passport_issued_on",
+    "passport_expires_on",
+    "passport_issued_by",
+    "birth_place",
+  ].filter((field) => q[field] !== null);
+}
+
 for (const [lang, width] of [
   ["ru", 390],
   ["en", 1280],
@@ -137,6 +158,62 @@ for (const [lang, width] of [
       await ask.getByRole("button", { name: t("confirm.delete"), exact: true }).click();
       await expect(line(page)).toHaveCount(0);
       expect(await passportNumber(page, contactId)).toBeNull();
+    });
+
+    const editButton = (page: Page) =>
+      page.locator(".page-header").getByRole("button", { name: t("reference.edit"), exact: true });
+    const editForm = (page: Page) =>
+      page
+        .locator("form")
+        .filter({ has: page.getByRole("heading", { name: t("contacts.editTitle") }) });
+
+    test("after «Remove now» the card shows no passport and «Save» does not bring it back", async ({
+      page,
+    }) => {
+      const number = page.getByText(PASSPORT.passport_number, { exact: true });
+      await expect(number).toBeVisible();
+      await line(page).getByRole("button", { name: t("attention.passportPurgeNow"), exact: true }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: t("confirm.delete"), exact: true })
+        .click();
+      await expect(line(page)).toHaveCount(0);
+      // The card is read again: the removed number is not on the screen.
+      await expect(number).toHaveCount(0);
+      await expect(page.getByText(PASSPORT.birth_place, { exact: true })).toHaveCount(0);
+
+      await editButton(page).click();
+      const form = editForm(page);
+      await expect(form.getByLabel(t("contacts.passportNumber"), { exact: true })).toHaveValue("");
+      await expect(form.getByLabel(t("contacts.birthPlace"), { exact: true })).toHaveValue("");
+      await form.getByRole("button", { name: t("common.save"), exact: true }).click();
+      await expect(form).toHaveCount(0);
+      expect(await removedLeft(page, contactId)).toEqual([]);
+    });
+
+    test("a form opened before the removal says so and does not bring the passport back", async ({
+      page,
+    }) => {
+      await editButton(page).click();
+      const form = editForm(page);
+      await expect(form.getByLabel(t("contacts.passportNumber"), { exact: true })).toHaveValue(
+        PASSPORT.passport_number,
+      );
+      // Removed meanwhile on another screen (or by the daily run).
+      const removed = await page.request.post(`/api/reminders/passport/${contactId}/purge`);
+      expect(removed.status(), await removed.text()).toBe(204);
+
+      await form.getByRole("button", { name: t("common.save"), exact: true }).click();
+      await expect(form.getByText(t("errors.passport_changed"), { exact: true })).toBeVisible();
+      expect(await removedLeft(page, contactId)).toEqual([]);
+      // The card behind the form is read again, and the form opened anew is empty and saves.
+      await expect(page.getByText(PASSPORT.passport_number, { exact: true })).toHaveCount(0);
+      await form.getByRole("button", { name: t("common.cancel"), exact: true }).click();
+      await editButton(page).click();
+      await expect(form.getByLabel(t("contacts.passportNumber"), { exact: true })).toHaveValue("");
+      await form.getByRole("button", { name: t("common.save"), exact: true }).click();
+      await expect(form).toHaveCount(0);
+      expect(await removedLeft(page, contactId)).toEqual([]);
     });
   });
 }

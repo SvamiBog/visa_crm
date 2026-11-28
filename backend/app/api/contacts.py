@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import and_, delete, exists, func, or_, select, true
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
@@ -48,7 +48,7 @@ from app.api.consultations import (
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.api.package_files import remove_objects
-from app.core import storage
+from app.core import passport_purge, storage
 from app.core.audit import record
 from app.core.data_values import TELEGRAM_NICK, telegram_nick
 from app.core.days import Day
@@ -653,10 +653,23 @@ async def update_contact(
     user: Member,
     session: TenantSession,
     allow_shared_telegram: bool = False,
+    card_updated_at: AwareDatetime | None = None,
 ) -> Any:
+    """`card_updated_at`: the `updated_at` of the card the form was opened from; a stale
+    form does not put back passport data removed meanwhile (backlog A11)."""
     contact = await _contact(session, contact_id)
     # The answer is the card, so an edit opens it too (Т.14).
     await watch(session, user, LimitKind.CARDS, "contact", contact.id, AuditAction.CONTACT_VIEWED)
+    # Read again under the lock, after the limit check that may commit: a removal cannot
+    # land between the check below and the write (the removal locks the row too).
+    await session.refresh(contact, with_for_update=True)
+    if body.passport is not None and passport_purge.brings_back(
+        contact.questionnaire,
+        body.passport.model_dump(exclude_unset=True),
+        card_updated_at,
+        contact.updated_at,
+    ):
+        raise HTTPException(status.HTTP_409_CONFLICT, "passport_changed")
     changes = body.model_dump(exclude_unset=True, exclude={"passport"})
     if changes.keys() & set(NAME_PARTS):
         name = {f: changes.get(f, getattr(contact, f)) for f in NAME_PARTS}

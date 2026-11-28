@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { apiGet } from "./api";
 import type { PurposeKind } from "./checklists";
 import type { CaseContents } from "./deletion";
@@ -417,6 +417,23 @@ export type Entry = { id: string; name: string; is_active: boolean };
 export type PartnerRef = { id: string; name: string; is_active: boolean };
 
 export const contactKey = (id: string) => ["contacts", id] as const;
+
+/** After the passport's data of a client is removed or put off (backlog 2.8, A11), and
+ * after such a request fails (the state on the server is not what the screen shows):
+ * what shows the passport or the client's files is read again. The card holds the
+ * passport, the questionnaire and its checks; the cases hold the files at the checklist
+ * items. Every screen that removes the passport goes through here, and so does a form
+ * the API refused with `passport_changed` (removed while it was open). */
+export function refreshAfterPassportPurge(queryClient: QueryClient, contactId: string) {
+  // A card not on the screen is dropped rather than read again (for an employee every
+  // read counts against the day's limit): opened later, it does not flash the old data.
+  queryClient.removeQueries({ queryKey: contactKey(contactId), type: "inactive" });
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["reminders"] }),
+    queryClient.invalidateQueries({ queryKey: contactKey(contactId) }),
+    queryClient.invalidateQueries({ queryKey: ["cases"] }),
+  ]);
+}
 
 /** Lead channels and partners for the contact form (the specialist keeps them in Lists). */
 export function useContactLists() {
