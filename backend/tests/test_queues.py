@@ -418,3 +418,53 @@ async def test_number_and_email_fill_in_the_family_where_empty(
     await client.patch(f"/api/cases/{family[1]['id']}", json={"vac_number": None})
     await client.patch(f"/api/cases/{family[0]['id']}", json={"vac_number": "PL-888"})
     assert (await client.get(f"/api/cases/{family[1]['id']}")).json()["vac_number"] is None
+
+
+async def open_applications(client: AsyncClient, france: str) -> dict:
+    """What each place shows of the open applications to France: the summary of the
+    queues, the home page, «Требует внимания» and the country's page."""
+    summary = (await client.get("/api/queues/summary")).json()
+    home = (await client.get("/api/home")).json()["queues"]
+    kinds = [r["kind"] for r in (await client.get("/api/reminders")).json()]
+    page = (await client.get("/api/queues", params={"country_id": france})).json()
+    return {
+        "summary": sum(r["open_attempts"] for r in summary if r["country_id"] == france),
+        "home": home["open_attempts"],
+        "home_deadline": any(r["next_deadline"] for r in home["countries"]),
+        "reminder": kinds.count("application_deadline"),
+        "page": len(page["attempts"]),
+    }
+
+
+async def test_an_application_of_a_case_with_its_result_is_not_counted_open(
+    client: AsyncClient, make_user: MakeUser
+):
+    await as_specialist(client, make_user)
+    france = (await countries(client))["FR"]
+    [case] = await open_cases(client, await contact(client), destination="FR")
+    # Sent 57 days ago: the 60-day window ends in three days, inside the reminder's days.
+    today = workspace_today()
+    sent = await client.post(
+        f"/api/cases/{case['id']}/attempts",
+        json={"sent_on": (today - timedelta(days=57)).isoformat()},
+    )
+    assert sent.status_code == 201, sent.text
+    counted = {"summary": 1, "home": 1, "home_deadline": True, "reminder": 1, "page": 1}
+    assert await open_applications(client, france) == counted
+
+    # The result is in while the attempt was never closed: it is open nowhere, as the
+    # country's page already showed; the attempt itself is kept as it was.
+    done = await client.patch(
+        f"/api/cases/{case['id']}",
+        json={
+            "submission_on": today.isoformat(),
+            "outcome": "visa",
+            "decided_on": today.isoformat(),
+        },
+    )
+    assert done.status_code == 200, done.text
+    gone = {"summary": 0, "home": 0, "home_deadline": False, "reminder": 0, "page": 0}
+    assert await open_applications(client, france) == gone
+    closed = await client.get("/api/queues", params={"country_id": france, "closed": "true"})
+    [attempt] = closed.json()["attempts"]
+    assert attempt["outcome"] is None

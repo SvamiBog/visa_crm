@@ -34,7 +34,7 @@ from app.core.clock import today_in
 from app.core.consultation_checks import add_months
 from app.core.finance import ZERO, money
 from app.core.package import Summary
-from app.core.queues import SUBMITTED_STAGES
+from app.core.queues import SUBMITTED_STAGES, open_attempt
 from app.models import (
     ApplicationAttempt,
     CaseStage,
@@ -330,7 +330,7 @@ async def _queues(session: AsyncSession, today: date) -> QueuesBlock:
         )
         .select_from(ApplicationAttempt)
         .join(VisaCase, VisaCase.id == ApplicationAttempt.case_id)
-        .where(ApplicationAttempt.outcome.is_(None))
+        .where(open_attempt())
         .group_by(VisaCase.destination_id)
     )
     for country, count, deadline in attempts:
