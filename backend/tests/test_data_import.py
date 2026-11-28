@@ -7,7 +7,7 @@ of the file."""
 import base64
 import io
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core import rates
-from tests.support.helpers import MakeUser, import_report, login
+from tests.support.helpers import WALL_CLOCK, MakeUser, import_report, login, workspace_today
 
 API = "/api/imports"
 
@@ -1343,3 +1343,348 @@ async def test_an_unknown_currency_does_not_touch_the_talon_and_the_fee_in_the_c
         t=tenant,
     )
     assert consultation == {"fee_amount": 50, "fee_currency": "BYN"}
+
+
+# --- A5: a repeated file finds namesakes, a new case never opens in the future, a booking
+# takes its own client's account.
+
+NAMESAKE_RECORDS = ("contacts", "visa_cases", "case_payments", "waiting_list_entries")
+
+
+async def namesake_counts(owner_engine: AsyncEngine, tenant: uuid.UUID) -> dict[str, int]:
+    return {table: await count(owner_engine, table, tenant) for table in NAMESAKE_RECORDS}
+
+
+def namesakes(phone: str | None = None) -> dict[str, list[list]]:
+    """Three Anna Ivanovas: two with their phones, the third without any — her case, payment
+    and queue entry hang on a card the row cannot be told by."""
+    return {
+        "Клиенты": [
+            ["Код клиента", "Фамилия", "Имя", "Телефон"],
+            ["К-1", "Иванова", "Анна", "+375291112233"],
+            ["К-2", "Иванова", "Анна", "+375297778899"],
+            ["К-3", "Иванова", "Анна", phone],
+        ],
+        "Кейсы": [
+            ["Код кейса", "Код клиента", "Клиент", "Источник", "Страна визы"],
+            ["Кейс-3", "К-3", "Иванова Анна", "Подача25", "Польша"],
+        ],
+        "Платежи": [
+            ["Код кейса", "Дата", "Сумма", "Валюта"],
+            ["Кейс-3", date(2025, 1, 15), 200, "BYN"],
+        ],
+        "Очередь": [["Код кейса", "Дата постановки"], ["Кейс-3", date(2025, 1, 20)]],
+    }
+
+
+async def test_a_book_with_namesakes_loaded_three_times_adds_nothing(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    first = await run(client, namesakes())
+    assert first["created"]["contacts"] == 3
+    made = await namesake_counts(owner_engine, tenant)
+    assert made == {
+        "contacts": 3,
+        "visa_cases": 1,
+        "case_payments": 1,
+        "waiting_list_entries": 1,
+    }
+
+    for _ in range(2):
+        again = await run(client, namesakes())
+        assert (again["created"], again["updated"], again["skipped"]) == ({}, {}, [])
+        assert await namesake_counts(owner_engine, tenant) == made
+
+
+async def test_a_namesake_whose_phone_turned_up_fills_her_own_card(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await run(client, namesakes())
+    await run(client, namesakes())
+
+    report = await run(client, namesakes(phone="+375295554433"))
+
+    assert report["created"] == {} and report["updated"] == {"contacts": 1}
+    assert (await namesake_counts(owner_engine, tenant))["contacts"] == 3
+    [anna] = await rows(
+        owner_engine,
+        "SELECT c.phone FROM contacts c JOIN visa_cases v ON v.contact_id = c.id "
+        "WHERE c.tenant_id = :t",
+        t=tenant,
+    )
+    assert anna["phone"] == "+375295554433"
+
+
+async def test_a_family_member_without_her_own_phone_is_found_again(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """The mother's row has the family phone, her daughter's none; two other Anna Petrovas
+    with their own phones are clients too. The daughter's card and case are found every
+    time."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    book = {
+        "Клиенты": [
+            ["Код клиента", "Фамилия", "Имя", "Телефон"],
+            ["Ч-1", "Петрова", "Анна", "+375297778899"],
+            ["Ч-2", "Петрова", "Анна", "+375295554433"],
+            ["М-1", "Петрова", "Ольга", "+375291112233"],
+            ["М-2", "Петрова", "Анна", None],
+        ],
+        "Кейсы": [
+            ["Код кейса", "Код клиента", "Клиент", "Семья", "Источник", "Страна визы"],
+            ["М-1", "М-1", "Петрова Ольга", "Петровы", "Подача25", "Польша"],
+            ["М-2", "М-2", "Петрова Анна", "Петровы", "Подача25", "Польша"],
+        ],
+    }
+    await run(client, book)
+    tables = ("contacts", "visa_cases", "submission_groups")
+    made = {table: await count(owner_engine, table, tenant) for table in tables}
+    assert made == {"contacts": 4, "visa_cases": 2, "submission_groups": 1}
+
+    for _ in range(2):
+        again = await run(client, book)
+        assert (again["created"], again["updated"], again["skipped"]) == ({}, {}, [])
+        assert {table: await count(owner_engine, table, tenant) for table in tables} == made
+
+
+def _opening(**dates: date | None) -> dict[str, list[list]]:
+    columns = {"submission_on": "Дата подачи", "questionnaire_due_on": "Анкета до"}
+    return {
+        "Клиенты": [["Код клиента", "Фамилия", "Имя"], ["К-1", "Иванова", "Анна"]],
+        "Кейсы": [
+            ["Код кейса", "Код клиента", "Клиент", "Страна визы", *(columns[k] for k in dates)],
+            ["Кейс-1", "К-1", "Иванова Анна", "Польша", *dates.values()],
+        ],
+    }
+
+
+async def _opened_on(owner_engine: AsyncEngine, tenant: uuid.UUID, zone: str) -> date:
+    [case] = await rows(
+        owner_engine, "SELECT created_at FROM visa_cases WHERE tenant_id = :t", t=tenant
+    )
+    return case["created_at"].astimezone(ZoneInfo(zone)).date()
+
+
+@pytest.mark.parametrize(
+    "dates",
+    [
+        {"submission_on": 40},
+        {"questionnaire_due_on": 10},
+        {"questionnaire_due_on": -10, "submission_on": 30},
+    ],
+    ids=["submission-ahead", "questionnaire-due-ahead", "questionnaire-due-is-a-deadline"],
+)
+async def test_a_new_case_without_an_opening_date_opens_today_at_the_latest(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine, dates: dict[str, int]
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    today = workspace_today()
+
+    await run(client, _opening(**{k: today + timedelta(days=d) for k, d in dates.items()}))
+
+    assert await _opened_on(owner_engine, tenant, "Europe/Minsk") == today
+
+
+async def test_a_new_case_opens_on_the_specialists_today_west_of_utc(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """22:00 in New York is already tomorrow in UTC, and midnight UTC of her day is still the
+    day before for her: the case opens on her own today either way."""
+    tenant = await make_user("spec@example.com")
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE tenants SET timezone = 'America/New_York' WHERE id = :t"), {"t": tenant}
+        )
+    await login(client, "spec@example.com")
+    zone = ZoneInfo("America/New_York")
+    midnight = datetime.combine(WALL_CLOCK.now().date(), datetime.min.time(), zone)
+    WALL_CLOCK.at = (midnight + timedelta(hours=22)).astimezone(UTC)
+    today = WALL_CLOCK.at.astimezone(zone).date()
+    assert WALL_CLOCK.at.date() == today + timedelta(days=1)
+
+    await run(client, _opening(submission_on=today + timedelta(days=40)))
+    assert await _opened_on(owner_engine, tenant, "America/New_York") == today
+    async with owner_engine.begin() as conn:
+        await conn.execute(text("DELETE FROM visa_cases WHERE tenant_id = :t"), {"t": tenant})
+
+    await run(client, _opening())
+    assert await _opened_on(owner_engine, tenant, "America/New_York") == today
+
+
+ANNA_LOGIN = "anna@example.com"
+
+
+def _accounts_and_bookings(*bookings: list) -> dict[str, list[list]]:
+    """Anna's mail and Booking account share a login; Igor has an account of his own."""
+    return {
+        "Клиенты": [CLIENTS[0], CLIENTS[1], CLIENTS[2]],
+        "Кейсы": [CASES[0], CASES[1], CASES[2]],
+        "Учётные записи": [
+            ["Код клиента", "Код кейса", "Система", "Логин"],
+            ["Подача25-2", None, "Почта", ANNA_LOGIN],
+            ["Подача25-2", None, "Booking.com", ANNA_LOGIN],
+            ["Подача25-3", None, "Booking.com", "igor@example.com"],
+        ],
+        "Брони": [["Код кейса", "Место", "Заезд", "Аккаунт"], *bookings],
+    }
+
+
+async def _booked(owner_engine: AsyncEngine, tenant: uuid.UUID) -> dict[str, tuple | None]:
+    found = await rows(
+        owner_engine,
+        "SELECT b.place, s.name, e.login, c.full_name FROM bookings b "
+        "LEFT JOIN vault_entries e ON e.id = b.vault_entry_id "
+        "LEFT JOIN vault_systems s ON s.id = e.system_id "
+        "LEFT JOIN contacts c ON c.id = e.contact_id WHERE b.tenant_id = :t",
+        t=tenant,
+    )
+    return {
+        b["place"]: (b["name"], b["login"], b["full_name"]) if b["login"] else None for b in found
+    }
+
+
+async def test_a_booking_takes_the_booking_account_of_its_own_client(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    book = _accounts_and_bookings(
+        ["Подача25-2", "Hotel Kraków", date(2025, 6, 12), ANNA_LOGIN],
+        # Igor's login on Anna's booking: not his account, and not hers.
+        ["Подача25-2", "Hotel Gdańsk", date(2025, 6, 20), "igor@example.com"],
+    )
+
+    report = await run(client, book)
+
+    assert await _booked(owner_engine, tenant) == {
+        "Hotel Kraków": ("Booking.com", ANNA_LOGIN, "Петрова Анна Сергеевна"),
+        "Hotel Gdańsk": None,
+    }
+    warned = [(i["reason"], i["sheet"], i["row"], i["column"]) for i in report["warnings"]]
+    assert ("unknown_value", "Брони", 3, "Аккаунт") in warned
+
+
+async def test_a_booking_keeps_the_account_it_was_given_by_hand(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    book = _accounts_and_bookings(["Подача25-2", "Hotel Kraków", date(2025, 6, 12), ANNA_LOGIN])
+    await run(client, book)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE bookings SET vault_entry_id = (SELECT e.id FROM vault_entries e "
+                "JOIN vault_systems s ON s.id = e.system_id WHERE s.name = 'Почта' "
+                "AND e.tenant_id = :t) WHERE tenant_id = :t"
+            ),
+            {"t": tenant},
+        )
+
+    again = await run(client, book)
+
+    assert again["updated"] == {}
+    assert (await _booked(owner_engine, tenant))["Hotel Kraków"][0] == "Почта"
+
+
+async def test_a_login_of_several_accounts_of_one_kind_leaves_the_booking_without_one(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    await ok(
+        await client.post(
+            "/api/dictionaries/vault-systems", json={"name": "Airbnb", "kind": "booking"}
+        )
+    )
+    book = _accounts_and_bookings(["Подача25-2", "Hotel Kraków", date(2025, 6, 12), ANNA_LOGIN])
+    book["Учётные записи"].append(["Подача25-2", None, "Airbnb", ANNA_LOGIN])
+
+    report = await run(client, book)
+
+    assert await _booked(owner_engine, tenant) == {"Hotel Kraków": None}
+    warned = [(i["reason"], i["sheet"], i["row"], i["column"]) for i in report["warnings"]]
+    assert ("account_ambiguous", "Брони", 2, "Аккаунт") in warned
+
+
+async def test_an_account_of_another_workspace_is_never_a_bookings_account(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await make_user("other@example.com")
+    await login(client, "other@example.com")
+    await mail_system(client)
+    await run(client, _accounts_and_bookings())
+    client.cookies.clear()
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    book = _accounts_and_bookings(["Подача25-2", "Hotel Kraków", date(2025, 6, 12), ANNA_LOGIN])
+    del book["Учётные записи"]
+
+    report = await run(client, book)
+
+    assert await _booked(owner_engine, tenant) == {"Hotel Kraków": None}
+    warned = [(i["reason"], i["sheet"], i["row"], i["column"]) for i in report["warnings"]]
+    assert ("unknown_value", "Брони", 2, "Аккаунт") in warned
+
+
+async def test_a_booking_given_another_clients_account_before_takes_its_own(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """An earlier upload put Anna's booking on Igor's account of the same login: the next
+    one moves it to her own."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    book = _accounts_and_bookings(["Подача25-2", "Hotel Kraków", date(2025, 6, 12), ANNA_LOGIN])
+    book["Учётные записи"].append(["Подача25-3", None, "Booking.com", ANNA_LOGIN])
+    await run(client, book)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE bookings SET vault_entry_id = (SELECT e.id FROM vault_entries e "
+                "JOIN contacts c ON c.id = e.contact_id WHERE c.full_name = 'Петров Игорь' "
+                "AND e.login = :login) WHERE tenant_id = :t"
+            ),
+            {"t": tenant, "login": ANNA_LOGIN},
+        )
+
+    again = await run(client, book)
+
+    assert again["updated"] == {"bookings": 1}
+    assert await _booked(owner_engine, tenant) == {
+        "Hotel Kraków": ("Booking.com", ANNA_LOGIN, "Петрова Анна Сергеевна")
+    }
+
+
+async def test_a_booking_on_another_clients_account_is_unlinked_when_hers_is_not_found(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    book = _accounts_and_bookings(
+        ["Подача25-2", "Hotel Kraków", date(2025, 6, 12), "igor@example.com"]
+    )
+    await run(client, book)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE bookings SET vault_entry_id = (SELECT id FROM vault_entries "
+                "WHERE login = 'igor@example.com' AND tenant_id = :t) WHERE tenant_id = :t"
+            ),
+            {"t": tenant},
+        )
+
+    again = await run(client, book)
+
+    assert again["updated"] == {"bookings": 1}
+    assert await _booked(owner_engine, tenant) == {"Hotel Kraków": None}
