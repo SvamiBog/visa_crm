@@ -11,6 +11,7 @@ import {
   contactKey,
   formatDate,
   passportOf,
+  refreshAfterPassportPurge,
   useContactLists,
   type Consultation,
   type ContactCard,
@@ -676,16 +677,27 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
 
   const save = useMutation({
     mutationFn: () =>
-      apiPut<Hint[]>(`/contacts/${card.contact.id}/questionnaire`, {
-        ...q,
-        // The passport is edited with the card: kept as the card has it now.
-        ...passportOf(card.questionnaire),
-        deportation_note: q.deportation ? q.deportation_note?.trim() || null : null,
-        note: q.note?.trim() || null,
-      }),
+      apiPut<Hint[]>(
+        `/contacts/${card.contact.id}/questionnaire?${new URLSearchParams({
+          // The passport goes as this card shows it; removed since, the API does not take
+          // it back (backlog A11).
+          card_updated_at: card.contact.updated_at,
+        })}`,
+        {
+          ...q,
+          // The passport is edited with the card: kept as the card has it now.
+          ...passportOf(card.questionnaire),
+          deportation_note: q.deportation ? q.deportation_note?.trim() || null : null,
+          note: q.note?.trim() || null,
+        },
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: contactKey(card.contact.id) });
       onDone();
+    },
+    onError: (error) => {
+      if (errorCode(error) === "passport_changed")
+        void refreshAfterPassportPurge(queryClient, card.contact.id);
     },
   });
   // Visas and refusals are lists: the API names a row's field by its index.

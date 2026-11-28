@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet, apiPost, apiPut } from "../../api";
 import { useConfirm } from "../../components/ConfirmDialog";
-import { formatDate } from "../../contacts";
+import { formatDate, refreshAfterPassportPurge } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { useMoney } from "../clients/Finance";
 import { ErrorAlert } from "../clients/ui";
@@ -279,7 +279,8 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
   const passport = useMutation({
     mutationFn: ({ contactId, action }: { contactId: string; action: "postpone" | "purge" }) =>
       apiPost<unknown>(`/reminders/passport/${contactId}/${action}`, {}),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reminders"] }),
+    onSettled: (_data, _error, { contactId }) =>
+      refreshAfterPassportPurge(queryClient, contactId),
   });
   const purgeNow = async (r: Reminder) => {
     const yes = await confirm({

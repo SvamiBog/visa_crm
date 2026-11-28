@@ -97,6 +97,7 @@
   "errors.password_change_required": "Replace your temporary password first.",
   "errors.forbidden": "Access denied.",
   "errors.not_found": "Not found.",
+  "errors.passport_changed": "The client's passport data was removed while this form was open. Close the form and open it again.",
   "errors.passport_purge_not_due": "Nothing to remove yet: the client has a case in work, or the passport data is already gone.",
   "errors.invalid_current_password": "The current password is wrong.",
   "errors.password_unchanged": "The new password must differ from the current one.",

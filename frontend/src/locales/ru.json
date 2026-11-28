@@ -97,6 +97,7 @@
   "errors.password_change_required": "Сначала смените временный пароль.",
   "errors.forbidden": "Нет доступа.",
   "errors.not_found": "Не найдено.",
+  "errors.passport_changed": "Паспортные данные клиента удалили, пока форма была открыта. Закройте форму и откройте её снова.",
   "errors.passport_purge_not_due": "Удалять пока нечего: у клиента есть кейс в работе или паспортных данных уже нет.",
   "errors.invalid_current_password": "Текущий пароль указан неверно.",
   "errors.password_unchanged": "Новый пароль должен отличаться от текущего.",

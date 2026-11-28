@@ -9,12 +9,13 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, computed_field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.client_status import covers
 from app.api.deps import CurrentUser, TenantSession, require_module, workspace_today
+from app.core import passport_purge
 from app.core.audit import record
 from app.core.consultation_checks import Destination, check
 from app.core.days import Day
@@ -400,12 +401,25 @@ async def update_consultation(
 
 @router.put("/contacts/{contact_id}/questionnaire")
 async def replace_questionnaire(
-    contact_id: uuid.UUID, body: Questionnaire, user: Member, session: TenantSession
+    contact_id: uuid.UUID,
+    body: Questionnaire,
+    user: Member,
+    session: TenantSession,
+    card_updated_at: AwareDatetime | None = None,
 ) -> list[HintOut]:
-    """Save the questionnaire answers; returns the checks against the latest consultation."""
+    """Save the questionnaire answers; returns the checks against the latest consultation.
+    The form sends the passport as the card it was opened from shows it, with that card's
+    `updated_at`: removed meanwhile, it does not come back (backlog A11)."""
     contact = await _contact(session, contact_id)
     # The questionnaire is on the card, so saving it opens the card (Т.14).
     await watch(session, user, LimitKind.CARDS, "contact", contact.id, AuditAction.CONTACT_VIEWED)
+    # Read again under the lock, after the limit check that may commit: a removal cannot
+    # land between the check below and the write (the removal locks the row too).
+    await session.refresh(contact, with_for_update=True)
+    if passport_purge.brings_back(
+        contact.questionnaire, body.model_dump(mode="json"), card_updated_at, contact.updated_at
+    ):
+        raise HTTPException(status.HTTP_409_CONFLICT, "passport_changed")
     contact.questionnaire = body.model_dump(mode="json")
     record(
         session,

@@ -506,3 +506,116 @@ async def test_switched_on_the_buttons_work_as_on_the_stands(
     response = await client.post(f"/api/reminders/passport/{person['id']}/purge")
     assert response.status_code == 204, response.text
     assert (await questionnaire(client, person))["passport_number"] is None
+
+
+# --- A form opened before the removal (backlog A11) ----------------------------------
+
+
+async def card(client: AsyncClient, person: dict) -> dict:
+    response = await client.get(f"/api/contacts/{person['id']}")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def card_form(found: dict) -> dict:
+    """What the card's form sends: every field, the passport as the form shows it."""
+    contact = found["contact"]
+    fields = ("first_name", "last_name_latin", "first_name_latin", "birth_date", "phone")
+    passport = {k: found["questionnaire"][k] for k in PASSPORT}
+    return {**{k: contact[k] for k in fields}, "passport": passport}
+
+
+async def test_a_form_opened_before_remove_now_does_not_bring_the_passport_back(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    anna = await decided_client(client, 6)
+    before = await card(client, anna)
+    version = {"card_updated_at": before["contact"]["updated_at"]}
+    removed = await client.post(f"/api/reminders/passport/{anna['id']}/purge")
+    assert removed.status_code == 204, removed.text
+
+    # The card's form, opened before «Удалить сейчас».
+    saved = await client.patch(
+        f"/api/contacts/{anna['id']}", params=version, json=card_form(before)
+    )
+    assert saved.status_code == 409, saved.text
+    assert saved.json()["detail"] == "passport_changed"
+    # The questionnaire's form sends the passport as the card it was opened from shows it.
+    answers = {**before["questionnaire"], "deportation": True}
+    saved = await client.put(
+        f"/api/contacts/{anna['id']}/questionnaire", params=version, json=answers
+    )
+    assert saved.status_code == 409, saved.text
+    assert saved.json()["detail"] == "passport_changed"
+
+    q = await questionnaire(client, anna)
+    assert all(q[field] is None for field in ALL_FIELDS)
+    assert q["deportation"] is False
+    assert await audit(owner_engine, "contacts.updated") == []
+    assert await audit(owner_engine, "contacts.questionnaire_updated") == []
+
+
+async def test_a_form_opened_before_the_daily_run_does_not_bring_the_passport_back(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    anna = await decided_client(client, 7)
+    await entered_days_ago(owner_engine, anna["case_id"], 7)
+    before = await card(client, anna)
+    assert await passport_purge.purge_due() == 1
+
+    saved = await client.patch(
+        f"/api/contacts/{anna['id']}",
+        params={"card_updated_at": before["contact"]["updated_at"]},
+        json=card_form(before),
+    )
+    assert saved.status_code == 409, saved.text
+    assert (await questionnaire(client, anna))["passport_number"] is None
+
+
+async def test_a_fresh_form_or_a_request_without_its_version_enters_a_passport(
+    client: AsyncClient, make_user: MakeUser
+):
+    await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    anna = await decided_client(client, 6)
+    # Opened before another change of the card, the passport still there: saved.
+    before = await card(client, anna)
+    moved = await client.patch(f"/api/contacts/{anna['id']}", json={"telegram": "anna_k"})
+    assert moved.status_code == 200, moved.text
+    saved = await client.patch(
+        f"/api/contacts/{anna['id']}",
+        params={"card_updated_at": before["contact"]["updated_at"]},
+        json=card_form(before) | {"passport": PASSPORT | {"passport_number": "MP7654321"}},
+    )
+    assert saved.status_code == 200, saved.text
+    assert (await questionnaire(client, anna))["passport_number"] == "MP7654321"
+
+    assert (await client.post(f"/api/reminders/passport/{anna['id']}/purge")).status_code == 204
+    # A form opened after the removal enters a new passport.
+    after = await card(client, anna)
+    saved = await client.patch(
+        f"/api/contacts/{anna['id']}",
+        params={"card_updated_at": after["contact"]["updated_at"]},
+        json=card_form(after) | {"passport": PASSPORT},
+    )
+    assert saved.status_code == 200, saved.text
+    assert (await questionnaire(client, anna))["passport_number"] == "MP1234567"
+
+    assert (await client.post(f"/api/reminders/passport/{anna['id']}/purge")).status_code == 204
+    # A version without its time zone cannot be compared: refused as invalid.
+    naive = await client.patch(
+        f"/api/contacts/{anna['id']}",
+        params={"card_updated_at": "2026-12-01T10:00:00"},
+        json={"passport": {"passport_number": "MP2222222"}},
+    )
+    assert naive.status_code == 422, naive.text
+    # No version (a passport read from a photo, the API): as before.
+    saved = await client.patch(
+        f"/api/contacts/{anna['id']}", json={"passport": {"passport_number": "MP1111111"}}
+    )
+    assert saved.status_code == 200, saved.text
+    assert (await questionnaire(client, anna))["passport_number"] == "MP1111111"

@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -9,6 +9,7 @@ import {
   PASSPORT_FIELDS,
   SEXES,
   passportOf,
+  refreshAfterPassportPurge,
   useContactLists,
   type Contact,
   type Messenger,
@@ -117,6 +118,10 @@ export function ContactForm({
   const name = useLocalName();
   const [fields, setFields] = useState<Fields>(() => initial(contact));
   const [document, setDocument] = useState<PassportFields>(() => initialPassport(passport));
+  // The card the form was opened from: if its passport is removed meanwhile, the API does
+  // not take the old values back from here (backlog A11).
+  const [openedAt] = useState(contact?.updated_at);
+  const queryClient = useQueryClient();
   const set = (key: keyof Fields) => (value: string) =>
     setFields((current) => ({ ...current, [key]: value }));
   const setPassport = (key: keyof Passport) => (value: string) =>
@@ -127,12 +132,21 @@ export function ContactForm({
   const save = useMutation({
     mutationFn: (allowSharedTelegram: boolean) => {
       const body = { ...nullable(fields), passport: nullable(document) };
-      const query = allowSharedTelegram ? "?allow_shared_telegram=true" : "";
+      const params = new URLSearchParams();
+      if (allowSharedTelegram) params.set("allow_shared_telegram", "true");
+      if (contact && openedAt) params.set("card_updated_at", openedAt);
+      const query = params.toString() ? `?${params}` : "";
       return contact
         ? apiPatch<Contact>(`/contacts/${contact.id}${query}`, body)
         : apiPost<Contact>(`/contacts${query}`, body);
     },
     onSuccess: onSaved,
+    // Removed while the form was open: the card behind it shows the passport as it is now,
+    // and the form opened again starts from it.
+    onError: (error) => {
+      if (contact && error instanceof ApiError && error.code === "passport_changed")
+        void refreshAfterPassportPurge(queryClient, contact.id);
+    },
   });
 
   const submit = (event: FormEvent) => {

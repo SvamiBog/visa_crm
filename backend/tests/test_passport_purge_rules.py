@@ -1,9 +1,10 @@
 """When the passport's data goes after the decision (backlog 2.8): the rule alone."""
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from app.core.passport_purge import (
     Decision,
+    brings_back,
     filled_fields,
     notice_on,
     postponed_until,
@@ -110,3 +111,32 @@ def test_what_is_due_after_the_grace_keeps_its_own_day():
     assert with_grace(on(30), on(1), on(10)) == (on(30), on(1))
     # No switch day (the stands): nothing changes.
     assert with_grace(on(5), on(3), None) == (on(5), on(3))
+
+
+# --- A form opened before the removal (backlog A11) ----------------------------------
+
+OPENED = datetime(2026, 12, 1, 10, 0, tzinfo=UTC)
+PURGED = {"passport_number": None, "birth_place": None, "nationality": "BY"}
+OLD_FORM = {"passport_number": "MP1234567", "birth_place": "Минск", "nationality": "BY"}
+
+
+def test_a_form_opened_before_the_card_changed_does_not_fill_what_is_empty_now():
+    later = OPENED + timedelta(seconds=1)
+    assert brings_back(PURGED, OLD_FORM, OPENED, later)
+    # One field is enough.
+    assert brings_back(PURGED, {"birth_place": "Минск"}, OPENED, later)
+    # The version is a mark, not a time: the daily run stamps the start of its transaction,
+    # so a card saved during the run gets older again after the removal.
+    assert brings_back(PURGED, OLD_FORM, later, OPENED)
+
+
+def test_a_fresh_form_a_form_without_its_version_or_fields_kept_are_let_through():
+    later = OPENED + timedelta(seconds=1)
+    # Opened from the card as it is now.
+    assert not brings_back(PURGED, OLD_FORM, later, later)
+    # No version: an import or a passport read from a photo, new data on purpose.
+    assert not brings_back(PURGED, OLD_FORM, None, later)
+    # The fields are filled now: the form changes them, nothing removed comes back.
+    assert not brings_back(OLD_FORM, {**OLD_FORM, "passport_number": "MP7654321"}, OPENED, later)
+    # Kept empty, or a field the removal does not touch.
+    assert not brings_back(PURGED, {"passport_number": None, "nationality": "PL"}, OPENED, later)
