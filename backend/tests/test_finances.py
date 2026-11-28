@@ -586,6 +586,8 @@ async def test_an_amount_too_large_for_the_base_currency_is_refused_with_its_cod
         )
     )
     assert refused(await client.patch(finance_url(case), json={"price": "150000"} | slip))
+    for field in ("prepayment", "consultation_credit"):
+        assert refused(await client.patch(finance_url(case), json={field: "150000"} | slip))
 
     # Nothing of the refused writes was kept.
     finance = (await client.get(finance_url(case))).json()

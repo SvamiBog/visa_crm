@@ -458,3 +458,17 @@ async def test_a_new_base_an_amount_would_not_fit_in_changes_nothing(
     response = await client.patch(MONEY, json={"base_currency": "PLN"})
     assert response.json()["detail"] == "base_amount_too_large"
     assert (await client.get(finance_url(other))).json()["partner_fixed"] == "999999999999.00"
+
+    # The price of a case, in its currency, counted at the case's rate to the new base:
+    # 300 000 000 000 EUR at 0.001 BYN, at 4.25 PLN would not fit.
+    await client.patch(finance_url(other), json={"partner_terms": None})
+    await client.patch(MONEY, json={"payment_currencies": ["EUR", "PLN"]})
+    priced = await client.patch(
+        finance_url(other), json={"currency": "EUR", "rate": "0.001", "price": "300000000000"}
+    )
+    assert priced.status_code == 200, priced.text
+    response = await client.patch(MONEY, json={"base_currency": "PLN"})
+    assert response.json()["detail"] == "base_amount_too_large"
+    kept = (await client.get(finance_url(other))).json()
+    assert (kept["currency"], kept["rate"], kept["price"]) == ("EUR", "0.001000", "300000000000.00")
+    assert (await client.get(MONEY)).json()["base_currency"] == "BYN"

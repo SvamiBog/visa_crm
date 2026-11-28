@@ -349,6 +349,21 @@ async def test_the_currency_stays_while_payments_or_talons_are_in_it(
     await client.patch(f"/api/cases/{case['id']}/finance", json={"registrar_fee_amount": None})
     assert (await client.patch(talon_url, json={"currency": "USD"})).status_code == 200
 
+    # A talon in another currency is in no balance and holds nothing: a registrar made in
+    # the base currency, with talons charged in EUR by its price list, moves to EUR, and
+    # then they hold it there.
+    byn_reg = await registrar(client, codes, name="Глеб")
+    assert byn_reg["currency"] == "BYN"
+    eur_case = await open_case(client, codes, "Вера", byn_reg)
+    await client.post(f"/api/registrars/{byn_reg['id']}/talons", json={"case_id": eur_case["id"]})
+    byn_url = f"{DICT}/registrars/{byn_reg['id']}"
+    assert (await client.patch(byn_url, json={"currency": "EUR"})).status_code == 200
+    assert (await client.get(ledger_url(byn_reg))).json()["balance"] == "-60.00"
+    assert (await client.patch(byn_url, json={"currency": "BYN"})).status_code == 409
+    # A talon paid before the CRM is in no balance either.
+    await client.patch(f"/api/cases/{eur_case['id']}/finance", json={"registrar_fee_settled": True})
+    assert (await client.patch(byn_url, json={"currency": "BYN"})).status_code == 200
+
     # Without payments and talons the currency changes; another workspace's registrar is
     # not found.
     fresh = await registrar(client, codes, name="Олег", currency="EUR")

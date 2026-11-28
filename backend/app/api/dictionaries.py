@@ -612,15 +612,16 @@ async def create_registrar(
 async def _check_currency_free(session: AsyncSession, registrar: Registrar) -> None:
     """A payment to a registrar keeps only its amount, in the registrar's currency, and a
     talon counts in the balance only in it: with either, a new currency would read 100 PLN
-    as 100 EUR (audit H-2, decisions.md → «Расчёты с регистраторами»). A talon settled
-    outside the CRM is in no balance and holds nothing."""
+    as 100 EUR or drop the talon (audit H-2, decisions.md → «Расчёты с регистраторами»).
+    A talon in another currency or paid before the CRM is in no balance and holds
+    nothing: the change may well bring the first one in."""
     held = or_(
         exists().where(RegistrarPayment.registrar_id == registrar.id),
         exists()
         .where(CaseFinance.case_id == VisaCase.id)
         .where(
             VisaCase.registrar_id == registrar.id,
-            CaseFinance.registrar_fee_amount.is_not(None),
+            CaseFinance.registrar_fee_currency == registrar.currency,
             CaseFinance.registrar_fee_settled.is_(False),
         ),
     )
