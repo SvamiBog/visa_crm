@@ -1663,3 +1663,28 @@ async def test_a_booking_given_another_clients_account_before_takes_its_own(
     assert await _booked(owner_engine, tenant) == {
         "Hotel Kraków": ("Booking.com", ANNA_LOGIN, "Петрова Анна Сергеевна")
     }
+
+
+async def test_a_booking_on_another_clients_account_is_unlinked_when_hers_is_not_found(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await mail_system(client)
+    book = _accounts_and_bookings(
+        ["Подача25-2", "Hotel Kraków", date(2025, 6, 12), "igor@example.com"]
+    )
+    await run(client, book)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE bookings SET vault_entry_id = (SELECT id FROM vault_entries "
+                "WHERE login = 'igor@example.com' AND tenant_id = :t) WHERE tenant_id = :t"
+            ),
+            {"t": tenant},
+        )
+
+    again = await run(client, book)
+
+    assert again["updated"] == {"bookings": 1}
+    assert await _booked(owner_engine, tenant) == {"Hotel Kraków": None}

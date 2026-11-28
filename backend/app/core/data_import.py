@@ -2078,6 +2078,12 @@ class WorkbookImport:
                 "note": ("note", v.get("note")),
             },
         )
+        # A link an earlier upload made to another client's account goes (backlog A5): a
+        # booking opens the password of its own client's account or of the specialist's.
+        linked = self.vault.get(booking.vault_entry_id) if booking.vault_entry_id else None
+        if linked is not None and linked.contact_id not in (case.contact_id, None):
+            booking.vault_entry_id = None
+            changed = True
         if kind != BookingKind.HOTEL and booking.free_cancel_until is not None:
             booking.free_cancel_until = None
         if kind != BookingKind.FLIGHT and booking.valid_until is not None:
