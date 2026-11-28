@@ -85,11 +85,19 @@ function Slot({ name, children }: { name: string; children: ReactNode }) {
   return <div className={`card-slot slot-${name}`}>{children}</div>;
 }
 
+/** Every card is the one route /app/clients/:id, so going to another card inside the app
+ * (a link, «back», a reminder) keeps the page and changes only the id. The key makes the
+ * whole card anew for each id: no open form, draft or unfolded case of one client is
+ * carried to another and saved there (backlog A10). */
+export function ContactPage() {
+  const { id = "" } = useParams();
+  return <ContactView key={id} id={id} />;
+}
+
 /** The client's card: contact details, questionnaire and its checks, cases,
  * consultations, paperwork, the notes timeline. Clients are not linked to each other
  * (backlog 1.15.11): a family filed together is a submission group of their cases. */
-export function ContactPage() {
-  const { id = "" } = useParams();
+function ContactView({ id }: { id: string }) {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const money = useMoney();
