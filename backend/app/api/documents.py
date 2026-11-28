@@ -31,7 +31,7 @@ from app.core.documents import (
     open_document,
     seal_document,
 )
-from app.core.employee_limits import LimitKind, watch
+from app.core.employee_limits import LimitKind, open_card, watch
 from app.core.storage import (
     StorageFailed,
     StorageNotConfigured,
@@ -173,6 +173,7 @@ async def add_document(
     assert user.tenant_id is not None
     if await session.get(Contact, contact_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    await open_card(session, user, contact_id)  # a file of the card (Т.14)
     if not is_configured():
         raise _storage_error(StorageNotConfigured())
     try:
@@ -270,6 +271,7 @@ async def delete_document(
     """Employees delete only files they added; the specialist deletes any."""
     assert user.tenant_id is not None
     document = await _document(session, contact_id, document_id)
+    await open_card(session, user, contact_id)
     if user.role != UserRole.SPECIALIST and document.uploaded_by != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
     await session.delete(document)

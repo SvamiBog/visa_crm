@@ -18,7 +18,7 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.consultation_checks import Destination, check
 from app.core.days import Day
-from app.core.employee_limits import LimitKind, watch
+from app.core.employee_limits import LimitKind, open_card, watch
 from app.core.money import Amount, Currency
 from app.core.questionnaire import Questionnaire, Refusal, VisaKind
 from app.core.visa_history import CaseVisa, VisaStatus, visa_history
@@ -342,6 +342,7 @@ async def create_consultation(
     contact_id: uuid.UUID, body: ConsultationIn, user: Member, session: TenantSession
 ) -> ConsultationOut:
     contact = await _contact(session, contact_id)
+    await open_card(session, user, contact.id)  # a consultation of the card (Т.14)
     fields = body.model_dump()
     if fields["lead_channel_id"] is None:
         fields["lead_channel_id"] = contact.lead_channel_id
