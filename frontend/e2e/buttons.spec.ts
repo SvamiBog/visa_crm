@@ -193,7 +193,7 @@ for (const lang of ["ru", "en"] as const) {
         {
           name: "the vault's form on a client's card",
           open: async () => {
-            await page.goto(`/app/clients/${client}`);
+            await page.goto(`/app/clients/${client}?tab=vault`);
             await vaultCard.getByRole("button", { name: t("vault.add"), exact: true }).click();
           },
         },
@@ -268,14 +268,19 @@ for (const lang of ["ru", "en"] as const) {
         exact: true,
       });
 
-      for (const [id, ready] of [
-        [plain, page.getByRole("button", { name: t("contacts.deleteCard"), exact: true })],
-        [withCase, page.getByRole("button", { name: t("finance.addPayment"), exact: true })],
-        [chat, writeTelegram],
+      // The card by tabs (backlog 1.15.17): the case with its finances is on «Кейсы».
+      for (const [id, tab, ready] of [
+        [plain, "", page.getByRole("button", { name: t("contacts.deleteCard"), exact: true })],
+        [withCase, "", page.getByRole("heading", { name: t("contacts.timeline") })],
+        [
+          withCase,
+          "?tab=cases",
+          page.getByRole("button", { name: t("finance.addPayment"), exact: true }),
+        ],
+        [chat, "", writeTelegram],
       ] as const) {
-        await page.goto(`/app/clients/${id}`);
+        await page.goto(`/app/clients/${id}${tab}`);
         await expect(ready).toBeVisible();
-        await expect(page.getByRole("heading", { name: t("contacts.timeline") })).toBeVisible();
 
         for (const theme of THEMES) {
           await page.evaluate((th) => (document.documentElement.dataset.uiTheme = th), theme);

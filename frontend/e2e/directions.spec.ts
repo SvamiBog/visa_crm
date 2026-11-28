@@ -61,7 +61,8 @@ async function openCard(page: Page): Promise<void> {
   expect(found.ok()).toBe(true);
   // Oldest first: a demo card, not one other tests make and delete meanwhile.
   const [first] = ((await found.json()).items as { id: string }[]).reverse();
-  await page.goto(`/app/clients/${first.id}`);
+  // The case form is on «Кейсы» (backlog 1.15.17).
+  await page.goto(`/app/clients/${first.id}?tab=cases`);
   await page.locator("h1").waitFor();
 }
 

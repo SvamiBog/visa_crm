@@ -135,7 +135,7 @@ for (const lang of ["ru", "en"] as const) {
 
       test("payment: an amount of zero", async ({ page }) => {
         await signIn(page);
-        await page.goto(`/app/clients/${await cardWithCase(page)}`);
+        await page.goto(`/app/clients/${await cardWithCase(page)}?tab=cases`);
         await page.getByRole("button", { name: t("finance.addPayment"), exact: true }).first().click();
         const form = page.locator("form.finance-form");
         const amount = form.getByLabel(t("finance.amount"), { exact: true });
@@ -152,7 +152,7 @@ for (const lang of ["ru", "en"] as const) {
         }[];
         const belarus = countries.find((c) => c.code === "BY")!.id;
         const [first] = await demoCards(page);
-        await page.goto(`/app/clients/${first.id}`);
+        await page.goto(`/app/clients/${first.id}?tab=cases`);
         await page.getByRole("button", { name: t("cases.add"), exact: true }).click();
         const form = page.locator("form").filter({
           has: page.getByRole("heading", { name: t("cases.newTitle"), exact: true }),
@@ -250,7 +250,7 @@ for (const lang of ["ru", "en"] as const) {
       test("trip: an entry more than two years ahead", async ({ page }) => {
         await signIn(page);
         const [first] = await demoCards(page);
-        await page.goto(`/app/clients/${first.id}`);
+        await page.goto(`/app/clients/${first.id}?tab=trips`);
         await page.getByRole("button", { name: t("stay.add"), exact: true }).click();
         const form = page.locator("form.booking-form");
         await form

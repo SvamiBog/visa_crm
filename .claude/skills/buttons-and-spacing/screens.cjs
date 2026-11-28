@@ -6,12 +6,14 @@
 //
 // Options (all but --out have defaults):
 //   --path    the screen; {case-client} — a demo client with a case, {plain-client} —
-//             a client without history (the card shows «Удалить карточку»)
+//             a client without history (the card shows «Удалить карточку»). Without it,
+//             the card with a case on «Клиент» and on «Кейсы» (?tab=cases, backlog 1.15.17)
 //   --widths  390,1280      --themes blue,dark,warm,minimal      --lang ru
 //   --base    http://localhost:8000 (E2E_BASE_URL)
 //   --email   visa1@demo.visacrm.test (E2E_EMAIL); the password is DEMO_PASSWORD
 // Needs the stand of the ecc-e2e-testing skill: the built frontend served by the API
-// with demo data. Files: DIR/<theme>-<width>-page.png, -header.png, -NN-<block>.png.
+// with demo data. Files: DIR/<theme>-<width>-page.png, -header.png, -NN-<block>.png;
+// a screen with ?tab=<tab> adds -<tab> after the width.
 const path = require("node:path");
 const fs = require("node:fs");
 
@@ -29,7 +31,9 @@ if (!OUT) {
   console.error("--out DIR is required");
   process.exit(2);
 }
-const PATH = args.path ?? "/app/clients/{case-client}";
+const PATHS = args.path
+  ? [args.path]
+  : ["/app/clients/{case-client}", "/app/clients/{case-client}?tab=cases"];
 const WIDTHS = (args.widths ?? "390,1280").split(",").map(Number);
 const THEMES = (args.themes ?? "blue,dark,warm,minimal").split(",");
 const LANG = args.lang ?? "ru";
@@ -41,8 +45,8 @@ if (!PASSWORD) {
   process.exit(2);
 }
 
-/** The {case-client} and {plain-client} of --path, found through the API. */
-async function resolvePath(request) {
+/** The {case-client} and {plain-client} of a path, found through the API. */
+async function resolvePath(request, PATH) {
   if (!PATH.includes("{")) return PATH;
   const found = await request.post("/api/contacts/search", { data: {} });
   const ids = { "case-client": "", "plain-client": "" };
@@ -74,33 +78,36 @@ async function resolvePath(request) {
       data: { email: EMAIL, password: PASSWORD },
     });
     if (!login.ok()) throw new Error(`login: ${login.status()}`);
-    await page.goto(await resolvePath(page.request));
-    await page.locator("h1").first().waitFor();
-    await page.waitForLoadState("networkidle");
-    for (const theme of THEMES) {
-      // In place, like the settings preview: the account's own theme is not changed.
-      await page.evaluate((th) => {
-        document.documentElement.dataset.uiTheme = th;
-        document.querySelectorAll(".tabbar").forEach((bar) => (bar.style.display = "none"));
-      }, theme);
-      const name = `${theme}-${width}`;
-      // Not `fullPage: true`: in Chromium it drops the touch emulation, and (pointer: coarse)
-      // rules (44px targets on a phone) would vanish from this shot and every one after it.
-      // The viewport grows to the page's height for the shot and goes back instead.
-      const size = page.viewportSize();
-      const height = await page.evaluate(() => document.documentElement.scrollHeight);
-      await page.setViewportSize({ width, height: Math.max(height, size.height) });
-      await page.screenshot({ path: `${OUT}/${name}-page.png` });
-      await page.setViewportSize(size);
-      const header = page.locator(".page-header").first();
-      if (await header.count()) await header.screenshot({ path: `${OUT}/${name}-header.png` });
-      const blocks = page.locator(".page .card");
-      for (let i = 0; i < (await blocks.count()); i++) {
-        const block = blocks.nth(i);
-        if (!(await block.isVisible())) continue;
-        const title = (await block.locator("h2, h3, h4").first().textContent().catch(() => "")) ?? "";
-        const slug = title.trim().slice(0, 24).replace(/[^\p{L}\p{N}]+/gu, "_") || "card";
-        await block.screenshot({ path: `${OUT}/${name}-${String(i).padStart(2, "0")}-${slug}.png` });
+    for (const screenPath of PATHS) {
+      const tab = new URLSearchParams(screenPath.split("?")[1] ?? "").get("tab");
+      await page.goto(await resolvePath(page.request, screenPath));
+      await page.locator("h1").first().waitFor();
+      await page.waitForLoadState("networkidle");
+      for (const theme of THEMES) {
+        // In place, like the settings preview: the account's own theme is not changed.
+        await page.evaluate((th) => {
+          document.documentElement.dataset.uiTheme = th;
+          document.querySelectorAll(".tabbar").forEach((bar) => (bar.style.display = "none"));
+        }, theme);
+        const name = `${theme}-${width}${tab ? `-${tab}` : ""}`;
+        // Not `fullPage: true`: in Chromium it drops the touch emulation, and (pointer: coarse)
+        // rules (44px targets on a phone) would vanish from this shot and every one after it.
+        // The viewport grows to the page's height for the shot and goes back instead.
+        const size = page.viewportSize();
+        const height = await page.evaluate(() => document.documentElement.scrollHeight);
+        await page.setViewportSize({ width, height: Math.max(height, size.height) });
+        await page.screenshot({ path: `${OUT}/${name}-page.png` });
+        await page.setViewportSize(size);
+        const header = page.locator(".page-header").first();
+        if (await header.count()) await header.screenshot({ path: `${OUT}/${name}-header.png` });
+        const blocks = page.locator(".page .card");
+        for (let i = 0; i < (await blocks.count()); i++) {
+          const block = blocks.nth(i);
+          if (!(await block.isVisible())) continue;
+          const title = (await block.locator("h2, h3, h4").first().textContent().catch(() => "")) ?? "";
+          const slug = title.trim().slice(0, 24).replace(/[^\p{L}\p{N}]+/gu, "_") || "card";
+          await block.screenshot({ path: `${OUT}/${name}-${String(i).padStart(2, "0")}-${slug}.png` });
+        }
       }
     }
     await context.close();

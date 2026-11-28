@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet } from "../../api";
 import { ErrorAlert } from "../clients/ui";
+import { cardPath } from "../clients/cardTabs";
 
 // Letting an employee go (backlog Т.15): the vault passwords they know (revealed, added
 // or typed), from the audit log, and whether someone else changed each since — the rest
@@ -71,7 +72,7 @@ export function RevealedPasswords({
                     </td>
                     <td>
                       {r.contact_id ? (
-                        <Link to={`/app/clients/${r.contact_id}`}>{r.contact_name}</Link>
+                        <Link to={cardPath(r.contact_id, "vault")}>{r.contact_name}</Link>
                       ) : r.deleted ? (
                         "—"
                       ) : (

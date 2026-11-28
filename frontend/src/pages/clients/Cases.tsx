@@ -52,6 +52,7 @@ import { useCaseName } from "./ui";
 import { flushPending } from "../../undo";
 import { useHasModule, useWorkspace } from "../../workspace";
 import { contentLines, type CaseContents } from "../../deletion";
+import { cardPath, showCase } from "./cardTabs";
 
 // Cases on the client's card (backlog 1.4): one visa for one applicant, the stage,
 // the structured visa result and the submission group.
@@ -645,7 +646,9 @@ function GroupMembers({ visaCase: c }: { visaCase: VisaCase }) {
         c.group.map((m, i) => (
           <span key={m.case_id}>
             {i > 0 && ", "}
-            <Link to={`/app/clients/${m.contact_id}`}>{m.full_name}</Link>
+            <Link to={cardPath(m.contact_id, "cases")} state={showCase(m.case_id)}>
+              {m.full_name}
+            </Link>
             <span className="muted"> {t("cases.number", { number: m.number })}</span>
           </span>
         ))}

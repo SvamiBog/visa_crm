@@ -21,6 +21,7 @@ import {
 import { byId, useCountries, useLocalName, type Country } from "../../reference";
 import { formatSort, parseSort, useSortParam } from "../../sorting";
 import { BoardView } from "./Board";
+import { cardPath, showCase } from "./cardTabs";
 import { CaseChip } from "./Cases";
 import { ContactForm } from "./ContactForm";
 
@@ -493,7 +494,10 @@ function RowStage({ row }: { row: ContactRow }) {
           // Opened from this client's consultation for someone else (pilot fix 2).
           <span className="small">
             {t("index.caseOpenedFor")}{" "}
-            <Link to={`/app/clients/${row.case.applicant.contact_id}`} state={FROM_INDEX}>
+            <Link
+              to={cardPath(row.case.applicant.contact_id, "cases")}
+              state={{ ...FROM_INDEX, ...showCase(row.case.id) }}
+            >
               {row.case.applicant.full_name}
             </Link>
           </span>

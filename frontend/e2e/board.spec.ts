@@ -155,7 +155,8 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
 
       await drop(page, card, result);
       await answer(page, t("confirm.enterResult"));
-      await expect(page).toHaveURL(new RegExp(`/app/clients/${kept.contact_id}$`));
+      // The card opens on «Кейсы» (backlog 1.15.17).
+      await expect(page).toHaveURL(new RegExp(`/app/clients/${kept.contact_id}\\?tab=cases$`));
       await expect(page.getByText(t("cases.resultNeedsOutcome"))).toBeVisible();
       await expect(page.getByRole("combobox", { name: t("cases.outcomeLabel") })).toBeFocused();
       expect((await board(page)).cases.find((c) => c.id === kept.id)?.stage).toBe(kept.stage);
@@ -178,7 +179,8 @@ for (const [which, lang] of (["ru", "en"] as const).entries()) {
 
       await drop(page, card, waiting);
       await answer(page, t("confirm.openCase"));
-      await expect(page).toHaveURL(new RegExp(`/app/clients/${lead.contact_id}$`));
+      // The card opens on «Кейсы» (backlog 1.15.17).
+      await expect(page).toHaveURL(new RegExp(`/app/clients/${lead.contact_id}\\?tab=cases$`));
       await expect(
         page.getByRole("heading", { name: t("cases.createFromConsultation"), exact: true }),
       ).toBeVisible();

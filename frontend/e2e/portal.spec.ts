@@ -98,7 +98,7 @@ for (const [lang, width] of [
     const caseId = opened.find((c) => c.contact_id === contact.id)!.id;
 
     // In the case: the link and a code to pass on.
-    await page.goto(`/app/clients/${contact.id}`);
+    await page.goto(`/app/clients/${contact.id}?tab=cases`);
     const block = page.locator(".portal-block");
     await expect(block.getByRole("heading", { name: t("portal.title") })).toBeVisible();
     const url = await block.getByRole("textbox", { name: t("portal.link") }).inputValue();

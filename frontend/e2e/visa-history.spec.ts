@@ -142,17 +142,22 @@ for (const [lang, width] of [
     });
     await expect(toCase).toBeVisible();
 
-    // The case is folded (it has a result and the client has another one): the line's
-    // link opens it and brings it into view.
+    // The case is folded (it has a result and the client has another one) and on «Кейсы»:
+    // the line's link opens that tab, unfolds the case and brings it into view.
     const name = lang === "en" ? poland.name_en : poland.name_ru;
     const caseBlock = block(
       page,
       `${t("cases.number", { number: visaCase.number })} · ${name} · ${tourism!.name}`,
     );
+    const tabs = page.getByRole("tablist", { name: t("cardTabs.label") });
+    await tabs.getByRole("tab", { name: t("cardTabs.cases") }).click();
     await expect(
       caseBlock.getByRole("button", { name: t("caseBlocks.expand"), exact: true }),
     ).toHaveAttribute("aria-expanded", "false");
+    await tabs.getByRole("tab", { name: t("cardTabs.client"), exact: true }).click();
+    await expect(toCase).toBeVisible();
     await toCase.click();
+    await expect(page).toHaveURL(/\?tab=cases$/);
     await expect(
       caseBlock.getByRole("button", { name: t("caseBlocks.collapse"), exact: true }),
     ).toHaveAttribute("aria-expanded", "true");
@@ -173,6 +178,9 @@ for (const [lang, width] of [
       .getByRole("combobox", { name: t("cases.outcomeLabel"), exact: true })
       .selectOption({ label: t("cases.outcome.refusal") });
     await caseBlock.getByRole("button", { name: t("common.save"), exact: true }).click();
+    await expect(caseBlock.getByRole("button", { name: t("common.save"), exact: true })).toHaveCount(0);
+    // The questionnaire is on «Клиент» (backlog 1.15.17).
+    await page.getByRole("tab", { name: t("cardTabs.client"), exact: true }).click();
     await expect(visas).toHaveCount(0);
     await expect(
       questionnaire.locator(".kv").filter({ hasText: t("contacts.visas") }),

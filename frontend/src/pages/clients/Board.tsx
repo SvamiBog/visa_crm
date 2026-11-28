@@ -18,6 +18,7 @@ import {
   type CaseStage,
 } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
+import { cardPath, showCase } from "./cardTabs";
 import { CaseChip } from "./Cases";
 import type { Filters } from "./ClientsPage";
 import { todayIso } from "./ui";
@@ -388,7 +389,11 @@ function CaseCard({ card }: { card: Card }) {
       }}
     >
       <div>
-        <Link to={`/app/clients/${first.contact_id}`} state={FROM_INDEX} draggable={false}>
+        <Link
+          to={cardPath(first.contact_id, "cases")}
+          state={{ ...FROM_INDEX, ...showCase(first.id) }}
+          draggable={false}
+        >
           {first.full_name}
         </Link>
         {others > 0 && (

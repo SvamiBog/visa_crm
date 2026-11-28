@@ -23,15 +23,16 @@ type Card = {
   cases: unknown[] | null;
 };
 
-/** A client in work with a case and a passport of only the Latin name, from the API. */
-async function openClient(page: Page): Promise<void> {
+/** A client in work with a case and a passport of only the Latin name, from the API, on
+ * one tab of the card (backlog 1.15.17). */
+async function openClient(page: Page, tab: "cases" | "documents"): Promise<void> {
   const found = await page.request.post("/api/contacts/search", { data: { tab: "work" } });
   expect(found.ok()).toBe(true);
   const items = (await found.json()).items as { id: string; full_name_latin: string | null }[];
   for (const item of items.filter((i) => i.full_name_latin)) {
     const card = (await (await page.request.get(`/api/contacts/${item.id}`)).json()) as Card;
     if (!card.questionnaire.passport_number && card.cases?.length) {
-      await page.goto(`/app/clients/${item.id}`);
+      await page.goto(`/app/clients/${item.id}?tab=${tab}`);
       await page.locator("h1").waitFor();
       return;
     }
@@ -64,7 +65,7 @@ async function openPackage(
       expect(result.ok(), await result.text()).toBe(true);
       const dated = ((await result.json()).items as PackageItem[]).find((i) => i.max_age_days);
       if (dated && seen++ === which) {
-        await page.goto(`/app/clients/${item.id}`);
+        await page.goto(`/app/clients/${item.id}?tab=cases`);
         await page.locator("h1").waitFor();
         return { number: c.number, document: dated.name };
       }
@@ -100,7 +101,7 @@ for (const lang of ["ru", "en"] as const) {
     test("a passport shows its filled fields, the empty ones on «Показать все поля»", async ({
       page,
     }) => {
-      await openClient(page);
+      await openClient(page, "documents");
       const passport = page
         .locator("section.card")
         .filter({ has: page.getByRole("heading", { name: t("contacts.passport"), exact: true }) });
@@ -120,7 +121,7 @@ for (const lang of ["ru", "en"] as const) {
     test("who sees a case is one line; the checkboxes open with «Изменить доступ»", async ({
       page,
     }) => {
-      await openClient(page);
+      await openClient(page, "cases");
       const change = page.getByRole("button", { name: t("caseAccess.change"), exact: true }).first();
       const panel = await panelOf(page, change);
 

@@ -1,7 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   apiDelete,
@@ -37,13 +45,15 @@ import { deferDelete, useDeleting } from "../../undo";
 import { useWorkspace } from "../../workspace";
 import { AttentionList } from "../cabinet/Attention";
 import { ContactVault } from "../vault/Vault";
-import { Cases } from "./Cases";
+import { CARD_TABS, TAB_PARAM, caseToShow, cardPath, tabOf, type CardTab } from "./cardTabs";
+import { CaseChip, Cases } from "./Cases";
 import { useMoney } from "./Finance";
 import { ContactForm } from "./ContactForm";
 import { PassportCard } from "./Passport";
 import { ContactTemplates } from "./ContactTemplates";
 import { Consultations, Hints, QuestionnaireCard } from "./Consultations";
 import { ContactTrips } from "./Trips";
+import { useCaseName } from "./ui";
 
 function ErrorAlert({ error }: { error: unknown }) {
   const { t } = useTranslation();
@@ -79,10 +89,31 @@ function BackToList() {
  * consultations. */
 const CARD_COUNTED = ["notes", "vault_entries", "documents", "trips", "templates"] as const;
 
-/** A block of the card. Side by side the card has two columns; in one column the work
- * comes first — contact, cases, notes — and the reference blocks after it (styles.css). */
-function Slot({ name, children }: { name: string; children: ReactNode }) {
-  return <div className={`card-slot slot-${name}`}>{children}</div>;
+/** The module each tab needs; «Клиент» and «Паспорт и документы» are always there, and
+ * «Кейсы» is there when the card has its cases (null without the module). */
+const TAB_MODULES: Partial<Record<CardTab, string>> = {
+  trips: "stay_calculator",
+  vault: "vault",
+};
+
+/** How far from the row's edge an open tab is scrolled to, the page's side gutter. */
+const TAB_SCROLL_MARGIN = 16;
+
+/** One tab's content. Every tab stays mounted and the others are only hidden, so what is
+ * typed in a form on one tab is still there after a look at another (backlog 1.15.17). */
+function TabPanel({ tab, shown, children }: { tab: CardTab; shown: boolean; children: ReactNode }) {
+  return (
+    <div
+      role="tabpanel"
+      id={`card-panel-${tab}`}
+      aria-labelledby={`card-tab-${tab}`}
+      className="card-panel"
+      tabIndex={0}
+      hidden={!shown}
+    >
+      {children}
+    </div>
+  );
 }
 
 /** Every card is the one route /app/clients/:id, so going to another card inside the app
@@ -117,9 +148,46 @@ function ContactView({ id }: { id: string }) {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["contacts"] });
   const navigate = useNavigate();
   const location = useLocation();
+  const [search] = useSearchParams();
+  const modules = workspace.data?.modules;
+  const hasCases = card.data?.cases != null;
+  const tabs = useMemo(
+    () =>
+      CARD_TABS.filter((name) => {
+        if (name === "cases") return hasCases;
+        const needs = TAB_MODULES[name];
+        return needs === undefined || modules?.includes(needs) === true;
+      }),
+    [modules, hasCases],
+  );
+  // No tab, an unknown one or one of a module turned off: «Клиент». A tab of a module
+  // (trips, vault) waits for the modules, so a tab is never shown without its panel.
+  const named = tabOf(search);
+  const tab: CardTab = named !== null && tabs.includes(named) ? named : "client";
+  // A switch replaces the history entry instead of adding one and keeps its state, so
+  // «← Все клиенты» still goes back to the list as it was, after any number of switches.
+  const open = (next: CardTab, state: unknown = location.state) =>
+    navigate(
+      { pathname: location.pathname, search: next === "client" ? "" : `?${TAB_PARAM}=${next}` },
+      { replace: true, state },
+    );
+  // The request in the history state is done once: it leaves the history with the switch,
+  // so that a reload or «back» does not do it again.
+  const keptState = () => (openedFromIndex(location.state) ? FROM_INDEX : null);
+  // A case asked for from another tab or page: «Кейсы» unfold it, bring it into view and
+  // put the focus on its heading, each ask anew.
+  const [askedCase, setAskedCase] = useState<{ id: string; times: number } | null>(null);
+  const showCaseOnTab = (caseId: string) => {
+    open("cases");
+    setAskedCase((last) => ({ id: caseId, times: (last?.times ?? 0) + 1 }));
+  };
+  // «Создать кейс», «+ Кейс» of a consultation: the form opens on «Кейсы».
+  const createCase = (value: Consultation | "blank" | null) => {
+    if (value !== null) open("cases");
+    setCreatingCase(value);
+  };
   // A client dropped from «Консультация» on a stage of the board: the case form opens
-  // once, from the latest consultation, and the request leaves the history so that a
-  // reload or «back» does not open it again.
+  // once on «Кейсы», from the latest consultation.
   useEffect(() => {
     if (!card.data || !openedToCreateCase(location.state)) return;
     // Not for a client who already has a case in work, their own or opened from their
@@ -132,21 +200,24 @@ function ContactView({ id }: { id: string }) {
       );
       if (!inWork) setCreatingCase(latest && latest.decision !== "no" ? latest : "blank");
     }
-    const state = openedFromIndex(location.state) ? FROM_INDEX : null;
-    navigate(location.pathname, { replace: true, state });
+    open(card.data.cases !== null ? "cases" : tab, keptState());
   }, [card.data, location.state, location.pathname, navigate]);
   // A case without a result dropped on «Результат» of the board: its form opens at the
   // result, once, the same way.
   const [resultCaseId, setResultCaseId] = useState<string | null>(null);
-  // A case asked for from the questionnaire (a visa granted in it): the cases block
-  // unfolds it and brings it into view, each ask anew.
-  const [askedCase, setAskedCase] = useState<{ id: string; times: number } | null>(null);
   useEffect(() => {
     const caseId = caseToEnterResult(location.state);
     if (!card.data || caseId === null) return;
     setResultCaseId(caseId);
-    const state = openedFromIndex(location.state) ? FROM_INDEX : null;
-    navigate(location.pathname, { replace: true, state });
+    open(hasCases ? "cases" : tab, keptState());
+  }, [card.data, location.state, location.pathname, navigate]);
+  // A case asked for by another page (a case card of the board, «кейс открыт на …» in the
+  // index): «Кейсы» on that case, once.
+  useEffect(() => {
+    const caseId = caseToShow(location.state);
+    if (!card.data || caseId === null) return;
+    setAskedCase((last) => ({ id: caseId, times: (last?.times ?? 0) + 1 }));
+    open(hasCases ? "cases" : tab, keptState());
   }, [card.data, location.state, location.pathname, navigate]);
   // The card goes with all the client's history (decisions.md → «Удаление кейса и
   // карточки со всем содержимым»).
@@ -277,66 +348,130 @@ function ContactView({ id }: { id: string }) {
       <Hints hints={card.data.hints} />
       {workspace.data?.modules.includes("tasks") && <AttentionList contactId={contact.id} />}
 
-      <div className="contact-layout">
+      <CardTabs tabs={tabs} current={tab} casesCount={card.data.cases?.length ?? 0} onOpen={open} />
+
+      <TabPanel tab="client" shown={tab === "client"}>
         <div className="card-grid">
           <div className="column">
-            <Slot name="contact">
-              <ContactDetails card={card.data} />
-            </Slot>
-            <Slot name="passport">
-              <PassportCard card={card.data} />
-            </Slot>
-            <Slot name="questionnaire">
-              <QuestionnaireCard
-                card={card.data}
-                onOpenCase={(caseId) =>
-                  setAskedCase((last) => ({ id: caseId, times: (last?.times ?? 0) + 1 }))
-                }
-              />
-            </Slot>
-            {workspace.data?.modules.includes("stay_calculator") && (
-              <Slot name="trips">
-                <ContactTrips contactId={contact.id} />
-              </Slot>
-            )}
-            <Slot name="paperwork">
-              <Paperwork card={card.data} fileStorage={workspace.data?.file_storage === true} />
-            </Slot>
-            {workspace.data?.modules.includes("document_templates") && (
-              <Slot name="templates">
-                <ContactTemplates contactId={contact.id} cases={card.data.cases ?? []} />
-              </Slot>
-            )}
+            <ContactDetails card={card.data} onShowCase={showCaseOnTab} />
+            <QuestionnaireCard card={card.data} onOpenCase={showCaseOnTab} />
           </div>
           <div className="column">
-            {card.data.cases !== null && (
-              <Slot name="cases">
-                <Cases
-                  card={card.data}
-                  creating={creatingCase}
-                  onCreating={setCreatingCase}
-                  resultCaseId={resultCaseId}
-                  asked={askedCase}
-                />
-              </Slot>
-            )}
-            {workspace.data?.modules.includes("vault") && (
-              <Slot name="vault">
-                <ContactVault contactId={contact.id} cases={card.data.cases ?? []} />
-              </Slot>
-            )}
-            <Slot name="consultations">
-              <Consultations
-                card={card.data}
-                onCreateCase={card.data.cases !== null ? setCreatingCase : undefined}
-              />
-            </Slot>
-            <Slot name="notes">
-              <Timeline contactId={contact.id} notes={notes} />
-            </Slot>
+            <Consultations
+              card={card.data}
+              onCreateCase={card.data.cases !== null ? createCase : undefined}
+            />
+            <Timeline contactId={contact.id} notes={notes} />
           </div>
         </div>
-      </div>
+      </TabPanel>
+      {card.data.cases !== null && (
+        <TabPanel tab="cases" shown={tab === "cases"}>
+          <Cases
+            card={card.data}
+            creating={creatingCase}
+            onCreating={createCase}
+            resultCaseId={resultCaseId}
+            asked={askedCase}
+          />
+        </TabPanel>
+      )}
+      <TabPanel tab="documents" shown={tab === "documents"}>
+        <div className="card-grid">
+          <div className="column">
+            <PassportCard card={card.data} />
+          </div>
+          <div className="column">
+            <Paperwork card={card.data} fileStorage={workspace.data?.file_storage === true} />
+            {modules?.includes("document_templates") && (
+              <ContactTemplates contactId={contact.id} cases={card.data.cases ?? []} />
+            )}
+          </div>
+        </div>
+      </TabPanel>
+      {tabs.includes("trips") && (
+        <TabPanel tab="trips" shown={tab === "trips"}>
+          <ContactTrips contactId={contact.id} />
+        </TabPanel>
+      )}
+      {tabs.includes("vault") && (
+        <TabPanel tab="vault" shown={tab === "vault"}>
+          <ContactVault contactId={contact.id} cases={card.data.cases ?? []} />
+        </TabPanel>
+      )}
+    </div>
+  );
+}
+
+/** The card's tabs, like those of «Справочники». On a narrow screen they keep one row
+ * that scrolls sideways, and the open tab is scrolled into it. Arrow keys move between
+ * the tabs the usual way of a tab list. */
+function CardTabs({
+  tabs,
+  current,
+  casesCount,
+  onOpen,
+}: {
+  tabs: readonly CardTab[];
+  current: CardTab;
+  casesCount: number;
+  onOpen: (tab: CardTab) => void;
+}) {
+  const { t } = useTranslation();
+  const listRef = useRef<HTMLDivElement>(null);
+  // Sideways only: the page itself does not move when a tab opens.
+  useEffect(() => {
+    const list = listRef.current;
+    const button = list?.querySelector<HTMLElement>(`#card-tab-${current}`);
+    if (!list || !button) return;
+    const row = list.getBoundingClientRect();
+    const box = button.getBoundingClientRect();
+    if (box.left < row.left) list.scrollLeft -= row.left - box.left + TAB_SCROLL_MARGIN;
+    else if (box.right > row.right) list.scrollLeft += box.right - row.right + TAB_SCROLL_MARGIN;
+  }, [current, tabs]);
+  const step = (event: KeyboardEvent<HTMLDivElement>) => {
+    const index = tabs.indexOf(current);
+    const next =
+      event.key === "ArrowRight"
+        ? tabs[(index + 1) % tabs.length]
+        : event.key === "ArrowLeft"
+          ? tabs[(index - 1 + tabs.length) % tabs.length]
+          : event.key === "Home"
+            ? tabs[0]
+            : event.key === "End"
+              ? tabs[tabs.length - 1]
+              : undefined;
+    if (next === undefined) return;
+    event.preventDefault();
+    onOpen(next);
+    listRef.current?.querySelector<HTMLElement>(`#card-tab-${next}`)?.focus();
+  };
+  return (
+    <div
+      ref={listRef}
+      className="tabs tabs-scroll"
+      role="tablist"
+      aria-label={t("cardTabs.label")}
+      onKeyDown={step}
+    >
+      {tabs.map((name) => (
+        <button
+          key={name}
+          id={`card-tab-${name}`}
+          type="button"
+          role="tab"
+          aria-selected={current === name}
+          aria-controls={`card-panel-${name}`}
+          tabIndex={current === name ? 0 : -1}
+          // «Кейсы 2» to a screen reader, not «Кейсы2».
+          aria-label={name === "cases" ? `${t("cardTabs.cases")} ${casesCount}` : undefined}
+          className={current === name ? "tab active" : "tab"}
+          onClick={() => onOpen(name)}
+        >
+          {t(`cardTabs.${name}`)}
+          {name === "cases" && <span className="tab-count">{casesCount}</span>}
+        </button>
+      ))}
     </div>
   );
 }
@@ -359,8 +494,15 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function ContactDetails({ card }: { card: ContactCard }) {
+function ContactDetails({
+  card,
+  onShowCase,
+}: {
+  card: ContactCard;
+  onShowCase: (caseId: string) => void;
+}) {
   const { t, i18n } = useTranslation();
+  const caseName = useCaseName();
   const lists = useContactLists();
   const channels = useMemo(() => byId(lists.channels), [lists.channels]);
   const partners = useMemo(() => byId(lists.partners), [lists.partners]);
@@ -394,6 +536,31 @@ function ContactDetails({ card }: { card: ContactCard }) {
           new Date(c.created_at),
         )}
       </Row>
+      {/* The client's cases in short, so that a case is seen on the first tab; each opens
+          on «Кейсы» (backlog 1.15.17). */}
+      {card.cases !== null && card.cases.length > 0 && (
+        <nav className="contact-cases case-list" aria-label={t("cardTabs.casesList")}>
+          <h3 className="h3">{t("cases.title")}</h3>
+          <ol>
+            {card.cases.map((visaCase) => (
+              <li key={visaCase.id}>
+                <a
+                  href={cardPath(c.id, "cases")}
+                  onClick={(e) => {
+                    // Ctrl-, Shift- or middle click opens «Кейсы» in a new tab the browser's way.
+                    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    e.preventDefault();
+                    onShowCase(visaCase.id);
+                  }}
+                >
+                  {caseName(visaCase)}
+                </a>
+                <CaseChip stage={visaCase.stage} outcome={visaCase.outcome} />
+              </li>
+            ))}
+          </ol>
+        </nav>
+      )}
     </section>
   );
 }

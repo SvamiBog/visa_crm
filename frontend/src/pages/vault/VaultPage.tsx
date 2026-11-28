@@ -5,6 +5,7 @@ import { byId } from "../../reference";
 import { useOwnVault, useVaultSystems, type VaultEntry } from "../../vault";
 import { ErrorAlert } from "../clients/ui";
 import { VaultEntryForm, VaultEntryView } from "./Vault";
+import { cardPath } from "../clients/cardTabs";
 
 /** «Сейф»: the workspace's own accounts — the specialist's backup mailboxes, Booking —
  * and, for each, the clients' accounts made on it. Clients' accounts live on their cards. */
@@ -64,7 +65,7 @@ export function VaultPage() {
                     ? "—"
                     : entry.accounts.map((a) => (
                         <div key={a.id}>
-                          <Link to={`/app/clients/${a.contact_id}`}>{a.contact_name}</Link>
+                          <Link to={cardPath(a.contact_id, "vault")}>{a.contact_name}</Link>
                           <span className="muted"> · {systemName(a.system_id)}</span>
                         </div>
                       ))}

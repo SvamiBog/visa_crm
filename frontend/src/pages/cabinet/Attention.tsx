@@ -7,6 +7,7 @@ import { useConfirm } from "../../components/ConfirmDialog";
 import { formatDate, refreshAfterPassportPurge } from "../../contacts";
 import { byId, useCountries, useLocalName } from "../../reference";
 import { useMoney } from "../clients/Finance";
+import { cardPath, showCase, type CardTab } from "../clients/cardTabs";
 import { ErrorAlert } from "../clients/ui";
 
 // «Требует внимания» (backlog 1.11): reminders the API computes from the workspace's data
@@ -35,6 +36,13 @@ type Kind =
   | "portal_uploads"
   | "card_limit"
   | "password_limit";
+
+/** The tab of the client's card a reminder is about: the contract and the passport data
+ * on «Паспорт и документы», anything of a case on «Кейсы» (backlog 1.15.17). */
+function reminderTab(r: Reminder): CardTab {
+  if (r.kind === "contract" || r.kind === "passport_purge") return "documents";
+  return r.case_id !== null ? "cases" : "client";
+}
 
 type Reminder = {
   key: string | null;
@@ -331,7 +339,12 @@ export function AttentionList({ contactId, limit }: { contactId?: string; limit?
                             m.contact_id && (
                               <span key={m.key ?? m.contact_id}>
                                 {i > 0 && ", "}
-                                <Link to={`/app/clients/${m.contact_id}`}>{m.contact_name}</Link>
+                                <Link
+                                  to={cardPath(m.contact_id, reminderTab(m))}
+                                  state={m.case_id !== null ? showCase(m.case_id) : undefined}
+                                >
+                                  {m.contact_name}
+                                </Link>
                               </span>
                             ),
                         )}

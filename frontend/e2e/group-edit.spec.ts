@@ -86,7 +86,7 @@ for (const lang of ["ru", "en"] as const) {
 
     // The card's blocks load one after another and push the case down: clicks wait until
     // they are all in.
-    await page.goto(`/app/clients/${mother.contact_id}`, { waitUntil: "networkidle" });
+    await page.goto(`/app/clients/${mother.contact_id}?tab=cases`, { waitUntil: "networkidle" });
     const panel = page.locator("article.case-panel");
     const save = async () => {
       const saved = page.waitForResponse(
@@ -133,7 +133,7 @@ for (const lang of ["ru", "en"] as const) {
     });
     expect(refused.ok(), await refused.text()).toBe(true);
 
-    await page.goto(`/app/clients/${mother.contact_id}`, { waitUntil: "networkidle" });
+    await page.goto(`/app/clients/${mother.contact_id}?tab=cases`, { waitUntil: "networkidle" });
     const panel = page.locator("article.case-panel");
     const edit = panel.locator(":scope > .case-head").getByRole("button", {
       name: t("reference.edit"),

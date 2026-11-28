@@ -17,6 +17,7 @@ import { useMoney } from "../clients/Finance";
 import { PackageChip } from "../clients/Package";
 import { ErrorAlert } from "../clients/ui";
 import { AttentionList, remindersQuery } from "./Attention";
+import { cardPath, showCase } from "../clients/cardTabs";
 
 // Главный экран (backlog 1.12): what to do today — metrics, «Требует внимания», the
 // nearest submissions, the month's funnel, the queues. The API leaves out the blocks
@@ -294,7 +295,9 @@ function UpcomingSubmissions({
                 <tr key={r.case_id}>
                   <td className="nowrap">{day(r.submission_on, { ...SHORT, weekday: "short" })}</td>
                   <td>
-                    <Link to={`/app/clients/${r.contact_id}`}>{r.contact_name}</Link>
+                    <Link to={cardPath(r.contact_id, "cases")} state={showCase(r.case_id)}>
+                      {r.contact_name}
+                    </Link>
                     {r.others > 0 && (
                       <span className="muted"> {t("home.others", { count: r.others })}</span>
                     )}

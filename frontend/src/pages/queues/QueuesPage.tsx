@@ -19,6 +19,7 @@ import { useSortedTable, type SortColumns } from "../../sorting";
 import { ATTEMPT_CHIP, QUEUE_CHIP } from "../clients/Appointment";
 import { CaseChip } from "../clients/Cases";
 import { ErrorAlert } from "../clients/ui";
+import { cardPath } from "../clients/cardTabs";
 
 // «Очередь: страна» (backlog 1.6): who waits since when under what number, the
 // applications with their deadlines, and the average wait by city and purpose.
@@ -217,7 +218,7 @@ export function QueuesPage() {
                 {entries.rows.map((r) => (
                   <tr key={r.id}>
                     <td>
-                      <Link to={`/app/clients/${r.contact_id}`}>{r.full_name}</Link>
+                      <Link to={cardPath(r.contact_id, "cases")}>{r.full_name}</Link>
                       <div className="muted small">{t("cases.number", { number: r.number })}</div>
                     </td>
                     <td>
@@ -274,7 +275,7 @@ export function QueuesPage() {
                 {attempts.rows.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      <Link to={`/app/clients/${a.contact_id}`}>{a.full_name}</Link>
+                      <Link to={cardPath(a.contact_id, "cases")}>{a.full_name}</Link>
                       <div className="muted small">
                         {t("cases.number", { number: a.number_of_case })}
                       </div>
