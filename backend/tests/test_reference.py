@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import Country, CountryRule, VisaCenter
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 
 RULES = "/api/reference/rules"
 

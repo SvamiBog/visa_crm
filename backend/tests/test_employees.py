@@ -4,7 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
-from tests.helpers import NEW_PASSWORD, MakeUser, enable_two_factor, login
+from tests.support.helpers import NEW_PASSWORD, MakeUser, enable_two_factor, login
 
 
 async def invite(client: AsyncClient, email: str = "staff@example.com", **extra) -> dict:

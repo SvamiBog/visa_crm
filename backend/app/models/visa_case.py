@@ -105,7 +105,7 @@ class VisaCase(Base):
         _same_tenant("visa_center_id", "visa_centers", "RESTRICT"),
         Index("ix_visa_cases_contact_id", "contact_id"),
         Index("ix_visa_cases_group_id", "group_id"),
-        # The cases a consultation led to (app/api/client_status.py → covers, of_contact).
+        # The cases a consultation led to (app/api/client_status.py → covers, has_case).
         Index("ix_visa_cases_consultation_id", "consultation_id"),
         Index("ix_visa_cases_previous_case_id", "previous_case_id"),
         Index("ix_visa_cases_tenant_stage", "tenant_id", "stage"),

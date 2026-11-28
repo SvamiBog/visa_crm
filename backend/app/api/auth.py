@@ -1,3 +1,12 @@
+"""Login (backlog 0.4, 0.5; hardened in S9): email and password, the second-factor code
+when two-factor login is on, logout, the signed-in user with their preferences, and the
+change of password that a temporary password requires.
+
+Sessions are server-side, in the system scope; the cookie is kept in app/api/deps.py. Ten
+misses lock an account for 15 minutes and answer like an unknown address; every login,
+miss and lockout is in the audit log, without the password or the code.
+"""
+
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -23,7 +32,6 @@ from app.core.security import (
     MIN_PASSWORD_LENGTH,
     ClientFailures,
     check_password,
-    hash_password,
     hash_session_token,
     make_password_hash,
     new_session_token,
@@ -428,7 +436,7 @@ async def change_password(
     if body.new_password == body.current_password:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "password_unchanged")
 
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = await make_password_hash(body.new_password)
     user.must_change_password = False
     # A changed password must lock out whoever knew the old one.
     await sign_out_other_devices(session, current)

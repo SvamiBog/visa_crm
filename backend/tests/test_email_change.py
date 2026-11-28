@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.api.email_change import MAX_CODE_ATTEMPTS, MAX_CODES_A_DAY
 from app.core import mail
 from app.core.config import get_settings
-from tests.helpers import PASSWORD, MakeUser, login
+from tests.support.helpers import PASSWORD, MakeUser, login
 
 URL = "/api/auth/email-change"
 

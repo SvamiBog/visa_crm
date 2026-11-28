@@ -19,7 +19,7 @@ from app.core.config import get_settings
 from app.core.db import scope_to_tenant
 from app.core.storage import MEMORY
 from app.models import AuditEvent, ClientLink, PackageFile, PortalConsent
-from tests.helpers import MakeUser, give_cases
+from tests.support.helpers import MakeUser, give_cases
 from tests.test_package import as_specialist, countries, open_case, own, package, relogin
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64

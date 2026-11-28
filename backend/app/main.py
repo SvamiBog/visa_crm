@@ -54,6 +54,7 @@ from app.core.audit import client_address, client_ip
 from app.core.config import get_settings
 from app.core.employee_limits import LimitReached
 from app.core.error_reports import start_error_reports
+from app.core.finance import AmountTooLarge
 from app.core.http_headers import add_security_headers, refuse_cross_site_changes
 from app.core.passport_purge import keep_purging
 from app.core.rates import keep_fresh
@@ -148,6 +149,15 @@ def create_app() -> FastAPI:
     async def limit_reached(request: Request, error: LimitReached) -> JSONResponse:
         # An employee's daily limit (backlog Т.14): paused until the next day.
         return JSONResponse(status_code=429, content={"detail": error.code})
+
+    @app.exception_handler(AmountTooLarge)
+    async def amount_too_large(request: Request, error: AmountTooLarge) -> JSONResponse:
+        # Amount × rate does not fit NUMERIC(14, 2) (app/core/finance.py): one answer for
+        # every write that counts an amount in the base currency, nothing of it kept.
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={"detail": "amount_too_large"},
+        )
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:

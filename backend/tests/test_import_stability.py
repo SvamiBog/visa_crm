@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.api import imports as imports_api
 from app.core.data_import import WorkbookImport
 from app.core.workbook import WorkbookError, read_workbook
-from tests.helpers import MakeUser, finished_import, login, uploaded
+from tests.support.helpers import MakeUser, finished_import, login, uploaded
 from tests.test_data_import import body, check, rows, run
 from tests.test_workbook_rules import book, reasons
 

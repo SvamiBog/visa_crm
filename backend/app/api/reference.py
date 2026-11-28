@@ -1,9 +1,12 @@
 """Countries and visa center operators (shared, the admin edits them) and the workspace's
 directions: appointment rules «destination × submission country» with their cities.
 
-Every workspace user reads them (forms need them, so no module check here). Directions are
-set up by the specialist herself (backlog 1.20): an entry a case uses is switched off, an
-unused one can be deleted. Shared entries are switched off, never deleted.
+Every workspace user reads them: the forms of cases and consultations need the countries,
+operators and directions whatever modules are on, so reading has no module check
+(docs/decisions.md → «Модули в API»). Directions are set up by the specialist herself
+(backlog 1.20) in «Страны и визы», so writing them needs the «country_rules» module: an
+entry a case uses is switched off, an unused one can be deleted. Shared entries are
+switched off, never deleted.
 """
 
 import uuid
@@ -22,6 +25,7 @@ from app.api.deps import (
     SystemSession,
     TenantSession,
     require_admin,
+    require_module,
     require_specialist,
 )
 from app.core.audit import record
@@ -45,6 +49,9 @@ admin_router = APIRouter(
 
 Admin = Annotated[CurrentUser, Depends(require_admin)]
 Specialist = Annotated[CurrentUser, Depends(require_specialist)]
+# Writing the directions: the specialist (an employee is told «forbidden» first) with the
+# «Страны и визы» module; reading stays open, see above.
+DIRECTIONS = [Depends(require_specialist), Depends(require_module("country_rules"))]
 
 Name = Annotated[str, Field(min_length=1, max_length=100)]
 Days = Annotated[int, Field(ge=1, le=365)]
@@ -391,7 +398,7 @@ async def list_rules(
 # --- Workspace: the specialist sets up her directions ---------------------------------
 
 
-@router.post("/rules", status_code=status.HTTP_201_CREATED)
+@router.post("/rules", status_code=status.HTTP_201_CREATED, dependencies=DIRECTIONS)
 async def create_rules(body: RuleIn, user: Specialist, session: TenantSession) -> list[RuleOut]:
     """The same direction for every destination sent; all or nothing."""
     fields = body.model_dump(exclude={"destination_ids", "cities"})
@@ -413,7 +420,7 @@ async def create_rules(body: RuleIn, user: Specialist, session: TenantSession) -
     return [await _rule_out(session, rule) for rule in rules]
 
 
-@router.patch("/rules/{rule_id}")
+@router.patch("/rules/{rule_id}", dependencies=DIRECTIONS)
 async def update_rule(
     rule_id: uuid.UUID, body: RuleUpdate, user: Specialist, session: TenantSession
 ) -> RuleOut:
@@ -428,7 +435,7 @@ async def update_rule(
     return await _rule_out(session, rule)
 
 
-@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=DIRECTIONS)
 async def delete_rule(rule_id: uuid.UUID, user: Specialist, session: TenantSession) -> Response:
     """Only a direction no case uses; otherwise it is switched off."""
     rule = await _get(session, CountryRule, rule_id)
@@ -441,7 +448,7 @@ async def delete_rule(rule_id: uuid.UUID, user: Specialist, session: TenantSessi
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/rules/{rule_id}/visa-centers")
+@router.post("/rules/{rule_id}/visa-centers", dependencies=DIRECTIONS)
 async def add_visa_centers(
     rule_id: uuid.UUID, body: CitiesIn, user: Specialist, session: TenantSession
 ) -> RuleOut:
@@ -452,7 +459,7 @@ async def add_visa_centers(
     return await _rule_out(session, rule)
 
 
-@router.patch("/visa-centers/{center_id}")
+@router.patch("/visa-centers/{center_id}", dependencies=DIRECTIONS)
 async def update_visa_center(
     center_id: uuid.UUID, body: VisaCenterUpdate, user: Specialist, session: TenantSession
 ) -> VisaCenterOut:
@@ -474,7 +481,9 @@ async def update_visa_center(
     return VisaCenterOut.model_validate(center)
 
 
-@router.delete("/visa-centers/{center_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/visa-centers/{center_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=DIRECTIONS
+)
 async def delete_visa_center(
     center_id: uuid.UUID, user: Specialist, session: TenantSession
 ) -> Response:

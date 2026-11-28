@@ -1,3 +1,13 @@
+"""The workspace of a specialist (визовик = арендатор, backlog 0.3): the row every business
+table points to with tenant_id.
+
+Holds what is set for the whole workspace: base and payment currencies, tax, time zone,
+the modules the admin turned on, the wrapped vault key, reminder windows, the CRM
+subscription and the specialist's details as the controller of her clients' data.
+Modules, the subscription and blocking are changed only in the system scope (trigger
+`tenant_changes_allowed`, migration 0043).
+"""
+
 import uuid
 from datetime import date, datetime
 from decimal import Decimal

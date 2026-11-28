@@ -152,6 +152,75 @@ def test_a_bad_cell_skips_its_row_in_a_required_column_and_only_the_cell_elsewhe
     assert reasons(result.warnings) == [("number", "Консультации", 3, "Заявителей")]
 
 
+def test_a_currency_the_crm_does_not_keep_skips_the_payment_or_expense_row():
+    """An empty «Валюта» is the accounting currency; «RUB» or «евро» is not (backlog A4)."""
+    result = read_workbook(
+        book(
+            {
+                "Платежи": [
+                    ["Код кейса", "Дата", "Сумма", "Валюта"],
+                    ["k1", "15.01.2025", 5000, "RUB"],
+                    ["k1", "16.01.2025", 100, "евро"],
+                    ["k1", "17.01.2025", 70, None],
+                    ["k1", "18.01.2025", 150, "eur"],
+                    # A formula without a saved result is not an empty cell either.
+                    ["k1", "19.01.2025", 150, "=E1"],
+                ],
+                "Расходы": [
+                    ["Код кейса", "Дата", "Описание", "Сумма", "Валюта"],
+                    ["k1", "15.01.2025", "Перевод", 3000, "RUB"],
+                ],
+            }
+        )
+    )
+    rows = result.sheets["payments"].rows
+    assert [(r.number, r.values.get("currency")) for r in rows] == [(4, None), (5, "EUR")]
+    assert rows[0].blank == {"currency"}
+    assert result.sheets["expenses"].rows == []
+    assert reasons(result.skipped) == [
+        ("currency", "Платежи", 2, "Валюта"),
+        ("currency", "Платежи", 3, "Валюта"),
+        ("formula", "Платежи", 6, "Валюта"),
+        ("currency", "Расходы", 2, "Валюта"),
+    ]
+    assert result.warnings == []
+
+
+def test_an_optional_cell_that_cannot_be_read_is_remembered_on_its_row():
+    """The talon and the fee of a consultation are parts of a row: the row stays, and the
+    import knows their currency was written and not understood (backlog A4)."""
+    result = read_workbook(
+        book(
+            {
+                "Кейсы": [
+                    ["Код кейса", "Код клиента", "Страна визы", "Талон", "Валюта талона"],
+                    ["k1", "К1", "Польша", 300, "RUB"],
+                    ["k2", "К1", "Польша", 300, None],
+                    # A formula without a saved result is not an empty cell either.
+                    ["k3", "К1", "Польша", 300, "=E1"],
+                ],
+                "Консультации": [
+                    ["Код клиента", "Дата", "Стоимость", "Валюта"],
+                    ["К1", "15.01.2025", 50, "руб."],
+                ],
+            }
+        )
+    )
+    first, second, third = result.sheets["cases"].rows
+    assert third.invalid == {"registrar_fee_currency"} and third.blank == set()
+    assert first.invalid == {"registrar_fee_currency"}
+    assert "registrar_fee_currency" not in first.values
+    assert second.invalid == set() and second.blank == {"registrar_fee_currency"}
+    [consultation] = result.sheets["consultations"].rows
+    assert consultation.invalid == {"fee_currency"}
+    assert sorted(reasons(result.warnings)) == [
+        ("currency", "Кейсы", 2, "Валюта талона"),
+        ("currency", "Консультации", 2, "Валюта"),
+        ("formula", "Кейсы", 4, "Валюта талона"),
+    ]
+    assert result.skipped == []
+
+
 def test_a_code_repeated_on_its_sheet_skips_the_later_row():
     result = read_workbook(
         book({"Клиенты": [["Код клиента", "Имя"], ["К1", "Анна"], ["К1", "Аня"]]})

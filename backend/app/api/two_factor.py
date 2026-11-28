@@ -1,3 +1,12 @@
+"""Two-factor login in «Настройки» (backlog 0.5): setting up an authenticator app, turning
+it on with a code — which gives the recovery codes — and turning it off.
+
+Optional for every role (decision of 2026-10-17). Setting it up and turning it off ask
+for the current password; turning it on or off signs out the other devices (backlog S9)
+and is in the audit log. The codes themselves are app/core/two_factor.py; the code at
+login is app/api/auth.py.
+"""
+
 from datetime import UTC, datetime
 from typing import Annotated
 

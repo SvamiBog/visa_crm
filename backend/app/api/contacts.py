@@ -15,7 +15,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import delete, exists, func, or_, select, true
+from sqlalchemy import and_, delete, exists, func, or_, select, true
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +37,14 @@ from app.api.client_status import (
     sort_contacts,
     tab_of,
 )
-from app.api.consultations import ConsultationOut, HintOut, consultations_of, hints_for
+from app.api.consultations import (
+    ConsultationOut,
+    HintOut,
+    VisaHistoryOut,
+    consultations_of,
+    hints_for,
+    visa_history_of,
+)
 from app.api.deps import CurrentUser, TenantSession, effective_modules, require_module
 from app.api.documents import DocumentOut, documents_of
 from app.api.package_files import remove_objects
@@ -47,8 +54,16 @@ from app.core.data_values import TELEGRAM_NICK, telegram_nick
 from app.core.days import Day
 from app.core.db import BIGINT_MAX
 from app.core.documents import object_key
-from app.core.employee_limits import LimitKind, watch
-from app.core.names import LATIN_PARTS, NAME_PARTS, NamePart, latin_fields, name_fields, tidy
+from app.core.employee_limits import LimitKind, open_card, watch
+from app.core.names import (
+    LATIN_PARTS,
+    NAME_PARTS,
+    NamePart,
+    latin_fields,
+    name_fields,
+    search_words,
+    tidy,
+)
 from app.core.phone import normalize_phone, phone_search_digits
 from app.core.questionnaire import Passport, Questionnaire, has_answers, has_passport
 from app.models import (
@@ -268,6 +283,9 @@ class ContactCard(BaseModel):
     notes: list[NoteOut]
     consultations: list[ConsultationOut]
     questionnaire: Questionnaire
+    # The visas of the questionnaire and of the client's cases, as the card shows them
+    # (app/core/visa_history.py).
+    visa_history: list[VisaHistoryOut]
     # Questionnaire checks against the latest consultation and the cases in work
     # (app/core/consultation_checks.py).
     hints: list[HintOut]
@@ -357,6 +375,17 @@ def _has(column: Any, term: str) -> Any:
     return column.icontains(term, autoescape=True)
 
 
+def _named(term: str) -> Any:
+    """Every word of the search is in the name, Cyrillic or Latin, in any order: «Дарья
+    Ковальчук» finds «Ковальчук Дарья Игоревна» (backlog A2)."""
+    return and_(
+        *(
+            or_(_has(Contact.full_name, word), _has(Contact.full_name_latin, word))
+            for word in search_words(term)
+        )
+    )
+
+
 async def _notes(session: AsyncSession, contact_id: uuid.UUID) -> list[NoteOut]:
     rows = await session.execute(
         select(ContactNote, User.email)
@@ -391,6 +420,7 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
         notes=await _notes(session, contact.id),
         consultations=consultations,
         questionnaire=Questionnaire.model_validate(contact.questionnaire),
+        visa_history=await visa_history_of(session, contact, with_cases=with_cases),
         hints=await hints_for(session, contact),
         cases=await cases_of(session, contact.id) if with_cases else None,
         documents=await documents_of(session, contact.id),
@@ -401,10 +431,12 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
 async def _own_note(
     session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID, note_id: uuid.UUID
 ) -> ContactNote:
-    """Employees change only their own notes; the specialist changes any."""
+    """Employees change only their own notes; the specialist changes any. A note is on
+    the client's card, so changing one opens the card (Т.14)."""
     note = await session.get(ContactNote, note_id)
     if note is None or note.contact_id != contact_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
+    await open_card(session, user, contact_id)
     if user.role != UserRole.SPECIALIST and note.author_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
     return note
@@ -415,11 +447,11 @@ async def _own_note(
 
 @router.post("/search")
 async def search_contacts(body: SearchIn, user: Member, session: TenantSession) -> SearchOut:
-    """By name (Cyrillic or Latin), part of the phone number or Telegram, within a tab of
-    the client index and its filters; newest first or by the sorted column. What a module
-    holds is searched only with that module: without «cases» nothing in a case finds,
-    filters or sorts a contact, nor decides their tab (audit L3), as the card shows no
-    cases."""
+    """By name (Cyrillic or Latin, its words in any order), part of the phone number or
+    Telegram, within a tab of the client index and its filters; newest first or by the
+    sorted column. What a module holds is searched only with that module: without «cases»
+    nothing in a case finds, filters or sorts a contact, nor decides their tab (audit L3),
+    as the card shows no cases."""
     modules = await effective_modules(session, user)
     with_cases = "cases" in modules
     latest = latest_consultation()
@@ -427,11 +459,8 @@ async def search_contacts(body: SearchIn, user: Member, session: TenantSession) 
     query = select(Contact, tab.label("tab")).outerjoin(latest, true())
     term = telegram_nick(body.query)
     if term:
-        conditions = [
-            _has(Contact.full_name, term),
-            _has(Contact.full_name_latin, term),
-            _has(Contact.telegram, term),
-        ]
+        # The name is looked for word by word; a nick, a number and a login as typed.
+        conditions = [_named(term), _has(Contact.telegram, term)]
         if with_cases:
             # The number the visa center knows the client by (ID, application number…).
             conditions.append(
@@ -499,7 +528,7 @@ async def _rows(
     cases: dict[uuid.UUID, list[VisaCase]] = {}
     group_sizes: dict[uuid.UUID, int] = {}
     # Cases opened from a row's consultations for someone else, and whose they are
-    # (pilot fix 2). The same rule as client_status.of_contact, which the tabs, filters and
+    # (pilot fix 2). The same rule as client_status.has_case, which the tabs, filters and
     # sorting use in SQL: keep the two in step. RLS hides what an employee does not see.
     applicants: dict[uuid.UUID, str] = {}
     if with_cases:
@@ -780,6 +809,7 @@ async def add_note(
     contact_id: uuid.UUID, body: NoteIn, user: Member, session: TenantSession
 ) -> NoteOut:
     contact = await _contact(session, contact_id)
+    await open_card(session, user, contact.id)
     note = ContactNote(
         tenant_id=user.tenant_id, contact_id=contact.id, body=body.body, author_id=user.id
     )

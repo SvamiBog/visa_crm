@@ -35,7 +35,7 @@ from app.api.deps import (
 from app.core.audit import record
 from app.core.documents import content_disposition
 from app.core.docx_fill import CODE, DocxError, codes_in, fill, read_docx
-from app.core.employee_limits import LimitKind, watch
+from app.core.employee_limits import LimitKind, open_card, watch
 from app.core.questionnaire import Questionnaire
 from app.core.storage import (
     StorageFailed,
@@ -585,6 +585,7 @@ async def give_template(
 ) -> dict[str, uuid.UUID]:
     assert user.tenant_id is not None
     await _contact(session, contact_id)
+    await open_card(session, user, contact_id)  # a template of the card (Т.14)
     template = await _template(session, body.template_id)
     if not template.is_active:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "template_switched_off")
@@ -619,6 +620,7 @@ async def take_back_template(
     contact_id: uuid.UUID, given_id: uuid.UUID, user: Member, session: TenantSession
 ) -> Response:
     given = await _given(session, contact_id, given_id)
+    await open_card(session, user, contact_id)
     await session.delete(given)
     _audit_given(session, AuditAction.CONTACT_TEMPLATE_REMOVED, user, given)
     await session.commit()

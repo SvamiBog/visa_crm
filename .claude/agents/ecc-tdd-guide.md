@@ -55,7 +55,7 @@ Remove duplication, improve names — tests stay green. Then `uv run ruff check 
 | **Isolation** | `tests/test_tenancy.py` | RLS on every table with `tenant_id` | Yes |
 | **Browser** | `frontend/e2e/*.spec.ts` | Layout and forms in both languages (Playwright, CI job `ui`) | Demo data |
 
-## Fixtures and Fakes (`tests/conftest.py`, `tests/helpers.py`)
+## Fixtures and Fakes (`tests/conftest.py`, `tests/support/helpers.py`)
 
 - `client`, `make_user(email, role)`, `owner_engine` (bypasses RLS, for setup and checks), `sessionmaker`, `master_key`
 - Autouse fakes: `fake_clock` (TOTP), `stopped_clock` (the app's «today» stands still during a test), `fake_rates` (no calls to the National Bank), `empty_file_storage` (files in memory)

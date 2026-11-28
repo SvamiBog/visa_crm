@@ -17,7 +17,7 @@ from httpx import AsyncClient, Response
 
 from app.core.client_bot import GREETING
 from app.core.request_limit import MAX_FORM_BYTES
-from tests.helpers import (
+from tests.support.helpers import (
     BOT_TOKEN,
     TELEGRAM_CHAT,
     TELEGRAM_PERSON,

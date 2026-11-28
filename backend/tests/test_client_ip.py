@@ -19,7 +19,7 @@ from app.api.auth import MAX_CLIENT_FAILURES, MAX_FAILED_LOGINS
 from app.core import audit
 from app.core.security import ClientFailures
 from app.models import AuditAction
-from tests.helpers import PASSWORD, MakeUser, login, login_first_step
+from tests.support.helpers import PASSWORD, MakeUser, login, login_first_step
 from tests.test_auth import PASSWORD_FORMS
 
 START_SH = Path(__file__).resolve().parents[1] / "start.sh"

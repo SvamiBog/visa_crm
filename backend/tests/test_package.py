@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import PackageItem
-from tests.helpers import MakeUser, give_cases, login, workspace_today
+from tests.support.helpers import MakeUser, give_cases, login, workspace_today
 
 
 def day(offset: int) -> str:

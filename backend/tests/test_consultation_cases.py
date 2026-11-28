@@ -11,7 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, give_cases, login, workspace_today
+from tests.support.helpers import MakeUser, give_cases, login, workspace_today
 from tests.test_client_index import (
     CONTACTS,
     as_specialist,
@@ -416,3 +416,55 @@ async def test_deleting_the_case_brings_the_daughter_back_to_consultations(
     assert consistent(result["counts"])
     card = (await client.get(f"{CONTACTS}/{natalia}")).json()
     assert card["consultations"][0]["cases"] == []
+
+
+async def test_filters_sorting_and_an_employee_follow_the_fathers_case_too(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """Every place of the index that looks at «the client's cases» takes the case opened
+    from her consultation for someone else as well as her own: the tab, each filter by a
+    case, the date to sort by — for the specialist and for an employee given that case.
+    The rows are the same ones as before the rule was split in two lookups (backlog A9)."""
+    tenant_id = await as_specialist(client, make_user)
+    codes = await countries(client)
+    natalia, _, father_case = await daughter_and_father(client)
+    father = father_case["contact_id"]
+    # A client of her own with a case to another country, and one without any case.
+    anna = await contact(client, "Анна")
+    await open_case(client, anna, destination="DE")
+    lead = await contact(client, "Лида")
+    await consult(client, lead)
+    day = (workspace_today() + timedelta(days=5)).isoformat()
+    patched = await client.patch(f"/api/cases/{father_case['id']}", json={"submission_on": day})
+    assert patched.status_code == 200, patched.text
+
+    async def ids(**body) -> set[str]:
+        return {r["id"] for r in (await search(client, **body))["items"]}
+
+    assert await ids(tab="work") == {natalia, father, anna}
+    assert await ids(tab="consult") == {lead}
+    assert await ids(country_id=codes["PL"]) == {natalia, father}
+    assert await ids(country_id=codes["DE"]) == {anna}
+    stage = patched.json()["stage"]
+    assert await ids(stage=stage) == {natalia, father}
+    assert await ids(stage="review") == set()
+    # Sorted by the next date: the father's submission stands for the daughter as well.
+    # Before them the client whose consultation was today, last the case without a date.
+    order = [r["id"] for r in (await search(client, sort="next"))["items"]]
+    assert order[0] == lead and set(order[1:3]) == {natalia, father} and order[3] == anna
+    assert row_of(await search(client), natalia)["case"]["id"] == father_case["id"]
+
+    # An employee given the father's case alone sees what goes with it and nothing else.
+    client.cookies.clear()
+    await make_user("olga@example.com", "employee", tenant_id=tenant_id)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE users SET modules = '{clients,cases}' WHERE email = 'olga@example.com'")
+        )
+    await give_cases(owner_engine, "olga@example.com", father_case["id"])
+    await login(client, "olga@example.com")
+    seen = await ids()
+    assert father in seen and anna not in seen and lead not in seen
+    assert await ids(tab="work") == seen
+    assert await ids(country_id=codes["PL"]) == seen
+    assert await ids(country_id=codes["DE"]) == set()

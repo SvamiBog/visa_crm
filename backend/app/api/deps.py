@@ -1,3 +1,13 @@
+"""Who is asking and what they may see: the dependencies every router is closed with
+(CLAUDE.md → «Роли»).
+
+The session cookie (backlog S18) gives the signed-in user; `current_user` lets them in
+only once a temporary password is changed; `require_admin`, `require_specialist` and
+`require_module` narrow it by role and by the modules granted. `TenantSession` is a
+database session in the user's workspace (and, for an employee, their cases),
+`SystemSession` — one for login and the admin panel (app/core/db.py).
+"""
+
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass

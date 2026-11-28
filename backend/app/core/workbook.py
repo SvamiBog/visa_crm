@@ -11,7 +11,9 @@ workspace, keeps its memory.
 
 Sheets and headers are matched by their Russian or English names; anything else is passed
 by with a warning. Each cell is read strictly (app/core/data_values.py). A bad cell in a
-required column skips its row, in another column only the cell; the report names the
+required column skips its row, in another column only the cell — but the row keeps its key
+in `invalid`, and a bad currency of a payment or an expense skips the row too (a strict
+column: the currency of a sum is not guessed); the report names the
 sheet, the row and the column, never the value.
 
 A file is read as it is, not as it says it is: the size a sheet declares is not trusted
@@ -128,6 +130,9 @@ class Row:
     values: dict[str, Any] = field(default_factory=dict)
     # Columns present on the sheet whose cell is empty: a snapshot row clears them.
     blank: set[str] = field(default_factory=set)
+    # Optional columns whose filled cell could not be read (the report has the warning):
+    # what depends on such a cell is not guessed from the cell being absent.
+    invalid: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -497,10 +502,11 @@ def _read_row(
         if index in unsaved:
             # Not an empty cell: a snapshot row does not clear its field.
             issue = Issue("formula", title, number, headers[column.key])
-            if column.required:
+            if column.required or column.strict:
                 result.skipped.append(issue)
                 return None
             result.warnings.append(issue)
+            row.invalid.add(column.key)
             continue
         if cell_text(cell) is None:
             if column.required:
@@ -512,10 +518,11 @@ def _read_row(
             row.values[column.key] = _parse(column, cell)
         except CellError as error:
             issue = Issue(error.reason, title, number, headers[column.key])
-            if column.required:
+            if column.required or column.strict:
                 result.skipped.append(issue)
                 return None
             result.warnings.append(issue)
+            row.invalid.add(column.key)
     return row
 
 

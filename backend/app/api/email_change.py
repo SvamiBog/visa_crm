@@ -20,7 +20,7 @@ from app.api.auth import MeOut, _me, check_current_password
 from app.api.deps import CurrentUser, SystemSession, current_user
 from app.core.audit import record
 from app.core.mail import Mail, MailFailed, MailNotConfigured, send_mail
-from app.core.security import MAX_PASSWORD_LENGTH, check_password, hash_password
+from app.core.security import MAX_PASSWORD_LENGTH, check_password, make_password_hash
 from app.models import AuditAction, AuditEvent, EmailChange, User, UserSession
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,7 @@ async def request_change(
         session.add(pending)
     code = new_code()
     pending.new_email = body.new_email
-    pending.code_hash = hash_password(code)
+    pending.code_hash = await make_password_hash(code)
     pending.attempts = 0
     pending.sent_at = now
     pending.expires_at = now + CODE_TTL

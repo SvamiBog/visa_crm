@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, give_cases, login
+from tests.support.helpers import MakeUser, give_cases, login
 from tests.test_cases import open_case
 
 SYSTEMS = "/api/dictionaries/vault-systems"

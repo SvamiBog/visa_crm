@@ -17,10 +17,10 @@ from app.api import templates as templates_api
 from app.core import storage
 from app.core.config import get_settings
 from app.core.docx_fill import MAX_CODES
-from tests.helpers import MakeUser, give_cases, login
+from tests.support.helpers import MakeUser, give_cases, login
 from tests.test_cases import new_contact
 from tests.test_cases import open_case as open_plain_case
-from tests.test_docx_fill import declaring_too_much, make_docx, paragraphs, runs, with_part
+from tests.test_docx_fill_rules import declaring_too_much, make_docx, paragraphs, runs, with_part
 from tests.test_employee_cases import EMPLOYEE, switch_to, with_employee
 
 LETTER = make_docx(
@@ -280,7 +280,7 @@ async def test_only_word_files_are_taken(
 async def test_templates_past_the_limits_are_refused(
     client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
 ):
-    """Backlog S4: what a template may cost to read is bounded (tests/test_docx_fill.py)."""
+    """Backlog S4: what a template may cost to read is bounded (tests/test_docx_fill_rules.py)."""
     await as_specialist(client, make_user, owner_engine)
     too_many_codes = make_docx(runs("{{ФИО}} " * (MAX_CODES + 1)))
     pad = b"\0" * 1024

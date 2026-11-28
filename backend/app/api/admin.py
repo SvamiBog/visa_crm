@@ -1,3 +1,10 @@
+"""The admin panel's specialists (backlog 0.6): the platform owner creates a specialist's
+workspace with a temporary password, changes its name, base currency, tax and modules,
+blocks and unblocks it and resets the password.
+
+Admin only, in the system scope; every change is in the audit log of the workspace.
+"""
+
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -13,7 +20,7 @@ from app.core.audit import record
 from app.core.dictionaries import add_default_dictionaries
 from app.core.modules import DEFAULT_MODULES, ModuleList, TaxRate
 from app.core.money import Currency
-from app.core.security import generate_temporary_password, hash_password
+from app.core.security import generate_temporary_password, make_password_hash
 from app.core.two_factor import reset_two_factor
 from app.models import AuditAction, RecoveryCode, Tenant, User, UserRole, UserSession
 
@@ -150,7 +157,7 @@ async def create_specialist(
     owner = User(
         tenant_id=tenant.id,
         email=email,
-        password_hash=hash_password(password),
+        password_hash=await make_password_hash(password),
         role=UserRole.SPECIALIST,
         must_change_password=True,
     )
@@ -241,7 +248,7 @@ async def reset_specialist_password(
     login (they set it up again, e.g. after losing the phone) and signs them out."""
     _, owner = await _get_specialist(session, tenant_id)
     password = generate_temporary_password()
-    owner.password_hash = hash_password(password)
+    owner.password_hash = await make_password_hash(password)
     owner.must_change_password = True
     owner.failed_login_count = 0
     owner.locked_until = None

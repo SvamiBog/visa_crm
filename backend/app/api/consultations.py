@@ -18,9 +18,10 @@ from app.api.deps import CurrentUser, TenantSession, require_module, workspace_t
 from app.core.audit import record
 from app.core.consultation_checks import Destination, check
 from app.core.days import Day
-from app.core.employee_limits import LimitKind, watch
+from app.core.employee_limits import LimitKind, open_card, watch
 from app.core.money import Amount, Currency
-from app.core.questionnaire import Questionnaire, Refusal
+from app.core.questionnaire import Questionnaire, Refusal, VisaKind
+from app.core.visa_history import CaseVisa, VisaStatus, visa_history
 from app.models import (
     AuditAction,
     CaseStage,
@@ -29,9 +30,11 @@ from app.models import (
     Country,
     Decision,
     LeadChannel,
+    PurposeKind,
     Tenant,
     VisaCase,
     VisaOutcome,
+    VisaPurpose,
 )
 
 router = APIRouter(tags=["consultations"], dependencies=[Depends(require_module("clients"))])
@@ -278,6 +281,59 @@ async def hints_for(session: AsyncSession, contact: Contact) -> list[HintOut]:
     return [HintOut(code=h.code, country=h.country) for h in hints]
 
 
+class VisaHistoryOut(BaseModel):
+    """A line of the client's visa history (app/core/visa_history.py). `case_id` and
+    `case_number` are set on a visa granted in the client's case."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: VisaKind | None
+    country: str | None
+    purpose: PurposeKind | None
+    valid_from: date | None
+    valid_to: date | None
+    note: str | None
+    status: VisaStatus | None
+    case_id: uuid.UUID | None
+    case_number: int | None
+
+
+async def visa_history_of(
+    session: AsyncSession, contact: Contact, *, with_cases: bool
+) -> list[VisaHistoryOut]:
+    """The visas written in the questionnaire and, for a user with the «cases» module, the
+    visas granted in the client's cases (backlog A3), with «today» in the specialist's
+    time zone. An employee's session reads only the cases given to them."""
+    written = Questionnaire.model_validate(contact.questionnaire).visas
+    granted: list[CaseVisa] = []
+    if with_cases:
+        rows = await session.execute(
+            select(VisaCase, Country.code, Country.schengen_since, VisaPurpose.kind)
+            .join(Country, Country.id == VisaCase.destination_id)
+            .outerjoin(VisaPurpose, VisaPurpose.id == VisaCase.purpose_id)
+            .where(VisaCase.contact_id == contact.id, VisaCase.outcome == VisaOutcome.VISA)
+        )
+        granted = [
+            CaseVisa(
+                case_id=case.id,
+                number=case.number,
+                country=code,
+                schengen_since=schengen_since,
+                purpose=purpose,
+                valid_from=case.visa_valid_from,
+                valid_to=case.visa_valid_to,
+                decided_on=case.decided_on,
+            )
+            for case, code, schengen_since, purpose in rows
+        ]
+    if not written and not granted:
+        return []
+    today = await workspace_today(session, contact.tenant_id)
+    return [
+        VisaHistoryOut.model_validate(line) for line in visa_history(written, granted, today=today)
+    ]
+
+
 # --- Endpoints -----------------------------------------------------------------------
 
 
@@ -286,6 +342,7 @@ async def create_consultation(
     contact_id: uuid.UUID, body: ConsultationIn, user: Member, session: TenantSession
 ) -> ConsultationOut:
     contact = await _contact(session, contact_id)
+    await open_card(session, user, contact.id)  # a consultation of the card (Т.14)
     fields = body.model_dump()
     if fields["lead_channel_id"] is None:
         fields["lead_channel_id"] = contact.lead_channel_id

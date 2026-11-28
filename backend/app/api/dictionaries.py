@@ -4,7 +4,11 @@ vault with their password rules (backlog 1.7).
 
 Everyone in the workspace reads them (forms need them); only the specialist edits. An
 employee gets partners and registrars as names only: their terms, prices and contacts,
-and the prepayments, are the specialist's (backlog Т.13).
+and the prepayments, are the specialist's (backlog Т.13). Editing partners, registrars
+and prepayments needs the «finances» module, the vault systems the «vault» module;
+reading them stays open for the forms of the other modules (the contact form lists the
+partners, the case form the registrars, a booking the vault systems), and currencies and
+tax are the workspace's settings in «Настройки» (docs/decisions.md → «Модули в API»).
 Everything runs in the workspace scope, so Row-Level Security keeps other workspaces out.
 """
 
@@ -27,13 +31,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.base_currency import change_base
-from app.api.deps import CurrentUser, TenantSession, require_specialist, require_tenant_user
+from app.api.deps import (
+    CurrentUser,
+    TenantSession,
+    require_module,
+    require_specialist,
+    require_tenant_user,
+)
 from app.core.audit import record
 from app.core.dictionaries import SORT_ORDER_MAX, next_sort_order
 from app.core.modules import TaxRate
 from app.core.money import CENT, Amount, Currency, Percent, ordered_currencies
 from app.models import (
     AuditAction,
+    CaseFinance,
     Country,
     Hall,
     LeadChannel,
@@ -61,6 +72,10 @@ router = APIRouter(
 
 Specialist = Annotated[CurrentUser, Depends(require_specialist)]
 Reader = Annotated[CurrentUser, Depends(require_tenant_user)]
+# Writing a list of a module: the specialist (an employee is told «forbidden» first), and
+# closed while the module is off; reading stays open, see above.
+FINANCES = [Depends(require_specialist), Depends(require_module("finances"))]
+VAULT = [Depends(require_specialist), Depends(require_module("vault"))]
 
 Name = Annotated[str, Field(min_length=1, max_length=100)]
 LongName = Annotated[str, Field(min_length=1, max_length=200)]
@@ -478,7 +493,7 @@ async def list_systems(session: TenantSession) -> list[SystemOut]:
     return [SystemOut.model_validate(r) for r in rows]
 
 
-@router.post("/vault-systems", status_code=status.HTTP_201_CREATED)
+@router.post("/vault-systems", status_code=status.HTTP_201_CREATED, dependencies=VAULT)
 async def create_system(body: SystemIn, user: Specialist, session: TenantSession) -> SystemOut:
     values = body.model_dump()
     if values["sort_order"] is None:
@@ -493,7 +508,7 @@ async def create_system(body: SystemIn, user: Specialist, session: TenantSession
     return SystemOut.model_validate(system)
 
 
-@router.patch("/vault-systems/{system_id}")
+@router.patch("/vault-systems/{system_id}", dependencies=VAULT)
 async def update_system(
     system_id: uuid.UUID, body: SystemUpdate, user: Specialist, session: TenantSession
 ) -> SystemOut:
@@ -520,7 +535,7 @@ async def list_partners(user: Reader, session: TenantSession) -> list[PartnerOut
     return [PartnerOut.model_validate(p) for p in rows]
 
 
-@router.post("/partners", status_code=status.HTTP_201_CREATED)
+@router.post("/partners", status_code=status.HTTP_201_CREATED, dependencies=FINANCES)
 async def create_partner(body: PartnerIn, user: Specialist, session: TenantSession) -> PartnerOut:
     partner = Partner(tenant_id=user.tenant_id, **body.model_dump())
     session.add(partner)
@@ -531,7 +546,7 @@ async def create_partner(body: PartnerIn, user: Specialist, session: TenantSessi
     return PartnerOut.model_validate(partner)
 
 
-@router.patch("/partners/{partner_id}")
+@router.patch("/partners/{partner_id}", dependencies=FINANCES)
 async def update_partner(
     partner_id: uuid.UUID, body: PartnerUpdate, user: Specialist, session: TenantSession
 ) -> PartnerOut:
@@ -542,7 +557,9 @@ async def update_partner(
     return PartnerOut.model_validate(partner)
 
 
-@router.delete("/partners/{partner_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/partners/{partner_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=FINANCES
+)
 async def delete_partner(
     partner_id: uuid.UUID, user: Specialist, session: TenantSession
 ) -> Response:
@@ -559,7 +576,7 @@ async def delete_partner(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.put("/partners/{partner_id}/terms")
+@router.put("/partners/{partner_id}/terms", dependencies=FINANCES)
 async def replace_partner_terms(
     partner_id: uuid.UUID, body: list[TermsIn], user: Specialist, session: TenantSession
 ) -> PartnerOut:
@@ -593,7 +610,7 @@ async def list_registrars(
     return [RegistrarOut.model_validate(r) for r in rows]
 
 
-@router.post("/registrars", status_code=status.HTTP_201_CREATED)
+@router.post("/registrars", status_code=status.HTTP_201_CREATED, dependencies=FINANCES)
 async def create_registrar(
     body: RegistrarIn, user: Specialist, session: TenantSession
 ) -> RegistrarOut:
@@ -608,22 +625,49 @@ async def create_registrar(
     return RegistrarOut.model_validate(registrar)
 
 
-@router.patch("/registrars/{registrar_id}")
+async def _check_currency_free(session: AsyncSession, registrar: Registrar) -> None:
+    """A payment to a registrar keeps only its amount, in the registrar's currency, and a
+    talon counts in the balance only in it: with either, a new currency would read 100 PLN
+    as 100 EUR or drop the talon (audit H-2, decisions.md → «Расчёты с регистраторами»).
+    A talon in another currency or paid before the CRM is in no balance and holds
+    nothing: the change may well bring the first one in."""
+    held = or_(
+        exists().where(RegistrarPayment.registrar_id == registrar.id),
+        exists()
+        .where(CaseFinance.case_id == VisaCase.id)
+        .where(
+            VisaCase.registrar_id == registrar.id,
+            CaseFinance.registrar_fee_currency == registrar.currency,
+            CaseFinance.registrar_fee_settled.is_(False),
+        ),
+    )
+    if await session.scalar(select(held)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "registrar_currency_locked")
+
+
+@router.patch("/registrars/{registrar_id}", dependencies=FINANCES)
 async def update_registrar(
     registrar_id: uuid.UUID, body: RegistrarUpdate, user: Specialist, session: TenantSession
 ) -> RegistrarOut:
     registrar = await _get(session, Registrar, registrar_id)
-    _apply(
-        registrar,
-        body.model_dump(exclude_unset=True),
-        nullable=frozenset({"contact", "note", "low_balance"}),
-    )
+    changes = body.model_dump(exclude_unset=True)
+    currency = changes.get("currency")
+    if currency is not None and currency != registrar.currency:
+        # FOR UPDATE: a payment being added holds the row FOR KEY SHARE (its foreign key),
+        # so it is either seen by the check or waits and comes in the new currency.
+        await session.execute(
+            select(Registrar.id).where(Registrar.id == registrar.id).with_for_update()
+        )
+        await _check_currency_free(session, registrar)
+    _apply(registrar, changes, nullable=frozenset({"contact", "note", "low_balance"}))
     _audit(session, AuditAction.REFERENCE_UPDATED, user, "registrar", registrar.id, registrar.name)
     await session.commit()
     return RegistrarOut.model_validate(registrar)
 
 
-@router.delete("/registrars/{registrar_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/registrars/{registrar_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=FINANCES
+)
 async def delete_registrar(
     registrar_id: uuid.UUID, user: Specialist, session: TenantSession
 ) -> Response:
@@ -645,7 +689,7 @@ async def delete_registrar(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.put("/registrars/{registrar_id}/prices")
+@router.put("/registrars/{registrar_id}/prices", dependencies=FINANCES)
 async def replace_registrar_prices(
     registrar_id: uuid.UUID, body: list[PriceIn], user: Specialist, session: TenantSession
 ) -> RegistrarOut:
@@ -676,7 +720,7 @@ async def list_prepayments(session: TenantSession) -> list[PrepaymentOut]:
     return [PrepaymentOut.model_validate(p) for p in rows]
 
 
-@router.put("/prepayments")
+@router.put("/prepayments", dependencies=FINANCES)
 async def replace_prepayments(
     body: list[PrepaymentIn], user: Specialist, session: TenantSession
 ) -> list[PrepaymentOut]:

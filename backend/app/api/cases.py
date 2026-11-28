@@ -57,7 +57,7 @@ from app.core.cases import (
     result_window,
 )
 from app.core.days import Day
-from app.core.employee_limits import LimitKind, watch
+from app.core.employee_limits import LimitKind, open_card, watch
 from app.core.finance import money
 from app.core.names import NAME_PARTS, NamePart, name_fields, tidy
 from app.models import (
@@ -578,8 +578,12 @@ async def create_cases(
         found = set(await session.scalars(select(Contact.id).where(Contact.id.in_(existing))))
         if set(existing) - found:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not_found")
-        if not allow_case_in_work and (asked := await _cases_in_work(session, existing)):
-            return asked
+    # The answer (the new cases, or the cases in work asked about) is on the cards of the
+    # client and of each applicant already in the CRM: it opens them (Т.14).
+    for opened in dict.fromkeys([anchor.id, *existing]):
+        await open_card(session, user, opened)
+    if existing and not allow_case_in_work and (asked := await _cases_in_work(session, existing)):
+        return asked
 
     applicant_ids = [
         a.contact_id
@@ -933,13 +937,16 @@ async def _fill_group(session: AsyncSession, user: CurrentUser, case: VisaCase) 
 
 @router.get("/cases/{case_id}/group-candidates")
 async def group_candidates(
-    case_id: uuid.UUID, contact_id: uuid.UUID, session: TenantSession
+    case_id: uuid.UUID, contact_id: uuid.UUID, user: Member, session: TenantSession
 ) -> list[GroupMember]:
     """The cases of the client the specialist found by name (`contact_id`, an id only)
     that can join this case's group. Clients are not linked to each other (backlog
     1.15.11), so the family member is looked up, not offered. The case's own client is
-    never offered: one person is not filed twice in a family."""
+    never offered: one person is not filed twice in a family. The answer lists that
+    client's cases, so it opens their card (Т.14)."""
     case = await _case(session, case_id)
+    if await session.get(Contact, contact_id) is not None:  # an unknown id finds nothing
+        await open_card(session, user, contact_id)
     query = (
         select(VisaCase, Contact.full_name)
         .join(Contact, Contact.id == VisaCase.contact_id)

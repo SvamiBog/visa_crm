@@ -1,14 +1,26 @@
 """Client index (backlog 1.5): tabs, filters, row summaries, the board and moving cases."""
 
+import uuid
 from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import select, text, true
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.api import cases as cases_api
-from tests.helpers import MakeUser, give_cases, login, workspace_today
+from app.api.client_status import (
+    Sort,
+    Tab,
+    filter_contacts,
+    latest_consultation,
+    sort_contacts,
+    tab_of,
+)
+from app.core.db import scope_to_tenant
+from app.models import CaseStage, Contact
+from tests.support.helpers import MakeUser, give_cases, login, workspace_today
 
 CONTACTS = "/api/contacts"
 
@@ -115,6 +127,11 @@ async def test_filters_narrow_rows_and_counts(client: AsyncClient, make_user: Ma
     assert names(await search(client, channel_id=channel["id"])) == {"Польша"}
     assert names(await search(client, registrar_id=registrar["id"])) == {"Польша"}
     assert names(await search(client, query="фран", tab="work")) == {"Франция"}
+    # Words in any order narrow within the filters and the tabs, and the counts follow.
+    in_words = await search(client, query="польше думает", country_id=codes["PL"])
+    assert names(in_words) == {"Думает о Польше"}
+    assert in_words["counts"] == {"all": 1, "work": 0, "consult": 1, "thinking": 0, "archive": 0}
+    assert names(await search(client, query="польше думает", tab="work")) == set()
 
 
 async def test_row_shows_the_case_in_work(client: AsyncClient, make_user: MakeUser):
@@ -504,3 +521,43 @@ async def test_unknown_sort_is_rejected(client: AsyncClient, make_user: MakeUser
     await as_specialist(client, make_user)
     response = await client.post(f"{CONTACTS}/search", json={"sort": "phone"})
     assert response.status_code == 422
+
+
+async def test_the_index_finds_a_clients_cases_by_index(
+    client: AsyncClient,
+    make_user: MakeUser,
+    sessionmaker: async_sessionmaker[AsyncSession],
+):
+    """The tab, the shown case and the filters by a case look a client's cases up by the
+    indexes on contact_id and consultation_id. With one condition «own case OR a case of
+    their consultation» inside one EXISTS the database had no such path and read every
+    case of every workspace once per client (audit 2026-11-27, H-1): 3.7 s for the list on
+    ten workspaces of 1500 clients. Sequential scans are switched off here, so a scan that
+    stays in the plan is one the planner had no other way for."""
+    tenant_id = await as_specialist(client, make_user)
+    codes = await countries(client)
+    latest = latest_consultation()
+    tab = tab_of(latest)
+    base = select(Contact.id, tab.label("tab")).outerjoin(latest, true())
+    queries = {
+        "tabs": base,
+        "one tab": base.where(tab == Tab.WORK.value),
+        "filters": filter_contacts(
+            base,
+            latest,
+            country_id=uuid.UUID(codes["PL"]),
+            stage=CaseStage.DOCUMENTS,
+            registrar_id=uuid.uuid4(),
+            with_cases=True,
+        ),
+        "sorted by the next date": sort_contacts(base, latest, Sort.NEXT, with_cases=True),
+    }
+    async with sessionmaker() as session:
+        scope_to_tenant(session, tenant_id)
+        await session.execute(text("SET LOCAL enable_seqscan = off"))
+        for name, query in queries.items():
+            sql = query.compile(
+                dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+            )
+            plan = "\n".join((await session.scalars(text(f"EXPLAIN (COSTS OFF) {sql}"))).all())
+            assert "Seq Scan on visa_cases" not in plan, f"{name}:\n{plan}"

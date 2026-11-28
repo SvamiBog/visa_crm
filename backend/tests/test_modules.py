@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.api.deps import require_module
 from app.core.modules import DEFAULT_MODULES, MODULES, normalize_modules
 from app.main import create_app
-from tests.helpers import MakeUser, login
+from tests.support.helpers import MakeUser, login
 
 
 async def as_admin(client: AsyncClient, make_user: MakeUser) -> None:
@@ -138,3 +138,86 @@ async def test_admin_has_no_modules(module_client: AsyncClient, make_user: MakeU
     await make_user("root@example.com", role="admin")
     await login(module_client, "root@example.com")
     assert (await module_client.get("/api/test-clients")).status_code == 403
+
+
+async def test_a_module_turned_off_closes_its_lists_and_leaves_what_other_forms_read(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """A module the admin turned off is closed in the API, not only in the menu
+    (docs/decisions.md → «Модули в API»): the directions builder writes under
+    «country_rules», partners, registrars and prepayments under «finances», vault systems
+    under «vault». What the forms of the modules still on read stays open: countries,
+    operators and directions (the case form), partners (the contact form), registrars
+    (the case form), vault systems (the account of a booking), prepayments (their list),
+    currencies and tax («Настройки», the consultation's fee)."""
+    tenant_id = await make_user("anna@example.com")
+    await login(client, "anna@example.com")
+    codes = {c["code"]: c["id"] for c in (await client.get("/api/reference/countries")).json()}
+    rule = (await client.get("/api/reference/rules")).json()[0]
+    centers = await client.post(
+        f"/api/reference/rules/{rule['id']}/visa-centers", json={"cities": ["Гродно"]}
+    )
+    center = next(c for c in centers.json()["visa_centers"] if c["city_ru"] == "Гродно")
+    partner = (await client.post("/api/dictionaries/partners", json={"name": "Партнёр"})).json()
+    registrar = (
+        await client.post("/api/dictionaries/registrars", json={"name": "Рег", "kind": "company"})
+    ).json()
+    system = (
+        await client.post(
+            "/api/dictionaries/vault-systems", json={"name": "VFS", "kind": "visa_center"}
+        )
+    ).json()
+    await set_modules(
+        owner_engine,
+        "UPDATE tenants SET modules = '{clients,cases,tasks,analytics}' WHERE id = :id",
+        id=tenant_id,
+    )
+
+    closed = [
+        (
+            "POST",
+            "/api/reference/rules",
+            {
+                "destination_ids": [codes["PL"]],
+                "submission_id": codes["BY"],
+                "booking_type": "direct_slot",
+            },
+        ),
+        ("PATCH", f"/api/reference/rules/{rule['id']}", {"is_active": False}),
+        ("DELETE", f"/api/reference/rules/{rule['id']}", None),
+        ("POST", f"/api/reference/rules/{rule['id']}/visa-centers", {"cities": ["Брест"]}),
+        ("PATCH", f"/api/reference/visa-centers/{center['id']}", {"is_active": False}),
+        ("DELETE", f"/api/reference/visa-centers/{center['id']}", None),
+        ("POST", "/api/dictionaries/partners", {"name": "Другой"}),
+        ("PATCH", f"/api/dictionaries/partners/{partner['id']}", {"name": "Новый"}),
+        ("PUT", f"/api/dictionaries/partners/{partner['id']}/terms", []),
+        ("DELETE", f"/api/dictionaries/partners/{partner['id']}", None),
+        ("POST", "/api/dictionaries/registrars", {"name": "Другой", "kind": "company"}),
+        ("PATCH", f"/api/dictionaries/registrars/{registrar['id']}", {"name": "Новый"}),
+        ("PUT", f"/api/dictionaries/registrars/{registrar['id']}/prices", []),
+        ("DELETE", f"/api/dictionaries/registrars/{registrar['id']}", None),
+        ("PUT", "/api/dictionaries/prepayments", []),
+        ("POST", "/api/dictionaries/vault-systems", {"name": "TLS", "kind": "visa_center"}),
+        ("PATCH", f"/api/dictionaries/vault-systems/{system['id']}", {"name": "VFS Global"}),
+    ]
+    answers = {}
+    for method, url, body in closed:
+        response = await client.request(method, url, json=body)
+        answer = response.json() if response.content else None
+        detail = answer.get("detail") if isinstance(answer, dict) else None
+        answers[f"{method} {url}"] = (response.status_code, detail)
+    assert answers == {route: (403, "module_disabled") for route in answers}
+
+    read = [
+        "/api/reference/countries",
+        "/api/reference/operators",
+        "/api/reference/rules",
+        "/api/dictionaries/partners",
+        "/api/dictionaries/registrars",
+        "/api/dictionaries/prepayments",
+        "/api/dictionaries/vault-systems",
+        "/api/dictionaries/money",
+    ]
+    assert {url: (await client.get(url)).status_code for url in read} == dict.fromkeys(read, 200)
+    taxed = await client.patch("/api/dictionaries/money", json={"tax_rate": "6"})
+    assert taxed.status_code == 200, taxed.text

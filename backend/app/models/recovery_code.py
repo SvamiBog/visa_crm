@@ -1,3 +1,9 @@
+"""Recovery codes of two-factor login (backlog 0.5): one-time codes for signing in without
+the authenticator app, kept only as hashes (app/core/two_factor.py). A workspace sees and
+removes only the codes of its own users (migration 0007); only the system scope writes
+them (migration 0043).
+"""
+
 import uuid
 from datetime import datetime
 

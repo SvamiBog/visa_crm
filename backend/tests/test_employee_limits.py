@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, a
 
 from app.core.db import scope_to_tenant
 from app.models import AuditEvent
-from tests.helpers import WALL_CLOCK, MakeUser, give_cases
+from tests.support.helpers import WALL_CLOCK, MakeUser, give_cases, workspace_today
 from tests.test_cases import CONTACTS, countries, new_contact, open_case
 from tests.test_documents import upload as upload_document
 from tests.test_employee_cases import EMPLOYEE, switch_to, user_id, with_employee
@@ -323,6 +323,16 @@ async def test_past_the_card_limit_no_file_or_account_of_the_client_is_given(
     for url in files[1]:
         paused = await client.get(url)
         assert (paused.status_code, paused.json().get("detail")) == (429, "card_limit_reached"), url
+    # Adding or removing a file or a template is a change to the card: refused too.
+    last = made[2]["contact"]["id"]
+    given_id, document_id = files[1][0].split("/")[-2], files[1][1].split("/")[-1]
+    for paused in (
+        await upload_document(client, last),
+        await client.delete(f"{CONTACTS}/{last}/documents/{document_id}"),
+        await client.post(f"{CONTACTS}/{last}/templates", json={"template_id": template["id"]}),
+        await client.delete(f"{CONTACTS}/{last}/templates/{given_id}"),
+    ):
+        assert (paused.status_code, paused.json().get("detail")) == (429, "card_limit_reached")
     viewed = await events(owner_engine, "contacts.viewed")
     assert [v.target_id for v in viewed] == [made[1]["contact"]["id"]]
 
@@ -335,6 +345,7 @@ async def card_sections(client: AsyncClient, contact_id: str, case_id: str) -> d
         "trips": f"{CONTACTS}/{contact_id}/trips",
         "finance": f"/api/cases/{case_id}/finance",
         "package": f"/api/cases/{case_id}/package",
+        "vault": f"{CONTACTS}/{contact_id}/vault",
     }
     out = {}
     for name, url in urls.items():
@@ -377,7 +388,20 @@ async def test_past_the_card_limit_no_section_of_the_card_is_given_or_changed(
         f"{CONTACTS}/{contact}/consultations", json={"held_on": "2026-05-01", "notes": "Анна"}
     )
     await client.put(f"{CONTACTS}/{contact}/questionnaire", json={"note": "Анна"})
+    booking = await client.post(
+        f"/api/cases/{case}/bookings", json={"kind": "hotel", "place": "Отель", "reference": "R1"}
+    )
+    note = await client.post(f"{CONTACTS}/{contact}/notes", json={"body": "Анна"})
+    queued = await client.post(f"/api/cases/{case}/queue", json={"queued_on": "2026-05-02"})
+    [france] = (await open_case(client, contact, "FR")).json()
+    attempt = await client.post(
+        f"/api/cases/{france['id']}/attempts", json={"sent_on": workspace_today().isoformat()}
+    )
+    vfs = await system(client)
+    login = await entry(client, system_id=vfs["id"], contact_id=contact, login="anna@x.by")
     trip_id, item_id = trip.json()["id"], item.json()["id"]
+    booking_id, note_id = booking.json()["id"], note.json()["id"]
+    entry_id, attempt_id = queued.json()[0]["id"], attempt.json()["id"]
     payment_id = payment.json()["payments"][0]["id"]
     expense_id = expense.json()["expenses"][0]["id"]
     before = await card_sections(client, contact, case)
@@ -385,6 +409,13 @@ async def test_past_the_card_limit_no_section_of_the_card_is_given_or_changed(
     assert before["card"]["questionnaire"]["note"] == "Анна"
     await give_cases(owner_engine, EMPLOYEE)
     await set_limits(client, owner_engine, daily_card_limit=1)
+
+    codes = await countries(client)
+    new_case = {
+        "destination_id": codes["PL"],
+        "submission_country_id": codes["BY"],
+        "applicants": [{"contact_id": contact}],
+    }
 
     await switch_to(client, EMPLOYEE)
     assert (await client.get(f"{CONTACTS}/{one['contact']['id']}")).status_code == 200
@@ -406,11 +437,35 @@ async def test_past_the_card_limit_no_section_of_the_card_is_given_or_changed(
         ("PUT", f"/api/cases/{case}/package/{item_id}", {"state": "present"}),
         ("PATCH", f"/api/consultations/{consultation.json()['id']}", {"notes": "Ольга"}),
         ("PUT", f"{CONTACTS}/{contact}/questionnaire", {"note": "Ольга"}),
+        ("POST", f"{CONTACTS}/{contact}/consultations", {"held_on": "2026-05-02"}),
+        ("DELETE", f"/api/trips/{trip_id}", None),
+        ("POST", f"/api/cases/{case}/bookings", {"kind": "hotel", "place": "Ольга"}),
+        ("PATCH", f"/api/bookings/{booking_id}", {}),
+        ("DELETE", f"/api/bookings/{booking_id}", None),
+        ("POST", f"{CONTACTS}/{contact}/notes", {"body": "Ольга"}),
+        ("PATCH", f"{CONTACTS}/{contact}/notes/{note_id}", {"body": "Ольга"}),
+        ("DELETE", f"{CONTACTS}/{contact}/notes/{note_id}", None),
+        # A new case of a client who has one in work answers with those cases (409).
+        ("POST", f"{CONTACTS}/{contact}/cases", new_case),
+        ("POST", f"/api/cases/{case}/queue", {"queued_on": "2026-05-03"}),
+        ("PATCH", f"/api/queue-entries/{entry_id}", {}),
+        ("POST", f"/api/cases/{france['id']}/attempts", {"sent_on": "2026-05-03"}),
+        ("PATCH", f"/api/attempts/{attempt_id}", {}),
+        ("GET", f"/api/cases/{one['case']['id']}/group-candidates?contact_id={contact}", None),
+        (
+            "POST",
+            "/api/vault/entries",
+            {"system_id": vfs["id"], "contact_id": contact, "login": "o"},
+        ),
+        ("POST", f"/api/vault/entries/{login['id']}/reveal", None),
+        ("DELETE", f"/api/vault/entries/{login['id']}", None),
+        ("POST", f"/api/reminders/passport/{contact}/postpone", None),
+        ("POST", f"/api/reminders/passport/{contact}/purge", None),
     ]
     answers = {}
     for method, url, body in routes:
         response = await client.request(method, url, json=body)
-        answer = response.json()
+        answer = response.json() if response.content else None
         detail = answer.get("detail") if isinstance(answer, dict) else None
         answers[f"{method} {url}"] = (response.status_code, detail)
     assert answers == {route: (429, "card_limit_reached") for route in answers}

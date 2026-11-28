@@ -1,9 +1,9 @@
 """A made-up copy of the first specialist's book (the owner's description of 18.10.2026):
 every sheet in its own columns, a few people who go from a consultation to a case, a queue,
-France and a booking. What the AI makes of it by the prompt is tests/pilot_book_visacrm.py.
+France and a booking. What the AI makes of it by the prompt is tests/support/pilot_book_visacrm.py.
 
 Also written to an .xlsx, to rehearse the prompt with an AI:
-    uv run python -m tests.pilot_book Книга.xlsx
+    uv run python -m tests.support.pilot_book Книга.xlsx
 """
 
 import sys

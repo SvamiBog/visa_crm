@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.api.auth import MAX_FAILED_LOGINS
 from app.cli import create_admin
 from app.core.db import scope_to_tenant
-from tests.helpers import MakeUser, enable_two_factor, login
+from tests.support.helpers import MakeUser, enable_two_factor, login
 
 
 async def actions(client: AsyncClient, path: str = "/api/audit") -> list[str]:

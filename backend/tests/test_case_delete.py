@@ -10,7 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import CLOCK, PASSWORD, MakeUser, give_cases, login, workspace_today
+from tests.support.helpers import CLOCK, PASSWORD, MakeUser, give_cases, login, workspace_today
 from tests.test_cases import CONTACTS, as_specialist, countries, new_contact, open_case
 from tests.test_data_import import CASES as IMPORTED_CASES
 from tests.test_data_import import CLIENTS as IMPORTED_CLIENTS

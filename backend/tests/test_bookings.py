@@ -6,7 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from tests.helpers import MakeUser, login, workspace_today
+from tests.support.helpers import MakeUser, login, workspace_today
 
 
 def day(offset: int) -> str:

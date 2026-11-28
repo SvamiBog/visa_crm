@@ -31,7 +31,7 @@ from app.core.vault import (
     tenant_key_aad,
 )
 from app.models import VaultEntry
-from tests.helpers import CLOCK, MakeUser, login, login_first_step
+from tests.support.helpers import CLOCK, MakeUser, login, login_first_step
 from tests.test_documents import PDF
 from tests.test_documents import upload as upload_document
 from tests.test_templates import LETTER, turn_on

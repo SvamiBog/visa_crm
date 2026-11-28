@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_tenant
 from app.models import AuditEvent, Contact, ContactNote, VisaCase
-from tests.helpers import MakeUser, give_cases, login
+from tests.support.helpers import MakeUser, give_cases, login
 from tests.test_cases import CONTACTS, as_specialist, card, new_contact, open_case
 
 EMPLOYEE = "olga@example.com"
@@ -63,6 +63,8 @@ async def test_employee_sees_only_given_cases_and_their_clients(
     await switch_to(client, EMPLOYEE)
     assert await found(client) == ["Ковалёва Анна"]
     assert await found(client, "Петров") == []
+    assert await found(client, "Иван Петров") == []
+    assert await found(client, "Анна Ковалёва") == ["Ковалёва Анна"]
     assert await found(client, "2233") == ["Ковалёва Анна"]
     assert [c["id"] for c in (await card(client, anna_client["id"]))["cases"]] == [given["id"]]
     for url in (

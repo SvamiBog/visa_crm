@@ -121,6 +121,9 @@ class Column:
     type: ValueType
     kind: ColumnKind = ColumnKind.DATA
     required: bool = False
+    # The cell may be empty, but a value that cannot be read skips the row: the currency
+    # of a sum is not guessed.
+    strict: bool = False
     max_length: int | None = None
     choices: tuple[Choice, ...] = ()
     # A module the workspace needs for this column besides its sheet's.
@@ -367,7 +370,7 @@ SHEETS: tuple[Sheet, ...] = (
             CLIENT_NAME,
             _date("paid_on", "Дата", "Date", required=True),
             Column("amount", "Сумма", "Amount", V.MONEY, required=True),
-            Column("currency", "Валюта", "Currency", V.CURRENCY),
+            Column("currency", "Валюта", "Currency", V.CURRENCY, strict=True),
             Column("rate", "Курс", "Rate", V.RATE),
             Column("official", "Официальный", "Official", V.BOOL),
             _text("note", "Комментарий", "Comment", 200),
@@ -385,7 +388,7 @@ SHEETS: tuple[Sheet, ...] = (
             _date("spent_on", "Дата", "Date", required=True),
             _text("description", "Описание", "Description", 200, required=True),
             Column("amount", "Сумма", "Amount", V.MONEY, required=True),
-            Column("currency", "Валюта", "Currency", V.CURRENCY),
+            Column("currency", "Валюта", "Currency", V.CURRENCY, strict=True),
             Column("rate", "Курс", "Rate", V.RATE),
         ),
         "finances",

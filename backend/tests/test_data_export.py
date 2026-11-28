@@ -13,13 +13,14 @@ from typing import Any
 from urllib.parse import unquote
 
 import openpyxl
+import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.db import scope_to_system
 from app.core.demo import DemoSettings, seed, specialist_email
-from tests.helpers import (
+from tests.support.helpers import (
     CLOCK,
     PASSWORD,
     TOTP_SECRET,
@@ -28,9 +29,19 @@ from tests.helpers import (
     login,
     workspace_today,
 )
-from tests.pilot_book_visacrm import SYSTEMS
-from tests.pilot_book_visacrm import xlsx as pilot_xlsx
-from tests.test_data_import import BOOK, CASES, CLIENTS, mail_system, rows, run
+from tests.support.pilot_book_visacrm import SYSTEMS
+from tests.support.pilot_book_visacrm import xlsx as pilot_xlsx
+from tests.test_data_import import (
+    BOOK,
+    CASES,
+    CLIENTS,
+    MONEY,
+    mail_system,
+    money_kept,
+    rows,
+    run,
+    site_rates,
+)
 
 EXPORT = "/api/imports/export"
 DEMO_PASSWORD = "demo-password-42"
@@ -222,6 +233,34 @@ async def test_an_edit_in_the_file_comes_back_but_a_row_changed_in_the_crm_since
         owner_engine, "SELECT amount FROM case_payments WHERE id = :p", p=first["Код"]
     )
     assert payment["amount"] == 250
+
+
+async def test_a_rate_erased_in_an_export_keeps_the_rate_of_the_record(
+    client: AsyncClient,
+    make_user: MakeUser,
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A rate cannot be cleared, and the latest one would move the money of a past month:
+    the empty «Курс» of a snapshot row changes nothing (backlog A4)."""
+    tenant = await make_user("spec@example.com")
+    await login(client, "spec@example.com")
+    await run(client, MONEY)
+    before = await money_kept(owner_engine, tenant)
+    book = opened((await exported(client)).content)
+    [payment] = [p for p in table(book, "Платежи") if p["Валюта"] == "EUR"]
+    [expense] = table(book, "Расходы")
+    [case] = [c for c in table(book, "Кейсы") if c["Талон"]]
+    edit(book, "Платежи", payment["Код"], "Курс", None)
+    edit(book, "Расходы", expense["Код"], "Курс", None)
+    edit(book, "Кейсы", case["Код кейса"], "Курс талона", None)
+    site_rates(monkeypatch, EUR="3.5", USD="3.2", PLN="0.9")
+
+    report = await load_back(client, saved(book))
+
+    assert report["skipped_count"] == 0, report["skipped"]
+    assert report["updated"] == {}
+    assert await money_kept(owner_engine, tenant) == before
 
 
 async def test_an_export_of_another_workspace_finds_none_of_its_records(
