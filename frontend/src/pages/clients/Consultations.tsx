@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { apiGet, apiPatch, apiPost, apiPut, errorCode } from "../../api";
 import { PURPOSE_KINDS } from "../../checklists";
+import type { Disclosure } from "../../components/Disclosure";
 import { Field, invalidProps, RowError, useFieldErrors } from "../../components/Field";
 import {
   DECISIONS,
@@ -18,6 +19,7 @@ import {
   type Decision,
   type Hint,
   type HistoryVisa,
+  type Passport,
   type Questionnaire,
   type Refusal,
   type VisaRecord,
@@ -50,7 +52,7 @@ function ErrorAlert({ error }: { error: unknown }) {
 }
 
 /** Today in the browser's calendar, as an ISO date for date inputs. */
-function todayIso(): string {
+export function todayIso(): string {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 10);
@@ -275,6 +277,75 @@ function OpenedCases({ consultation, contactId }: { consultation: Consultation; 
   );
 }
 
+/** A consultation as its form holds it: text for every input. */
+export type ConsultationDraft = {
+  held_on: string;
+  applicants: string;
+  decision: Decision | "";
+  lead_channel_id: string;
+  destination_ids: string[];
+  trip_planned_on: string;
+  follow_up_on: string;
+  fee_amount: string;
+  fee_currency: string;
+  fee_paid: boolean;
+  fee_paid_on: string;
+  notes: string;
+};
+
+/** The form's start: the consultation's own values, or a new one of today for one
+ * applicant with the card's channel. */
+export function consultationDraft(consultation?: Consultation, channel = ""): ConsultationDraft {
+  return {
+    held_on: consultation?.held_on ?? todayIso(),
+    applicants: String(consultation?.applicants ?? 1),
+    decision: consultation?.decision ?? "",
+    lead_channel_id: consultation ? (consultation.lead_channel_id ?? "") : channel,
+    destination_ids: consultation?.destination_ids ?? [],
+    trip_planned_on: consultation?.trip_planned_on ?? "",
+    follow_up_on: consultation?.follow_up_on ?? "",
+    fee_amount: consultation?.fee_amount ?? "",
+    fee_currency: consultation?.fee_currency ?? "",
+    fee_paid: consultation?.fee_paid ?? false,
+    fee_paid_on: consultation?.fee_paid_on ?? "",
+    notes: consultation?.notes ?? "",
+  };
+}
+
+/** The body the API takes; the fee in the base currency unless another is picked. */
+export function consultationBody(draft: ConsultationDraft, baseCurrency: string | undefined) {
+  const amount = draft.fee_amount.trim().replace(",", ".");
+  return {
+    held_on: draft.held_on,
+    applicants: Number(draft.applicants),
+    decision: draft.decision || null,
+    lead_channel_id: draft.lead_channel_id || null,
+    destination_ids: draft.destination_ids,
+    trip_planned_on: draft.trip_planned_on || null,
+    follow_up_on: draft.follow_up_on || null,
+    fee_amount: amount || null,
+    fee_currency: amount ? draft.fee_currency || baseCurrency || null : null,
+    fee_paid: amount ? draft.fee_paid : false,
+    fee_paid_on: amount && draft.fee_paid ? draft.fee_paid_on || null : null,
+    notes: draft.notes.trim() || null,
+  };
+}
+
+/** The consultation's fields that show the API's validation under them, by their path in
+ * the body ("consultation." in a new client's form). */
+export function consultationFields(prefix = ""): string[] {
+  return CONSULTATION_FIELDS.map((field) => prefix + field);
+}
+
+/** The base currency and the accepted ones (Lists → Currencies and tax). */
+export function useMoneySettings() {
+  return useQuery({
+    queryKey: ["dictionaries", "money"],
+    queryFn: () =>
+      apiGet<{ base_currency: string; payment_currencies: string[] }>("/dictionaries/money"),
+  });
+}
+
 function ConsultationForm({
   card,
   consultation,
@@ -286,44 +357,14 @@ function ConsultationForm({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const lists = useContactLists();
-  const money = useQuery({
-    queryKey: ["dictionaries", "money"],
-    queryFn: () => apiGet<{ base_currency: string; payment_currencies: string[] }>("/dictionaries/money"),
-  });
-  const currencies = money.data?.payment_currencies ?? [];
-  const [heldOn, setHeldOn] = useState(consultation?.held_on ?? todayIso());
-  const [applicants, setApplicants] = useState(String(consultation?.applicants ?? 1));
-  const [decision, setDecision] = useState<Decision | "">(consultation?.decision ?? "");
-  const [channel, setChannel] = useState(
-    consultation ? (consultation.lead_channel_id ?? "") : (card.contact.lead_channel_id ?? ""),
+  const money = useMoneySettings();
+  const [draft, setDraft] = useState(() =>
+    consultationDraft(consultation, card.contact.lead_channel_id ?? ""),
   );
-  const [destinations, setDestinations] = useState<string[]>(consultation?.destination_ids ?? []);
-  const [tripOn, setTripOn] = useState(consultation?.trip_planned_on ?? "");
-  const [followUpOn, setFollowUpOn] = useState(consultation?.follow_up_on ?? "");
-  const [feeAmount, setFeeAmount] = useState(consultation?.fee_amount ?? "");
-  const [feeCurrency, setFeeCurrency] = useState(consultation?.fee_currency ?? "");
-  const [feePaid, setFeePaid] = useState(consultation?.fee_paid ?? false);
-  const [feePaidOn, setFeePaidOn] = useState(consultation?.fee_paid_on ?? "");
-  const [notes, setNotes] = useState(consultation?.notes ?? "");
 
   const save = useMutation({
     mutationFn: () => {
-      const amount = feeAmount.trim().replace(",", ".");
-      const body = {
-        held_on: heldOn,
-        applicants: Number(applicants),
-        decision: decision || null,
-        lead_channel_id: channel || null,
-        destination_ids: destinations,
-        trip_planned_on: tripOn || null,
-        follow_up_on: followUpOn || null,
-        fee_amount: amount || null,
-        fee_currency: amount ? feeCurrency || money.data?.base_currency || null : null,
-        fee_paid: amount ? feePaid : false,
-        fee_paid_on: amount && feePaid ? feePaidOn || null : null,
-        notes: notes.trim() || null,
-      };
+      const body = consultationBody(draft, money.data?.base_currency);
       return consultation
         ? apiPatch<Consultation>(`/consultations/${consultation.id}`, body)
         : apiPost<Consultation>(`/contacts/${card.contact.id}/consultations`, body);
@@ -337,8 +378,6 @@ function ConsultationForm({
     codes: { currency_not_accepted: "fee_currency" },
     fields: CONSULTATION_FIELDS,
   });
-  const feeMessage = useId();
-  const feeError = errors.at("fee_amount") ?? errors.at("fee_currency") ?? errors.at("fee_paid_on");
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -347,140 +386,7 @@ function ConsultationForm({
 
   return (
     <form ref={errors.form} className="form-card consultation-form" onSubmit={submit}>
-      <div className="form-grid">
-        <Field label={t("contacts.heldOn")} error={errors.at("held_on")}>
-          {(control) => (
-            <input
-              {...control}
-              type="date"
-              required
-              value={heldOn}
-              onChange={(e) => setHeldOn(e.target.value)}
-            />
-          )}
-        </Field>
-        <Field label={t("contacts.applicants")} error={errors.at("applicants")}>
-          {(control) => (
-            <input
-              {...control}
-              type="number"
-              min={1}
-              max={30}
-              required
-              value={applicants}
-              onChange={(e) => setApplicants(e.target.value)}
-            />
-          )}
-        </Field>
-        <label className="field">
-          <span>{t("contacts.decisionLabel")}</span>
-          <select value={decision} onChange={(e) => setDecision(e.target.value as Decision | "")}>
-            <option value="">{t("contacts.decision.none")}</option>
-            {DECISIONS.map((d) => (
-              <option key={d} value={d}>
-                {t(`contacts.decision.${d}`)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Field
-          label={t("contacts.followUpOn")}
-          hint={t("contacts.followUpHint")}
-          error={errors.at("follow_up_on")}
-        >
-          {(control) => (
-            <input
-              {...control}
-              type="date"
-              value={followUpOn}
-              onChange={(e) => setFollowUpOn(e.target.value)}
-            />
-          )}
-        </Field>
-        <label className="field">
-          <span>{t("contacts.channel")}</span>
-          <select value={channel} onChange={(e) => setChannel(e.target.value)}>
-            <option value="" />
-            {lists.channels
-              .filter((c) => c.is_active || c.id === channel)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <Field label={t("contacts.tripPlannedOn")} error={errors.at("trip_planned_on")}>
-          {(control) => (
-            <input
-              {...control}
-              type="date"
-              value={tripOn}
-              onChange={(e) => setTripOn(e.target.value)}
-            />
-          )}
-        </Field>
-      </div>
-      <CountryPicker
-        label={t("contacts.destinations")}
-        value={destinations}
-        onChange={setDestinations}
-        by="id"
-      />
-      <fieldset className="module-block">
-        <legend>{t("contacts.fee")}</legend>
-        <div className="row-editor">
-          <input
-            aria-label={t("dict.amount")}
-            inputMode="decimal"
-            placeholder={t("dict.amount")}
-            value={feeAmount}
-            onChange={(e) => setFeeAmount(e.target.value)}
-            {...invalidProps(feeMessage, errors.at("fee_amount"))}
-          />
-          <select
-            aria-label={t("dict.currency")}
-            value={feeCurrency || money.data?.base_currency || ""}
-            onChange={(e) => setFeeCurrency(e.target.value)}
-            {...invalidProps(feeMessage, errors.at("fee_currency"))}
-          >
-            {currencies.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={feePaid}
-              disabled={!feeAmount.trim()}
-              onChange={(e) => setFeePaid(e.target.checked)}
-            />
-            {t("contacts.feePaid")}
-          </label>
-          {feePaid && (
-            <input
-              type="date"
-              aria-label={t("contacts.feePaidOn")}
-              value={feePaidOn}
-              onChange={(e) => setFeePaidOn(e.target.value)}
-              {...invalidProps(feeMessage, errors.at("fee_paid_on"))}
-            />
-          )}
-          <RowError id={feeMessage} error={feeError} />
-        </div>
-        <p className="muted small">{t("contacts.feeHint")}</p>
-      </fieldset>
-      <Field label={t("contacts.consultationNotes")} error={errors.at("notes")}>
-        {(control) => (
-          <textarea
-            {...control}
-            rows={3}
-            maxLength={5000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        )}
-      </Field>
+      <ConsultationInputs value={draft} onChange={setDraft} at={errors.at} />
       {errors.general ? <ErrorAlert error={errors.general} /> : null}
       <div className="form-actions">
         <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
@@ -491,6 +397,233 @@ function ConsultationForm({
         </button>
       </div>
     </form>
+  );
+}
+
+/** The consultation's inputs, with no buttons of their own: the card's consultation form
+ * and a new client's form (backlog 1.15.16) share them. On the card every field shows. A
+ * new client's form passes `more`: the rarely needed part (the decision, when to call
+ * back, the trip, the fee) opens under it, and the channel is left to the contact's
+ * block. `at` gives a field's error by its path without the prefix. */
+// In a new client's form the date and the number of applicants are not required: wiped
+// out, they leave the block empty; in a block filled otherwise the API names them.
+export function ConsultationInputs({
+  value: draft,
+  onChange,
+  at,
+  more,
+}: {
+  value: ConsultationDraft;
+  onChange: (value: ConsultationDraft) => void;
+  at: (field: string) => string | undefined;
+  more?: Disclosure;
+}) {
+  const { t } = useTranslation();
+  const lists = useContactLists();
+  const money = useMoneySettings();
+  const currencies = money.data?.payment_currencies ?? [];
+  const set = <K extends keyof ConsultationDraft>(key: K, value: ConsultationDraft[K]) =>
+    onChange({ ...draft, [key]: value });
+  const feeMessage = useId();
+  const feeError = at("fee_amount") ?? at("fee_currency") ?? at("fee_paid_on");
+
+  const heldOn = (
+    <Field label={t("contacts.heldOn")} error={at("held_on")}>
+      {(control) => (
+        <input
+          {...control}
+          type="date"
+          required={!more}
+          value={draft.held_on}
+          onChange={(e) => set("held_on", e.target.value)}
+        />
+      )}
+    </Field>
+  );
+  const applicants = (
+    <Field label={t("contacts.applicants")} error={at("applicants")}>
+      {(control) => (
+        <input
+          {...control}
+          type="number"
+          min={1}
+          max={30}
+          required={!more}
+          value={draft.applicants}
+          onChange={(e) => set("applicants", e.target.value)}
+        />
+      )}
+    </Field>
+  );
+  const decision = (
+    <label className="field">
+      <span>{t("contacts.decisionLabel")}</span>
+      <select
+        value={draft.decision}
+        onChange={(e) => set("decision", e.target.value as Decision | "")}
+      >
+        <option value="">{t("contacts.decision.none")}</option>
+        {DECISIONS.map((d) => (
+          <option key={d} value={d}>
+            {t(`contacts.decision.${d}`)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const followUp = (
+    <Field
+      label={t("contacts.followUpOn")}
+      hint={t("contacts.followUpHint")}
+      error={at("follow_up_on")}
+    >
+      {(control) => (
+        <input
+          {...control}
+          type="date"
+          value={draft.follow_up_on}
+          onChange={(e) => set("follow_up_on", e.target.value)}
+        />
+      )}
+    </Field>
+  );
+  const channel = (
+    <label className="field">
+      <span>{t("contacts.channel")}</span>
+      <select
+        value={draft.lead_channel_id}
+        onChange={(e) => set("lead_channel_id", e.target.value)}
+      >
+        <option value="" />
+        {lists.channels
+          .filter((c) => c.is_active || c.id === draft.lead_channel_id)
+          .map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+      </select>
+    </label>
+  );
+  const trip = (
+    <Field label={t("contacts.tripPlannedOn")} error={at("trip_planned_on")}>
+      {(control) => (
+        <input
+          {...control}
+          type="date"
+          value={draft.trip_planned_on}
+          onChange={(e) => set("trip_planned_on", e.target.value)}
+        />
+      )}
+    </Field>
+  );
+  const destinations = (
+    <CountryPicker
+      label={t("contacts.destinations")}
+      value={draft.destination_ids}
+      onChange={(v) => set("destination_ids", v)}
+      by="id"
+    />
+  );
+  const fee = (
+    <fieldset className="module-block">
+      <legend>{t("contacts.fee")}</legend>
+      <div className="row-editor">
+        <input
+          aria-label={t("dict.amount")}
+          inputMode="decimal"
+          placeholder={t("dict.amount")}
+          value={draft.fee_amount}
+          onChange={(e) => set("fee_amount", e.target.value)}
+          {...invalidProps(feeMessage, at("fee_amount"))}
+        />
+        <select
+          className="select-narrow"
+          aria-label={t("dict.currency")}
+          value={draft.fee_currency || money.data?.base_currency || ""}
+          onChange={(e) => set("fee_currency", e.target.value)}
+          {...invalidProps(feeMessage, at("fee_currency"))}
+        >
+          {currencies.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={draft.fee_paid}
+            disabled={!draft.fee_amount.trim()}
+            onChange={(e) => set("fee_paid", e.target.checked)}
+          />
+          {t("contacts.feePaid")}
+        </label>
+        {draft.fee_paid && (
+          <input
+            type="date"
+            aria-label={t("contacts.feePaidOn")}
+            value={draft.fee_paid_on}
+            onChange={(e) => set("fee_paid_on", e.target.value)}
+            {...invalidProps(feeMessage, at("fee_paid_on"))}
+          />
+        )}
+        <RowError id={feeMessage} error={feeError} />
+      </div>
+      <p className="muted small">{t("contacts.feeHint")}</p>
+    </fieldset>
+  );
+  const notes = (
+    <Field label={t("contacts.consultationNotes")} error={at("notes")}>
+      {(control) => (
+        <textarea
+          {...control}
+          rows={3}
+          maxLength={5000}
+          value={draft.notes}
+          onChange={(e) => set("notes", e.target.value)}
+        />
+      )}
+    </Field>
+  );
+
+  if (more) {
+    return (
+      <>
+        <div className="form-grid">
+          {heldOn}
+          {applicants}
+        </div>
+        {destinations}
+        {notes}
+        <div>
+          <button className="disclosure-title" {...more.button}>
+            {t("newClient.consultationMore")}
+          </button>
+          <div className="form-card" {...more.panel}>
+            <div className="form-grid">
+              {decision}
+              {followUp}
+              {trip}
+            </div>
+            {fee}
+          </div>
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      <div className="form-grid">
+        {heldOn}
+        {applicants}
+        {decision}
+        {followUp}
+        {channel}
+        {trip}
+      </div>
+      {destinations}
+      {fee}
+      {notes}
+    </>
   );
 }
 
@@ -669,11 +802,7 @@ export function QuestionnaireCard({
 function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const countries = useSortedCountries();
-  const name = useLocalName();
   const [q, setQ] = useState<Questionnaire>(card.questionnaire);
-  const set = <K extends keyof Questionnaire>(key: K, value: Questionnaire[K]) =>
-    setQ((current) => ({ ...current, [key]: value }));
 
   const save = useMutation({
     mutationFn: () =>
@@ -687,8 +816,7 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
           ...q,
           // The passport is edited with the card: kept as the card has it now.
           ...passportOf(card.questionnaire),
-          deportation_note: q.deportation ? q.deportation_note?.trim() || null : null,
-          note: q.note?.trim() || null,
+          ...answersBody(q),
         },
       ),
     onSuccess: () => {
@@ -700,20 +828,92 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
         void refreshAfterPassportPurge(queryClient, card.contact.id);
     },
   });
-  // Visas and refusals are lists: the API names a row's field by its index.
-  const errors = useFieldErrors(save.error, {
-    fields: [
-      ...q.visas.flatMap((_, i) => [`visas.${i}.valid_from`, `visas.${i}.valid_to`]),
-      ...q.refusals.flatMap((_, i) => [`refusals.${i}.year`, `refusals.${i}.reason`]),
-      "deportation_note",
-      "note",
-    ],
-  });
+  const errors = useFieldErrors(save.error, { fields: answerFields(q) });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     save.mutate();
   };
+
+  return (
+    <form ref={errors.form} className="form-card" onSubmit={submit}>
+      <AnswersInputs value={q} onChange={setQ} at={errors.at} />
+      {errors.general ? <ErrorAlert error={errors.general} /> : null}
+      <div className="form-actions">
+        <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
+          {t("common.save")}
+        </button>
+        <button type="button" className="btn btn-sm" onClick={onDone}>
+          {t("common.cancel")}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** The questionnaire's answers, without the passport, as the API takes them. */
+export type Answers = Omit<Questionnaire, keyof Passport>;
+
+export const BLANK_ANSWERS: Answers = {
+  visas: [],
+  relatives_abroad: [],
+  refusals: [],
+  deportation: false,
+  deportation_note: null,
+  humanitarian_trips: [],
+  note: null,
+};
+
+/** The answers' free text tidied as the API keeps it. */
+export function answersBody<T extends Answers>(q: T): Answers {
+  return {
+    visas: q.visas,
+    relatives_abroad: q.relatives_abroad,
+    refusals: q.refusals,
+    deportation: q.deportation,
+    humanitarian_trips: q.humanitarian_trips,
+    deportation_note: q.deportation ? q.deportation_note?.trim() || null : null,
+    note: q.note?.trim() || null,
+  };
+}
+
+/** The answers' fields that show the API's validation under them. Visas and refusals are
+ * lists: the API names a row's field by its index. `prefix` is the answers' path in the
+ * body ("questionnaire." in a new client's form). */
+export function answerFields(q: Answers, prefix = ""): string[] {
+  return [
+    ...q.visas.flatMap((_, i) => [`visas.${i}.valid_from`, `visas.${i}.valid_to`]),
+    ...q.refusals.flatMap((_, i) => [`refusals.${i}.year`, `refusals.${i}.reason`]),
+    "deportation_note",
+    "note",
+  ].map((field) => prefix + field);
+}
+
+/** The questionnaire's answers as inputs, with no buttons of their own: the card's
+ * questionnaire and a new client's form (backlog 1.15.16) share them. `at` gives a
+ * field's error by its path without the prefix. */
+export function AnswersInputs<T extends Answers>({
+  value: q,
+  onChange,
+  at,
+  paired = false,
+}: {
+  value: T;
+  onChange: (value: T) => void;
+  at: (field: string) => string | undefined;
+  // Visas beside refusals and the two country pickers side by side on a wide screen
+  // (a new client's form, where the answers take the whole width).
+  paired?: boolean;
+}) {
+  const { t } = useTranslation();
+  const countries = useSortedCountries();
+  const pair = (children: ReactNode) =>
+    paired ? <div className="form-pair">{children}</div> : children;
+  const add = (button: ReactNode) =>
+    paired ? <div className="form-actions">{button}</div> : button;
+  const name = useLocalName();
+  const set = <K extends keyof Answers>(key: K, value: Answers[K]) =>
+    onChange({ ...q, [key]: value } as T);
 
   const countryOptions = (
     <>
@@ -730,84 +930,86 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
   const setRefusal = (i: number, patch: Partial<Refusal>) =>
     set("refusals", q.refusals.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
-  return (
-    <form ref={errors.form} className="form-card" onSubmit={submit}>
-      <fieldset className="module-block">
-        <legend>{t("contacts.visas")}</legend>
-        <div className="rows-editor">
-          {q.visas.map((v, i) => (
-            <div key={i} className="q-edit">
-              <div className="form-grid">
-                <label className="field">
-                  <span>{t("contacts.visaKindLabel")}</span>
-                  <select
-                    value={v.kind}
-                    onChange={(e) => setVisa(i, { kind: e.target.value as VisaRecord["kind"] })}
-                  >
-                    {VISA_KINDS.map((k) => (
-                      <option key={k} value={k}>
-                        {t(`contacts.visaKind.${k}`)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>{t("dict.country")}</span>
-                  <select
-                    value={v.country ?? ""}
-                    onChange={(e) => setVisa(i, { country: e.target.value || null })}
-                  >
-                    {countryOptions}
-                  </select>
-                </label>
-                <label className="field q-wide">
-                  <span>{t("contacts.visaPurpose")}</span>
-                  <select
-                    value={v.purpose ?? ""}
-                    onChange={(e) =>
-                      setVisa(i, { purpose: (e.target.value || null) as VisaRecord["purpose"] })
-                    }
-                  >
-                    <option value="">{t("contacts.purposeNone")}</option>
-                    {PURPOSE_KINDS.map((k) => (
-                      <option key={k} value={k}>
-                        {t(`purposeKind.${k}`)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Field label={t("contacts.validFrom")} error={errors.at(`visas.${i}.valid_from`)}>
-                  {(control) => (
-                    <input
-                      {...control}
-                      type="date"
-                      value={v.valid_from ?? ""}
-                      onChange={(e) => setVisa(i, { valid_from: e.target.value || null })}
-                    />
-                  )}
-                </Field>
-                <Field label={t("contacts.validTo")} error={errors.at(`visas.${i}.valid_to`)}>
-                  {(control) => (
-                    <input
-                      {...control}
-                      type="date"
-                      min={v.valid_from ?? undefined}
-                      value={v.valid_to ?? ""}
-                      onChange={(e) => setVisa(i, { valid_to: e.target.value || null })}
-                    />
-                  )}
-                </Field>
-              </div>
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => set("visas", q.visas.filter((_, j) => j !== i))}
-              >
-                {t("dict.remove")}
-              </button>
+  const visas = (
+    <fieldset className="module-block">
+      <legend>{t("contacts.visas")}</legend>
+      <div className="rows-editor">
+        {q.visas.map((v, i) => (
+          <div key={i} className="q-edit">
+            <div className="form-grid">
+              {/* Lists on a whole row each: «Великобритания» does not fit a narrow one (a
+                  country, and a kind too); the dates go as a pair below. */}
+              <label className="field q-wide">
+                <span>{t("dict.country")}</span>
+                <select
+                  value={v.country ?? ""}
+                  onChange={(e) => setVisa(i, { country: e.target.value || null })}
+                >
+                  {countryOptions}
+                </select>
+              </label>
+              <label className="field q-wide">
+                <span>{t("contacts.visaPurpose")}</span>
+                <select
+                  value={v.purpose ?? ""}
+                  onChange={(e) =>
+                    setVisa(i, { purpose: (e.target.value || null) as VisaRecord["purpose"] })
+                  }
+                >
+                  <option value="">{t("contacts.purposeNone")}</option>
+                  {PURPOSE_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {t(`purposeKind.${k}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field q-wide">
+                <span>{t("contacts.visaKindLabel")}</span>
+                <select
+                  value={v.kind}
+                  onChange={(e) => setVisa(i, { kind: e.target.value as VisaRecord["kind"] })}
+                >
+                  {VISA_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {t(`contacts.visaKind.${k}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Field label={t("contacts.validFrom")} error={at(`visas.${i}.valid_from`)}>
+                {(control) => (
+                  <input
+                    {...control}
+                    type="date"
+                    value={v.valid_from ?? ""}
+                    onChange={(e) => setVisa(i, { valid_from: e.target.value || null })}
+                  />
+                )}
+              </Field>
+              <Field label={t("contacts.validTo")} error={at(`visas.${i}.valid_to`)}>
+                {(control) => (
+                  <input
+                    {...control}
+                    type="date"
+                    min={v.valid_from ?? undefined}
+                    value={v.valid_to ?? ""}
+                    onChange={(e) => setVisa(i, { valid_to: e.target.value || null })}
+                  />
+                )}
+              </Field>
             </div>
-          ))}
-        </div>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => set("visas", q.visas.filter((_, j) => j !== i))}
+            >
+              {t("dict.remove")}
+            </button>
+          </div>
+        ))}
+      </div>
+      {add(
         <button
           type="button"
           className="btn btn-sm"
@@ -827,63 +1029,66 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
         >
           {t("contacts.addVisa")}
         </button>
-      </fieldset>
-
-      <fieldset className="module-block">
-        <legend>{t("contacts.refusals")}</legend>
-        <div className="rows-editor">
-          {q.refusals.map((r, i) => (
-            <div key={i} className="q-edit">
-              <div className="form-grid">
-                <label className="field">
-                  <span>{t("dict.country")}</span>
-                  <select
-                    required
-                    value={r.country}
-                    onChange={(e) => setRefusal(i, { country: e.target.value })}
-                  >
-                    {countryOptions}
-                  </select>
-                </label>
-                <Field label={t("contacts.year")} error={errors.at(`refusals.${i}.year`)}>
-                  {(control) => (
-                    <input
-                      {...control}
-                      type="number"
-                      min={1990}
-                      max={2100}
-                      value={r.year ?? ""}
-                      onChange={(e) =>
-                        setRefusal(i, { year: e.target.value ? Number(e.target.value) : null })
-                      }
-                    />
-                  )}
-                </Field>
-                <Field
-                  className="field q-wide"
-                  label={t("contacts.reason")}
-                  error={errors.at(`refusals.${i}.reason`)}
+      )}
+    </fieldset>
+  );
+  const refusals = (
+    <fieldset className="module-block">
+      <legend>{t("contacts.refusals")}</legend>
+      <div className="rows-editor">
+        {q.refusals.map((r, i) => (
+          <div key={i} className="q-edit">
+            <div className="form-grid">
+              <label className="field">
+                <span>{t("dict.country")}</span>
+                <select
+                  required
+                  value={r.country}
+                  onChange={(e) => setRefusal(i, { country: e.target.value })}
                 >
-                  {(control) => (
-                    <input
-                      {...control}
-                      maxLength={500}
-                      value={r.reason ?? ""}
-                      onChange={(e) => setRefusal(i, { reason: e.target.value || null })}
-                    />
-                  )}
-                </Field>
-              </div>
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => set("refusals", q.refusals.filter((_, j) => j !== i))}
+                  {countryOptions}
+                </select>
+              </label>
+              <Field label={t("contacts.year")} error={at(`refusals.${i}.year`)}>
+                {(control) => (
+                  <input
+                    {...control}
+                    type="number"
+                    min={1990}
+                    max={2100}
+                    value={r.year ?? ""}
+                    onChange={(e) =>
+                      setRefusal(i, { year: e.target.value ? Number(e.target.value) : null })
+                    }
+                  />
+                )}
+              </Field>
+              <Field
+                className="field q-wide"
+                label={t("contacts.reason")}
+                error={at(`refusals.${i}.reason`)}
               >
-                {t("dict.remove")}
-              </button>
+                {(control) => (
+                  <input
+                    {...control}
+                    maxLength={500}
+                    value={r.reason ?? ""}
+                    onChange={(e) => setRefusal(i, { reason: e.target.value || null })}
+                  />
+                )}
+              </Field>
             </div>
-          ))}
-        </div>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => set("refusals", q.refusals.filter((_, j) => j !== i))}
+            >
+              {t("dict.remove")}
+            </button>
+          </div>
+        ))}
+      </div>
+      {add(
         <button
           type="button"
           className="btn btn-sm"
@@ -891,20 +1096,35 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
         >
           {t("contacts.addRefusal")}
         </button>
-      </fieldset>
+      )}
+    </fieldset>
+  );
 
-      <CountryPicker
-        label={t("contacts.relativesAbroad")}
-        value={q.relatives_abroad}
-        onChange={(v) => set("relatives_abroad", v)}
-        by="code"
-      />
-      <CountryPicker
-        label={t("contacts.humanitarianTrips")}
-        value={q.humanitarian_trips}
-        onChange={(v) => set("humanitarian_trips", v)}
-        by="code"
-      />
+  return (
+    <>
+      {pair(
+        <>
+          {visas}
+          {refusals}
+        </>,
+      )}
+
+      {pair(
+        <>
+          <CountryPicker
+            label={t("contacts.relativesAbroad")}
+            value={q.relatives_abroad}
+            onChange={(v) => set("relatives_abroad", v)}
+            by="code"
+          />
+          <CountryPicker
+            label={t("contacts.humanitarianTrips")}
+            value={q.humanitarian_trips}
+            onChange={(v) => set("humanitarian_trips", v)}
+            by="code"
+          />
+        </>,
+      )}
       <label className="checkbox">
         <input
           type="checkbox"
@@ -914,7 +1134,7 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
         {t("contacts.deportation")}
       </label>
       {q.deportation && (
-        <Field label={t("contacts.deportationNote")} error={errors.at("deportation_note")}>
+        <Field label={t("contacts.deportationNote")} error={at("deportation_note")}>
           {(control) => (
             <input
               {...control}
@@ -925,7 +1145,7 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
           )}
         </Field>
       )}
-      <Field label={t("contacts.questionnaireNote")} error={errors.at("note")}>
+      <Field label={t("contacts.questionnaireNote")} error={at("note")}>
         {(control) => (
           <textarea
             {...control}
@@ -936,15 +1156,6 @@ function QuestionnaireForm({ card, onDone }: { card: ContactCard; onDone: () => 
           />
         )}
       </Field>
-      {errors.general ? <ErrorAlert error={errors.general} /> : null}
-      <div className="form-actions">
-        <button type="submit" className="btn btn-sm btn-p" disabled={save.isPending}>
-          {t("common.save")}
-        </button>
-        <button type="button" className="btn btn-sm" onClick={onDone}>
-          {t("common.cancel")}
-        </button>
-      </div>
-    </form>
+    </>
   );
 }

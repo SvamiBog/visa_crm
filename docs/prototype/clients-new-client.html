@@ -1,0 +1,1692 @@
+<!doctype html>
+<html lang="ru" data-ui-theme="blue">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Макет: «Новый клиент» одним экраном (бэклог 1.15.16)</title>
+  <link rel="stylesheet" href="../../frontend/src/styles.css">
+  <style>
+    /* NEW: goes to styles.css — a block of the new-client form (Контакт, Анкета,
+       Консультация, Заметка, Паспорт): a line above it, the same gap inside as the form */
+    .form-section {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--c-border);
+    }
+
+    /* NEW: goes to styles.css — a checkbox in a row of compact fields («оплачено» in the
+       consultation's fee) is a checkbox, not a 110px field: today .row-editor input
+       stretches it and gives it a field's border (the card's consultation form too) */
+    .row-editor .checkbox input {
+      flex: none;
+      width: 20px;
+      height: 20px;
+      min-width: 0;
+      min-height: 0;
+      padding: 0;
+    }
+
+    /* NEW: goes to styles.css — two parts of the questionnaire side by side on a wide
+       screen (visas and refusals; the two country pickers), one under another on a phone:
+       a visa's fields keep the narrow layout of the card instead of a 1200px row */
+    .form-pair {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+      gap: 16px;
+      align-items: start;
+    }
+
+    /* NEW: goes to styles.css — a date in a row of compact fields («Дата оплаты») shows
+       its whole date and the calendar button: 110px cuts the year */
+    .row-editor input[type="date"] {
+      flex-basis: 152px;
+    }
+
+    /* Mockup only: states one under another */
+    .mockup-state {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+  </style>
+</head>
+<body>
+<main class="content">
+  <div class="page">
+    <header class="page-header">
+      <div>
+        <h1>Клиенты</h1>
+        <div class="muted">Контакты, консультации и кейсы в одной базе</div>
+      </div>
+    </header>
+    <!-- key: errors.* (существующие) -->
+    <section class="mockup-state">
+      <h2 class="h2 muted">Состояние: Пустая форма: всё свёрнутое закрыто, «Создать карточку» недоступна, пока нет фамилии или имени</h2>
+      <form class="card form-card new-client" onsubmit="return false">
+      <h2 class="h2">Новый клиент</h2>
+      <section class="form-section">
+        <h3 class="h3">Контакт</h3><!-- key: newClient.contact -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-1">Фамилия</label>
+            <input id="f-1" type="text" value="" autofocus>
+            
+          </div>
+          <div class="field">
+            <label for="f-2">Имя</label>
+            <input id="f-2" type="text" value="" aria-describedby="f-2-h">
+            <div class="field-notes"><small id="f-2-h" class="muted small">Достаточно фамилии или имени.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-3">Отчество</label>
+            <input id="f-3" type="text" value="">
+            
+          </div>
+          <div class="field">
+            <label for="f-4">Телефон</label>
+            <input id="f-4" type="tel" value="" aria-describedby="f-4-h">
+            <div class="field-notes"><small id="f-4-h" class="muted small">С кодом страны, например +375 29 123-45-67. Белорусский номер можно писать и так, как привыкли: 8 029 123-45-67. Вторую карточку с тем же телефоном завести не получится.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-5">Telegram</label>
+            <input id="f-5" type="text" value="" aria-describedby="f-5-h">
+            <div class="field-notes"><small id="f-5-h" class="muted small">Ник, ссылка на профиль или имя в Telegram.</small></div>
+          </div>
+          <label class="field">
+            <span>Другой мессенджер</span>
+            <select><option selected>нет</option><option>WhatsApp</option><option>Viber</option></select>
+          </label>
+          
+          <div class="field">
+            <label for="f-6">Email</label>
+            <input id="f-6" type="email" value="">
+            
+          </div>
+          <div class="field">
+            <label for="f-7">Дата рождения</label>
+            <input id="f-7" type="date" value="">
+            
+          </div>
+          <label class="field">
+            <span>Канал прихода</span>
+            <select><option selected></option><option>Instagram</option><option>Telegram-канал</option><option>Рекомендация</option></select>
+          </label>
+          <label class="field">
+            <span>Партнёр</span>
+            <select><option selected></option><option>Турагентство «Пример»</option></select>
+          </label>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Анкета</h3><!-- key: contacts.questionnaire -->
+        <div class="form-pair">
+        <fieldset class="module-block">
+          <legend>Визы за 5 лет</legend>
+          <div class="rows-editor"></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Виза</button></div>
+        </fieldset>
+        <fieldset class="module-block">
+          <legend>Отказы</legend>
+          <div class="rows-editor"></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Отказ</button></div>
+        </fieldset>
+        </div>
+        <div class="form-pair">
+        <div class="field">
+          <span>Родственники или друзья за границей</span>
+          
+          <select aria-label="Родственники или друзья за границей"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <span>Поездки в детстве по гуманитарным программам</span>
+          
+          <select aria-label="Поездки в детстве по гуманитарным программам"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        </div>
+        <label class="checkbox"><input type="checkbox"> Депортация</label>
+        <div class="field">
+          <label for="t-8">Другое по анкете</label>
+          <textarea id="t-8" rows="2"></textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Консультация</h3><!-- key: newClient.consultation -->
+        <p class="muted small">Заполните, если человек уже рассказал о поездке. Если оставить как есть, консультации в карточке не будет.</p><!-- key: newClient.consultationHint -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-10">Дата консультации</label>
+            <input id="f-10" type="date" value="2026-11-28" required>
+            
+          </div>
+          <div class="field">
+            <label for="f-11">Количество заявителей</label>
+            <input id="f-11" type="number" value="1" required min="1">
+            
+          </div>
+        </div>
+        <div class="field">
+          <span>Куда планирует поездку</span>
+          
+          <select aria-label="Куда планирует поездку"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <label for="t-12">Вводные</label>
+          <textarea id="t-12" rows="3"></textarea>
+        </div>
+        <div>
+          <button type="button" class="disclosure-title" aria-expanded="false" aria-controls="more-9">Решение, поездка и оплата</button><!-- key: newClient.consultationMore -->
+          <div id="more-9" class="form-card" hidden>
+            <div class="form-grid">
+              <label class="field">
+            <span>Решение по визе</span>
+            <select><option>не решено</option><option>Да</option><option>Нет</option><option selected>Думает</option></select>
+          </label>
+              <div class="field">
+            <label for="f-13">Связаться о решении</label>
+            <input id="f-13" type="date" value="2026-12-03" aria-describedby="f-13-h">
+            <div class="field-notes"><small id="f-13-h" class="muted small">Когда клиент обещал дать ответ. В этот день CRM напомнит узнать его решение.</small></div>
+          </div>
+              <div class="field">
+            <label for="f-14">Когда планирует поездку</label>
+            <input id="f-14" type="date" value="2027-05-10">
+            
+          </div>
+            </div>
+            <fieldset class="module-block">
+              <legend>Оплата консультации</legend>
+              <div class="row-editor">
+                <input aria-label="Сумма" inputmode="decimal" placeholder="Сумма" value="60">
+                <select class="select-narrow" aria-label="Валюта"><option selected>BYN</option><option>EUR</option><option>USD</option></select>
+                <label class="checkbox"><input type="checkbox" checked> оплачено</label>
+                <input type="date" aria-label="Дата оплаты" value="2026-11-28">
+              </div>
+              <p class="muted small">Оплата консультации засчитывается в стоимость, когда бы клиент ни пришёл в работу.</p>
+            </fieldset>
+          </div>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Заметка</h3><!-- key: newClient.note -->
+        <div class="field">
+          <label for="t-15" class="visually-hidden">Новая заметка</label>
+          <textarea id="t-15" rows="3" placeholder="Что обсудили, что решили, что сделать дальше"></textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3"><button type="button" class="disclosure-title" aria-expanded="false" aria-controls="pass-16">Паспорт, согласие и договор</button></h3><!-- key: newClient.paperwork -->
+        <p class="muted small">Данные со страницы паспорта нужны для анкет. Заполнить можно позже.</p><!-- key: contacts.passportFormHint -->
+        <div id="pass-16" class="form-card" hidden>
+          <h4 class="h3">Паспорт</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-17">Фамилия латиницей</label>
+            <input id="f-17" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-18">Имя латиницей</label>
+            <input id="f-18" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-19">Номер паспорта</label>
+            <input id="f-19" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-20">Личный (идентификационный) номер</label>
+            <input id="f-20" type="text" value="">
+            
+          </div>
+            <label class="field">
+            <span>Гражданство</span>
+            <select><option selected></option><option>Беларусь</option><option>Польша</option><option>Литва</option></select>
+          </label>
+            <label class="field">
+            <span>Пол</span>
+            <select><option selected></option><option>женский</option><option>мужской</option></select>
+          </label>
+            <div class="field">
+            <label for="f-21">Паспорт выдан</label>
+            <input id="f-21" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-22">Паспорт действует до</label>
+            <input id="f-22" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-23">Кем выдан</label>
+            <input id="f-23" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-24">Место рождения</label>
+            <input id="f-24" type="text" value="">
+            
+          </div>
+          </div>
+          <h4 class="h3">Согласие и договор</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-25">Согласие на обработку данных подписано</label>
+            <input id="f-25" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-26">Номер договора</label>
+            <input id="f-26" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-27">Договор подписан</label>
+            <input id="f-27" type="date" value="">
+            
+          </div>
+          </div>
+        </div>
+      </section>
+      
+      <div class="form-actions">
+        <button type="submit" class="btn btn-p" disabled>Создать карточку</button>
+        <button type="button" class="btn">Отмена</button>
+      </div>
+    </form>
+    </section>
+    <section class="mockup-state">
+      <h2 class="h2 muted">Состояние: Заполнена: виза и отказ добавлены, страна консультации выбрана, вводные и заметка</h2>
+      <form class="card form-card new-client" onsubmit="return false">
+      <h2 class="h2">Новый клиент</h2>
+      <section class="form-section">
+        <h3 class="h3">Контакт</h3><!-- key: newClient.contact -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-28">Фамилия</label>
+            <input id="f-28" type="text" value="Ковалёва" autofocus>
+            
+          </div>
+          <div class="field">
+            <label for="f-29">Имя</label>
+            <input id="f-29" type="text" value="Анна" aria-describedby="f-29-h">
+            <div class="field-notes"><small id="f-29-h" class="muted small">Достаточно фамилии или имени.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-30">Отчество</label>
+            <input id="f-30" type="text" value="Сергеевна">
+            
+          </div>
+          <div class="field">
+            <label for="f-31">Телефон</label>
+            <input id="f-31" type="tel" value="+375 29 000-12-34" aria-describedby="f-31-h">
+            <div class="field-notes"><small id="f-31-h" class="muted small">С кодом страны, например +375 29 123-45-67. Белорусский номер можно писать и так, как привыкли: 8 029 123-45-67. Вторую карточку с тем же телефоном завести не получится.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-32">Telegram</label>
+            <input id="f-32" type="text" value="@anna_kov_example" aria-describedby="f-32-h">
+            <div class="field-notes"><small id="f-32-h" class="muted small">Ник, ссылка на профиль или имя в Telegram.</small></div>
+          </div>
+          <label class="field">
+            <span>Другой мессенджер</span>
+            <select><option>нет</option><option selected>WhatsApp</option><option>Viber</option></select>
+          </label>
+          <div class="field">
+            <label for="f-33">Номер или ник в мессенджере</label>
+            <input id="f-33" type="text" value="+48 500 000 111">
+            
+          </div>
+          <div class="field">
+            <label for="f-34">Email</label>
+            <input id="f-34" type="email" value="anna.example@example.com">
+            
+          </div>
+          <div class="field">
+            <label for="f-35">Дата рождения</label>
+            <input id="f-35" type="date" value="1991-04-12">
+            
+          </div>
+          <label class="field">
+            <span>Канал прихода</span>
+            <select><option></option><option selected>Instagram</option><option>Telegram-канал</option><option>Рекомендация</option></select>
+          </label>
+          <label class="field">
+            <span>Партнёр</span>
+            <select><option selected></option><option>Турагентство «Пример»</option></select>
+          </label>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Анкета</h3><!-- key: contacts.questionnaire -->
+        <div class="form-pair">
+        <fieldset class="module-block">
+          <legend>Визы за 5 лет</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Тип визы</span>
+            <select><option selected>Шенген</option><option>Национальная</option><option>Великобритания</option><option>США</option></select>
+          </label>
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option selected>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <label class="field q-wide">
+            <span>Цель</span>
+            <select><option>Не указана</option><option selected>Туризм</option><option>Гости (родственники, друзья)</option><option>Деловая поездка</option></select>
+          </label>
+                <div class="field">
+            <label for="f-36">Действует с</label>
+            <input id="f-36" type="date" value="2024-06-01">
+            
+          </div>
+                <div class="field">
+            <label for="f-37">Действует по</label>
+            <input id="f-37" type="date" value="2025-05-31">
+            
+          </div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Виза</button></div>
+        </fieldset>
+        <fieldset class="module-block">
+          <legend>Отказы</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option>Италия</option><option>Испания</option><option selected>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <div class="field">
+            <label for="f-38">Год</label>
+            <input id="f-38" type="number" value="2023">
+            
+          </div>
+                <div class="field q-wide"><label for="r-39">Причина</label><input id="r-39" value="Не подтвердила цель поездки"></div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Отказ</button></div>
+        </fieldset>
+        </div>
+        <div class="form-pair">
+        <div class="field">
+          <span>Родственники или друзья за границей</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Германия<button type="button" aria-label="Убрать Германия">×</button></span></div>
+          <select aria-label="Родственники или друзья за границей"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <span>Поездки в детстве по гуманитарным программам</span>
+          
+          <select aria-label="Поездки в детстве по гуманитарным программам"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        </div>
+        <label class="checkbox"><input type="checkbox"> Депортация</label>
+        <div class="field">
+          <label for="t-40">Другое по анкете</label>
+          <textarea id="t-40" rows="2"></textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Консультация</h3><!-- key: newClient.consultation -->
+        <p class="muted small">Заполните, если человек уже рассказал о поездке. Если оставить как есть, консультации в карточке не будет.</p><!-- key: newClient.consultationHint -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-42">Дата консультации</label>
+            <input id="f-42" type="date" value="2026-11-28" required>
+            
+          </div>
+          <div class="field">
+            <label for="f-43">Количество заявителей</label>
+            <input id="f-43" type="number" value="2" required min="1">
+            
+          </div>
+        </div>
+        <div class="field">
+          <span>Куда планирует поездку</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Италия<button type="button" aria-label="Убрать Италия">×</button></span></div>
+          <select aria-label="Куда планирует поездку"><option>+ Добавить страну</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <label for="t-44">Вводные</label>
+          <textarea id="t-44" rows="3">Едут вдвоём с мужем в мае, Рим и Флоренция, 10 дней. Работает в ИТ по договору, справка с работы есть. Хотят подать в феврале.</textarea>
+        </div>
+        <div>
+          <button type="button" class="disclosure-title" aria-expanded="false" aria-controls="more-41">Решение, поездка и оплата</button><!-- key: newClient.consultationMore -->
+          <div id="more-41" class="form-card" hidden>
+            <div class="form-grid">
+              <label class="field">
+            <span>Решение по визе</span>
+            <select><option>не решено</option><option>Да</option><option>Нет</option><option selected>Думает</option></select>
+          </label>
+              <div class="field">
+            <label for="f-45">Связаться о решении</label>
+            <input id="f-45" type="date" value="2026-12-03" aria-describedby="f-45-h">
+            <div class="field-notes"><small id="f-45-h" class="muted small">Когда клиент обещал дать ответ. В этот день CRM напомнит узнать его решение.</small></div>
+          </div>
+              <div class="field">
+            <label for="f-46">Когда планирует поездку</label>
+            <input id="f-46" type="date" value="2027-05-10">
+            
+          </div>
+            </div>
+            <fieldset class="module-block">
+              <legend>Оплата консультации</legend>
+              <div class="row-editor">
+                <input aria-label="Сумма" inputmode="decimal" placeholder="Сумма" value="60">
+                <select class="select-narrow" aria-label="Валюта"><option selected>BYN</option><option>EUR</option><option>USD</option></select>
+                <label class="checkbox"><input type="checkbox" checked> оплачено</label>
+                <input type="date" aria-label="Дата оплаты" value="2026-11-28">
+              </div>
+              <p class="muted small">Оплата консультации засчитывается в стоимость, когда бы клиент ни пришёл в работу.</p>
+            </fieldset>
+          </div>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Заметка</h3><!-- key: newClient.note -->
+        <div class="field">
+          <label for="t-47" class="visually-hidden">Новая заметка</label>
+          <textarea id="t-47" rows="3" placeholder="Что обсудили, что решили, что сделать дальше">Пришла из Instagram по рекламе Италии. Просила прислать список документов в Telegram.</textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3"><button type="button" class="disclosure-title" aria-expanded="false" aria-controls="pass-48">Паспорт, согласие и договор</button></h3><!-- key: newClient.paperwork -->
+        <p class="muted small">Данные со страницы паспорта нужны для анкет. Заполнить можно позже.</p><!-- key: contacts.passportFormHint -->
+        <div id="pass-48" class="form-card" hidden>
+          <h4 class="h3">Паспорт</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-49">Фамилия латиницей</label>
+            <input id="f-49" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-50">Имя латиницей</label>
+            <input id="f-50" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-51">Номер паспорта</label>
+            <input id="f-51" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-52">Личный (идентификационный) номер</label>
+            <input id="f-52" type="text" value="">
+            
+          </div>
+            <label class="field">
+            <span>Гражданство</span>
+            <select><option selected></option><option>Беларусь</option><option>Польша</option><option>Литва</option></select>
+          </label>
+            <label class="field">
+            <span>Пол</span>
+            <select><option selected></option><option>женский</option><option>мужской</option></select>
+          </label>
+            <div class="field">
+            <label for="f-53">Паспорт выдан</label>
+            <input id="f-53" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-54">Паспорт действует до</label>
+            <input id="f-54" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-55">Кем выдан</label>
+            <input id="f-55" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-56">Место рождения</label>
+            <input id="f-56" type="text" value="">
+            
+          </div>
+          </div>
+          <h4 class="h3">Согласие и договор</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-57">Согласие на обработку данных подписано</label>
+            <input id="f-57" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-58">Номер договора</label>
+            <input id="f-58" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-59">Договор подписан</label>
+            <input id="f-59" type="date" value="">
+            
+          </div>
+          </div>
+        </div>
+      </section>
+      
+      <div class="form-actions">
+        <button type="submit" class="btn btn-p">Создать карточку</button>
+        <button type="button" class="btn">Отмена</button>
+      </div>
+    </form>
+    </section>
+    <section class="mockup-state">
+      <h2 class="h2 muted">Состояние: Раскрыты «Решение, поездка и оплата» консультации</h2>
+      <form class="card form-card new-client" onsubmit="return false">
+      <h2 class="h2">Новый клиент</h2>
+      <section class="form-section">
+        <h3 class="h3">Контакт</h3><!-- key: newClient.contact -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-60">Фамилия</label>
+            <input id="f-60" type="text" value="Ковалёва" autofocus>
+            
+          </div>
+          <div class="field">
+            <label for="f-61">Имя</label>
+            <input id="f-61" type="text" value="Анна" aria-describedby="f-61-h">
+            <div class="field-notes"><small id="f-61-h" class="muted small">Достаточно фамилии или имени.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-62">Отчество</label>
+            <input id="f-62" type="text" value="Сергеевна">
+            
+          </div>
+          <div class="field">
+            <label for="f-63">Телефон</label>
+            <input id="f-63" type="tel" value="+375 29 000-12-34" aria-describedby="f-63-h">
+            <div class="field-notes"><small id="f-63-h" class="muted small">С кодом страны, например +375 29 123-45-67. Белорусский номер можно писать и так, как привыкли: 8 029 123-45-67. Вторую карточку с тем же телефоном завести не получится.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-64">Telegram</label>
+            <input id="f-64" type="text" value="@anna_kov_example" aria-describedby="f-64-h">
+            <div class="field-notes"><small id="f-64-h" class="muted small">Ник, ссылка на профиль или имя в Telegram.</small></div>
+          </div>
+          <label class="field">
+            <span>Другой мессенджер</span>
+            <select><option>нет</option><option selected>WhatsApp</option><option>Viber</option></select>
+          </label>
+          <div class="field">
+            <label for="f-65">Номер или ник в мессенджере</label>
+            <input id="f-65" type="text" value="+48 500 000 111">
+            
+          </div>
+          <div class="field">
+            <label for="f-66">Email</label>
+            <input id="f-66" type="email" value="anna.example@example.com">
+            
+          </div>
+          <div class="field">
+            <label for="f-67">Дата рождения</label>
+            <input id="f-67" type="date" value="1991-04-12">
+            
+          </div>
+          <label class="field">
+            <span>Канал прихода</span>
+            <select><option></option><option selected>Instagram</option><option>Telegram-канал</option><option>Рекомендация</option></select>
+          </label>
+          <label class="field">
+            <span>Партнёр</span>
+            <select><option selected></option><option>Турагентство «Пример»</option></select>
+          </label>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Анкета</h3><!-- key: contacts.questionnaire -->
+        <div class="form-pair">
+        <fieldset class="module-block">
+          <legend>Визы за 5 лет</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Тип визы</span>
+            <select><option selected>Шенген</option><option>Национальная</option><option>Великобритания</option><option>США</option></select>
+          </label>
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option selected>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <label class="field q-wide">
+            <span>Цель</span>
+            <select><option>Не указана</option><option selected>Туризм</option><option>Гости (родственники, друзья)</option><option>Деловая поездка</option></select>
+          </label>
+                <div class="field">
+            <label for="f-68">Действует с</label>
+            <input id="f-68" type="date" value="2024-06-01">
+            
+          </div>
+                <div class="field">
+            <label for="f-69">Действует по</label>
+            <input id="f-69" type="date" value="2025-05-31">
+            
+          </div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Виза</button></div>
+        </fieldset>
+        <fieldset class="module-block">
+          <legend>Отказы</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option>Италия</option><option>Испания</option><option selected>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <div class="field">
+            <label for="f-70">Год</label>
+            <input id="f-70" type="number" value="2023">
+            
+          </div>
+                <div class="field q-wide"><label for="r-71">Причина</label><input id="r-71" value="Не подтвердила цель поездки"></div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Отказ</button></div>
+        </fieldset>
+        </div>
+        <div class="form-pair">
+        <div class="field">
+          <span>Родственники или друзья за границей</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Германия<button type="button" aria-label="Убрать Германия">×</button></span></div>
+          <select aria-label="Родственники или друзья за границей"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <span>Поездки в детстве по гуманитарным программам</span>
+          
+          <select aria-label="Поездки в детстве по гуманитарным программам"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        </div>
+        <label class="checkbox"><input type="checkbox"> Депортация</label>
+        <div class="field">
+          <label for="t-72">Другое по анкете</label>
+          <textarea id="t-72" rows="2"></textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Консультация</h3><!-- key: newClient.consultation -->
+        <p class="muted small">Заполните, если человек уже рассказал о поездке. Если оставить как есть, консультации в карточке не будет.</p><!-- key: newClient.consultationHint -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-74">Дата консультации</label>
+            <input id="f-74" type="date" value="2026-11-28" required>
+            
+          </div>
+          <div class="field">
+            <label for="f-75">Количество заявителей</label>
+            <input id="f-75" type="number" value="2" required min="1">
+            
+          </div>
+        </div>
+        <div class="field">
+          <span>Куда планирует поездку</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Италия<button type="button" aria-label="Убрать Италия">×</button></span></div>
+          <select aria-label="Куда планирует поездку"><option>+ Добавить страну</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <label for="t-76">Вводные</label>
+          <textarea id="t-76" rows="3">Едут вдвоём с мужем в мае, Рим и Флоренция, 10 дней. Работает в ИТ по договору, справка с работы есть. Хотят подать в феврале.</textarea>
+        </div>
+        <div>
+          <button type="button" class="disclosure-title" aria-expanded="true" aria-controls="more-73">Решение, поездка и оплата</button><!-- key: newClient.consultationMore -->
+          <div id="more-73" class="form-card">
+            <div class="form-grid">
+              <label class="field">
+            <span>Решение по визе</span>
+            <select><option>не решено</option><option>Да</option><option>Нет</option><option selected>Думает</option></select>
+          </label>
+              <div class="field">
+            <label for="f-77">Связаться о решении</label>
+            <input id="f-77" type="date" value="2026-12-03" aria-describedby="f-77-h">
+            <div class="field-notes"><small id="f-77-h" class="muted small">Когда клиент обещал дать ответ. В этот день CRM напомнит узнать его решение.</small></div>
+          </div>
+              <div class="field">
+            <label for="f-78">Когда планирует поездку</label>
+            <input id="f-78" type="date" value="2027-05-10">
+            
+          </div>
+            </div>
+            <fieldset class="module-block">
+              <legend>Оплата консультации</legend>
+              <div class="row-editor">
+                <input aria-label="Сумма" inputmode="decimal" placeholder="Сумма" value="60">
+                <select class="select-narrow" aria-label="Валюта"><option selected>BYN</option><option>EUR</option><option>USD</option></select>
+                <label class="checkbox"><input type="checkbox" checked> оплачено</label>
+                <input type="date" aria-label="Дата оплаты" value="2026-11-28">
+              </div>
+              <p class="muted small">Оплата консультации засчитывается в стоимость, когда бы клиент ни пришёл в работу.</p>
+            </fieldset>
+          </div>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Заметка</h3><!-- key: newClient.note -->
+        <div class="field">
+          <label for="t-79" class="visually-hidden">Новая заметка</label>
+          <textarea id="t-79" rows="3" placeholder="Что обсудили, что решили, что сделать дальше">Пришла из Instagram по рекламе Италии. Просила прислать список документов в Telegram.</textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3"><button type="button" class="disclosure-title" aria-expanded="false" aria-controls="pass-80">Паспорт, согласие и договор</button></h3><!-- key: newClient.paperwork -->
+        <p class="muted small">Данные со страницы паспорта нужны для анкет. Заполнить можно позже.</p><!-- key: contacts.passportFormHint -->
+        <div id="pass-80" class="form-card" hidden>
+          <h4 class="h3">Паспорт</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-81">Фамилия латиницей</label>
+            <input id="f-81" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-82">Имя латиницей</label>
+            <input id="f-82" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-83">Номер паспорта</label>
+            <input id="f-83" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-84">Личный (идентификационный) номер</label>
+            <input id="f-84" type="text" value="">
+            
+          </div>
+            <label class="field">
+            <span>Гражданство</span>
+            <select><option selected></option><option>Беларусь</option><option>Польша</option><option>Литва</option></select>
+          </label>
+            <label class="field">
+            <span>Пол</span>
+            <select><option selected></option><option>женский</option><option>мужской</option></select>
+          </label>
+            <div class="field">
+            <label for="f-85">Паспорт выдан</label>
+            <input id="f-85" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-86">Паспорт действует до</label>
+            <input id="f-86" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-87">Кем выдан</label>
+            <input id="f-87" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-88">Место рождения</label>
+            <input id="f-88" type="text" value="">
+            
+          </div>
+          </div>
+          <h4 class="h3">Согласие и договор</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-89">Согласие на обработку данных подписано</label>
+            <input id="f-89" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-90">Номер договора</label>
+            <input id="f-90" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-91">Договор подписан</label>
+            <input id="f-91" type="date" value="">
+            
+          </div>
+          </div>
+        </div>
+      </section>
+      
+      <div class="form-actions">
+        <button type="submit" class="btn btn-p">Создать карточку</button>
+        <button type="button" class="btn">Отмена</button>
+      </div>
+    </form>
+    </section>
+    <section class="mockup-state">
+      <h2 class="h2 muted">Состояние: Ошибка в паспорте: блок раскрылся сам, фокус на поле «Номер паспорта» (API вернул ошибку поля)</h2>
+      <form class="card form-card new-client" onsubmit="return false">
+      <h2 class="h2">Новый клиент</h2>
+      <section class="form-section">
+        <h3 class="h3">Контакт</h3><!-- key: newClient.contact -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-92">Фамилия</label>
+            <input id="f-92" type="text" value="Ковалёва">
+            
+          </div>
+          <div class="field">
+            <label for="f-93">Имя</label>
+            <input id="f-93" type="text" value="Анна" aria-describedby="f-93-h">
+            <div class="field-notes"><small id="f-93-h" class="muted small">Достаточно фамилии или имени.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-94">Отчество</label>
+            <input id="f-94" type="text" value="Сергеевна">
+            
+          </div>
+          <div class="field">
+            <label for="f-95">Телефон</label>
+            <input id="f-95" type="tel" value="+375 29 000-12-34" aria-describedby="f-95-h">
+            <div class="field-notes"><small id="f-95-h" class="muted small">С кодом страны, например +375 29 123-45-67. Белорусский номер можно писать и так, как привыкли: 8 029 123-45-67. Вторую карточку с тем же телефоном завести не получится.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-96">Telegram</label>
+            <input id="f-96" type="text" value="@anna_kov_example" aria-describedby="f-96-h">
+            <div class="field-notes"><small id="f-96-h" class="muted small">Ник, ссылка на профиль или имя в Telegram.</small></div>
+          </div>
+          <label class="field">
+            <span>Другой мессенджер</span>
+            <select><option>нет</option><option selected>WhatsApp</option><option>Viber</option></select>
+          </label>
+          <div class="field">
+            <label for="f-97">Номер или ник в мессенджере</label>
+            <input id="f-97" type="text" value="+48 500 000 111">
+            
+          </div>
+          <div class="field">
+            <label for="f-98">Email</label>
+            <input id="f-98" type="email" value="anna.example@example.com">
+            
+          </div>
+          <div class="field">
+            <label for="f-99">Дата рождения</label>
+            <input id="f-99" type="date" value="1991-04-12">
+            
+          </div>
+          <label class="field">
+            <span>Канал прихода</span>
+            <select><option></option><option selected>Instagram</option><option>Telegram-канал</option><option>Рекомендация</option></select>
+          </label>
+          <label class="field">
+            <span>Партнёр</span>
+            <select><option selected></option><option>Турагентство «Пример»</option></select>
+          </label>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Анкета</h3><!-- key: contacts.questionnaire -->
+        <div class="form-pair">
+        <fieldset class="module-block">
+          <legend>Визы за 5 лет</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Тип визы</span>
+            <select><option selected>Шенген</option><option>Национальная</option><option>Великобритания</option><option>США</option></select>
+          </label>
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option selected>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <label class="field q-wide">
+            <span>Цель</span>
+            <select><option>Не указана</option><option selected>Туризм</option><option>Гости (родственники, друзья)</option><option>Деловая поездка</option></select>
+          </label>
+                <div class="field">
+            <label for="f-100">Действует с</label>
+            <input id="f-100" type="date" value="2024-06-01">
+            
+          </div>
+                <div class="field">
+            <label for="f-101">Действует по</label>
+            <input id="f-101" type="date" value="2025-05-31">
+            
+          </div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Виза</button></div>
+        </fieldset>
+        <fieldset class="module-block">
+          <legend>Отказы</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option>Италия</option><option>Испания</option><option selected>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <div class="field">
+            <label for="f-102">Год</label>
+            <input id="f-102" type="number" value="2023">
+            
+          </div>
+                <div class="field q-wide"><label for="r-103">Причина</label><input id="r-103" value="Не подтвердила цель поездки"></div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Отказ</button></div>
+        </fieldset>
+        </div>
+        <div class="form-pair">
+        <div class="field">
+          <span>Родственники или друзья за границей</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Германия<button type="button" aria-label="Убрать Германия">×</button></span></div>
+          <select aria-label="Родственники или друзья за границей"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <span>Поездки в детстве по гуманитарным программам</span>
+          
+          <select aria-label="Поездки в детстве по гуманитарным программам"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        </div>
+        <label class="checkbox"><input type="checkbox"> Депортация</label>
+        <div class="field">
+          <label for="t-104">Другое по анкете</label>
+          <textarea id="t-104" rows="2"></textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Консультация</h3><!-- key: newClient.consultation -->
+        <p class="muted small">Заполните, если человек уже рассказал о поездке. Если оставить как есть, консультации в карточке не будет.</p><!-- key: newClient.consultationHint -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-106">Дата консультации</label>
+            <input id="f-106" type="date" value="2026-11-28" required>
+            
+          </div>
+          <div class="field">
+            <label for="f-107">Количество заявителей</label>
+            <input id="f-107" type="number" value="2" required min="1">
+            
+          </div>
+        </div>
+        <div class="field">
+          <span>Куда планирует поездку</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Италия<button type="button" aria-label="Убрать Италия">×</button></span></div>
+          <select aria-label="Куда планирует поездку"><option>+ Добавить страну</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <label for="t-108">Вводные</label>
+          <textarea id="t-108" rows="3">Едут вдвоём с мужем в мае, Рим и Флоренция, 10 дней. Работает в ИТ по договору, справка с работы есть. Хотят подать в феврале.</textarea>
+        </div>
+        <div>
+          <button type="button" class="disclosure-title" aria-expanded="false" aria-controls="more-105">Решение, поездка и оплата</button><!-- key: newClient.consultationMore -->
+          <div id="more-105" class="form-card" hidden>
+            <div class="form-grid">
+              <label class="field">
+            <span>Решение по визе</span>
+            <select><option>не решено</option><option>Да</option><option>Нет</option><option selected>Думает</option></select>
+          </label>
+              <div class="field">
+            <label for="f-109">Связаться о решении</label>
+            <input id="f-109" type="date" value="2026-12-03" aria-describedby="f-109-h">
+            <div class="field-notes"><small id="f-109-h" class="muted small">Когда клиент обещал дать ответ. В этот день CRM напомнит узнать его решение.</small></div>
+          </div>
+              <div class="field">
+            <label for="f-110">Когда планирует поездку</label>
+            <input id="f-110" type="date" value="2027-05-10">
+            
+          </div>
+            </div>
+            <fieldset class="module-block">
+              <legend>Оплата консультации</legend>
+              <div class="row-editor">
+                <input aria-label="Сумма" inputmode="decimal" placeholder="Сумма" value="60">
+                <select class="select-narrow" aria-label="Валюта"><option selected>BYN</option><option>EUR</option><option>USD</option></select>
+                <label class="checkbox"><input type="checkbox" checked> оплачено</label>
+                <input type="date" aria-label="Дата оплаты" value="2026-11-28">
+              </div>
+              <p class="muted small">Оплата консультации засчитывается в стоимость, когда бы клиент ни пришёл в работу.</p>
+            </fieldset>
+          </div>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Заметка</h3><!-- key: newClient.note -->
+        <div class="field">
+          <label for="t-111" class="visually-hidden">Новая заметка</label>
+          <textarea id="t-111" rows="3" placeholder="Что обсудили, что решили, что сделать дальше">Пришла из Instagram по рекламе Италии. Просила прислать список документов в Telegram.</textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3"><button type="button" class="disclosure-title" aria-expanded="true" aria-controls="pass-112">Паспорт, согласие и договор</button></h3><!-- key: newClient.paperwork -->
+        <p class="muted small">Данные со страницы паспорта нужны для анкет. Заполнить можно позже.</p><!-- key: contacts.passportFormHint -->
+        <div id="pass-112" class="form-card">
+          <h4 class="h3">Паспорт</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-113">Фамилия латиницей</label>
+            <input id="f-113" type="text" value="KOVALEVA">
+            
+          </div>
+            <div class="field">
+            <label for="f-114">Имя латиницей</label>
+            <input id="f-114" type="text" value="ANNA">
+            
+          </div>
+            <div class="field">
+            <label for="f-115">Номер паспорта</label>
+            <input id="f-115" type="text" value="MP12" aria-invalid="true" aria-describedby="f-115-e" autofocus>
+            <div class="field-notes"><small id="f-115-e" class="field-error small">Проверьте это поле.</small></div>
+          </div>
+            <div class="field">
+            <label for="f-116">Личный (идентификационный) номер</label>
+            <input id="f-116" type="text" value="">
+            
+          </div>
+            <label class="field">
+            <span>Гражданство</span>
+            <select><option></option><option selected>Беларусь</option><option>Польша</option><option>Литва</option></select>
+          </label>
+            <label class="field">
+            <span>Пол</span>
+            <select><option></option><option selected>женский</option><option>мужской</option></select>
+          </label>
+            <div class="field">
+            <label for="f-117">Паспорт выдан</label>
+            <input id="f-117" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-118">Паспорт действует до</label>
+            <input id="f-118" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-119">Кем выдан</label>
+            <input id="f-119" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-120">Место рождения</label>
+            <input id="f-120" type="text" value="">
+            
+          </div>
+          </div>
+          <h4 class="h3">Согласие и договор</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-121">Согласие на обработку данных подписано</label>
+            <input id="f-121" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-122">Номер договора</label>
+            <input id="f-122" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-123">Договор подписан</label>
+            <input id="f-123" type="date" value="">
+            
+          </div>
+          </div>
+        </div>
+      </section>
+      
+      <div class="form-actions">
+        <button type="submit" class="btn btn-p">Создать карточку</button>
+        <button type="button" class="btn">Отмена</button>
+      </div>
+    </form>
+    </section>
+    <section class="mockup-state">
+      <h2 class="h2 muted">Состояние: Ник Telegram у другой карточки (и длинная фамилия): «Открыть карточку» и «Всё равно сохранить» — форма отправится со всеми блоками</h2>
+      <form class="card form-card new-client" onsubmit="return false">
+      <h2 class="h2">Новый клиент</h2>
+      <section class="form-section">
+        <h3 class="h3">Контакт</h3><!-- key: newClient.contact -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-124">Фамилия</label>
+            <input id="f-124" type="text" value="Константинопольская-Вишневецкая" autofocus>
+            
+          </div>
+          <div class="field">
+            <label for="f-125">Имя</label>
+            <input id="f-125" type="text" value="Анна" aria-describedby="f-125-h">
+            <div class="field-notes"><small id="f-125-h" class="muted small">Достаточно фамилии или имени.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-126">Отчество</label>
+            <input id="f-126" type="text" value="Сергеевна">
+            
+          </div>
+          <div class="field">
+            <label for="f-127">Телефон</label>
+            <input id="f-127" type="tel" value="+375 29 000-12-34" aria-describedby="f-127-h">
+            <div class="field-notes"><small id="f-127-h" class="muted small">С кодом страны, например +375 29 123-45-67. Белорусский номер можно писать и так, как привыкли: 8 029 123-45-67. Вторую карточку с тем же телефоном завести не получится.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-128">Telegram</label>
+            <input id="f-128" type="text" value="@anna_kov_example" aria-invalid="true" aria-describedby="f-128-e f-128-h">
+            <div class="field-notes"><small id="f-128-e" class="field-error small">Клиент с таким Telegram уже есть. Если это тот же человек, откройте его карточку. Если аккаунт общий, например у семьи, сохраните всё равно. <a href="#">Открыть карточку</a> <button type="button" class="btn btn-sm">Всё равно сохранить</button></small><small id="f-128-h" class="muted small">Ник, ссылка на профиль или имя в Telegram.</small></div>
+          </div>
+          <label class="field">
+            <span>Другой мессенджер</span>
+            <select><option>нет</option><option selected>WhatsApp</option><option>Viber</option></select>
+          </label>
+          <div class="field">
+            <label for="f-129">Номер или ник в мессенджере</label>
+            <input id="f-129" type="text" value="+48 500 000 111">
+            
+          </div>
+          <div class="field">
+            <label for="f-130">Email</label>
+            <input id="f-130" type="email" value="anna.example@example.com">
+            
+          </div>
+          <div class="field">
+            <label for="f-131">Дата рождения</label>
+            <input id="f-131" type="date" value="1991-04-12">
+            
+          </div>
+          <label class="field">
+            <span>Канал прихода</span>
+            <select><option></option><option selected>Instagram</option><option>Telegram-канал</option><option>Рекомендация</option></select>
+          </label>
+          <label class="field">
+            <span>Партнёр</span>
+            <select><option selected></option><option>Турагентство «Пример»</option></select>
+          </label>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Анкета</h3><!-- key: contacts.questionnaire -->
+        <div class="form-pair">
+        <fieldset class="module-block">
+          <legend>Визы за 5 лет</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Тип визы</span>
+            <select><option selected>Шенген</option><option>Национальная</option><option>Великобритания</option><option>США</option></select>
+          </label>
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option selected>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <label class="field q-wide">
+            <span>Цель</span>
+            <select><option>Не указана</option><option selected>Туризм</option><option>Гости (родственники, друзья)</option><option>Деловая поездка</option></select>
+          </label>
+                <div class="field">
+            <label for="f-132">Действует с</label>
+            <input id="f-132" type="date" value="2024-06-01">
+            
+          </div>
+                <div class="field">
+            <label for="f-133">Действует по</label>
+            <input id="f-133" type="date" value="2025-05-31">
+            
+          </div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Виза</button></div>
+        </fieldset>
+        <fieldset class="module-block">
+          <legend>Отказы</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option>Италия</option><option>Испания</option><option selected>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <div class="field">
+            <label for="f-134">Год</label>
+            <input id="f-134" type="number" value="2023">
+            
+          </div>
+                <div class="field q-wide"><label for="r-135">Причина</label><input id="r-135" value="Не подтвердила цель поездки"></div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Отказ</button></div>
+        </fieldset>
+        </div>
+        <div class="form-pair">
+        <div class="field">
+          <span>Родственники или друзья за границей</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Германия<button type="button" aria-label="Убрать Германия">×</button></span></div>
+          <select aria-label="Родственники или друзья за границей"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <span>Поездки в детстве по гуманитарным программам</span>
+          
+          <select aria-label="Поездки в детстве по гуманитарным программам"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        </div>
+        <label class="checkbox"><input type="checkbox"> Депортация</label>
+        <div class="field">
+          <label for="t-136">Другое по анкете</label>
+          <textarea id="t-136" rows="2"></textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Консультация</h3><!-- key: newClient.consultation -->
+        <p class="muted small">Заполните, если человек уже рассказал о поездке. Если оставить как есть, консультации в карточке не будет.</p><!-- key: newClient.consultationHint -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-138">Дата консультации</label>
+            <input id="f-138" type="date" value="2026-11-28" required>
+            
+          </div>
+          <div class="field">
+            <label for="f-139">Количество заявителей</label>
+            <input id="f-139" type="number" value="2" required min="1">
+            
+          </div>
+        </div>
+        <div class="field">
+          <span>Куда планирует поездку</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Италия<button type="button" aria-label="Убрать Италия">×</button></span></div>
+          <select aria-label="Куда планирует поездку"><option>+ Добавить страну</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <label for="t-140">Вводные</label>
+          <textarea id="t-140" rows="3">Едут вдвоём с мужем в мае, Рим и Флоренция, 10 дней. Работает в ИТ по договору, справка с работы есть. Хотят подать в феврале.</textarea>
+        </div>
+        <div>
+          <button type="button" class="disclosure-title" aria-expanded="false" aria-controls="more-137">Решение, поездка и оплата</button><!-- key: newClient.consultationMore -->
+          <div id="more-137" class="form-card" hidden>
+            <div class="form-grid">
+              <label class="field">
+            <span>Решение по визе</span>
+            <select><option>не решено</option><option>Да</option><option>Нет</option><option selected>Думает</option></select>
+          </label>
+              <div class="field">
+            <label for="f-141">Связаться о решении</label>
+            <input id="f-141" type="date" value="2026-12-03" aria-describedby="f-141-h">
+            <div class="field-notes"><small id="f-141-h" class="muted small">Когда клиент обещал дать ответ. В этот день CRM напомнит узнать его решение.</small></div>
+          </div>
+              <div class="field">
+            <label for="f-142">Когда планирует поездку</label>
+            <input id="f-142" type="date" value="2027-05-10">
+            
+          </div>
+            </div>
+            <fieldset class="module-block">
+              <legend>Оплата консультации</legend>
+              <div class="row-editor">
+                <input aria-label="Сумма" inputmode="decimal" placeholder="Сумма" value="60">
+                <select class="select-narrow" aria-label="Валюта"><option selected>BYN</option><option>EUR</option><option>USD</option></select>
+                <label class="checkbox"><input type="checkbox" checked> оплачено</label>
+                <input type="date" aria-label="Дата оплаты" value="2026-11-28">
+              </div>
+              <p class="muted small">Оплата консультации засчитывается в стоимость, когда бы клиент ни пришёл в работу.</p>
+            </fieldset>
+          </div>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Заметка</h3><!-- key: newClient.note -->
+        <div class="field">
+          <label for="t-143" class="visually-hidden">Новая заметка</label>
+          <textarea id="t-143" rows="3" placeholder="Что обсудили, что решили, что сделать дальше">Пришла из Instagram по рекламе Италии. Просила прислать список документов в Telegram.</textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3"><button type="button" class="disclosure-title" aria-expanded="false" aria-controls="pass-144">Паспорт, согласие и договор</button></h3><!-- key: newClient.paperwork -->
+        <p class="muted small">Данные со страницы паспорта нужны для анкет. Заполнить можно позже.</p><!-- key: contacts.passportFormHint -->
+        <div id="pass-144" class="form-card" hidden>
+          <h4 class="h3">Паспорт</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-145">Фамилия латиницей</label>
+            <input id="f-145" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-146">Имя латиницей</label>
+            <input id="f-146" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-147">Номер паспорта</label>
+            <input id="f-147" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-148">Личный (идентификационный) номер</label>
+            <input id="f-148" type="text" value="">
+            
+          </div>
+            <label class="field">
+            <span>Гражданство</span>
+            <select><option selected></option><option>Беларусь</option><option>Польша</option><option>Литва</option></select>
+          </label>
+            <label class="field">
+            <span>Пол</span>
+            <select><option selected></option><option>женский</option><option>мужской</option></select>
+          </label>
+            <div class="field">
+            <label for="f-149">Паспорт выдан</label>
+            <input id="f-149" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-150">Паспорт действует до</label>
+            <input id="f-150" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-151">Кем выдан</label>
+            <input id="f-151" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-152">Место рождения</label>
+            <input id="f-152" type="text" value="">
+            
+          </div>
+          </div>
+          <h4 class="h3">Согласие и договор</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-153">Согласие на обработку данных подписано</label>
+            <input id="f-153" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-154">Номер договора</label>
+            <input id="f-154" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-155">Договор подписан</label>
+            <input id="f-155" type="date" value="">
+            
+          </div>
+          </div>
+        </div>
+      </section>
+      
+      <div class="form-actions">
+        <button type="submit" class="btn btn-p">Создать карточку</button>
+        <button type="button" class="btn">Отмена</button>
+      </div>
+    </form>
+    </section>
+    <section class="mockup-state">
+      <h2 class="h2 muted">Состояние: Ошибка без поля (сервер недоступен): сообщение над кнопками, ничего не сохранено</h2>
+      <form class="card form-card new-client" onsubmit="return false">
+      <h2 class="h2">Новый клиент</h2>
+      <section class="form-section">
+        <h3 class="h3">Контакт</h3><!-- key: newClient.contact -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-156">Фамилия</label>
+            <input id="f-156" type="text" value="Ковалёва" autofocus>
+            
+          </div>
+          <div class="field">
+            <label for="f-157">Имя</label>
+            <input id="f-157" type="text" value="Анна" aria-describedby="f-157-h">
+            <div class="field-notes"><small id="f-157-h" class="muted small">Достаточно фамилии или имени.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-158">Отчество</label>
+            <input id="f-158" type="text" value="Сергеевна">
+            
+          </div>
+          <div class="field">
+            <label for="f-159">Телефон</label>
+            <input id="f-159" type="tel" value="+375 29 000-12-34" aria-describedby="f-159-h">
+            <div class="field-notes"><small id="f-159-h" class="muted small">С кодом страны, например +375 29 123-45-67. Белорусский номер можно писать и так, как привыкли: 8 029 123-45-67. Вторую карточку с тем же телефоном завести не получится.</small></div>
+          </div>
+          <div class="field">
+            <label for="f-160">Telegram</label>
+            <input id="f-160" type="text" value="@anna_kov_example" aria-describedby="f-160-h">
+            <div class="field-notes"><small id="f-160-h" class="muted small">Ник, ссылка на профиль или имя в Telegram.</small></div>
+          </div>
+          <label class="field">
+            <span>Другой мессенджер</span>
+            <select><option>нет</option><option selected>WhatsApp</option><option>Viber</option></select>
+          </label>
+          <div class="field">
+            <label for="f-161">Номер или ник в мессенджере</label>
+            <input id="f-161" type="text" value="+48 500 000 111">
+            
+          </div>
+          <div class="field">
+            <label for="f-162">Email</label>
+            <input id="f-162" type="email" value="anna.example@example.com">
+            
+          </div>
+          <div class="field">
+            <label for="f-163">Дата рождения</label>
+            <input id="f-163" type="date" value="1991-04-12">
+            
+          </div>
+          <label class="field">
+            <span>Канал прихода</span>
+            <select><option></option><option selected>Instagram</option><option>Telegram-канал</option><option>Рекомендация</option></select>
+          </label>
+          <label class="field">
+            <span>Партнёр</span>
+            <select><option selected></option><option>Турагентство «Пример»</option></select>
+          </label>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Анкета</h3><!-- key: contacts.questionnaire -->
+        <div class="form-pair">
+        <fieldset class="module-block">
+          <legend>Визы за 5 лет</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Тип визы</span>
+            <select><option selected>Шенген</option><option>Национальная</option><option>Великобритания</option><option>США</option></select>
+          </label>
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option selected>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <label class="field q-wide">
+            <span>Цель</span>
+            <select><option>Не указана</option><option selected>Туризм</option><option>Гости (родственники, друзья)</option><option>Деловая поездка</option></select>
+          </label>
+                <div class="field">
+            <label for="f-164">Действует с</label>
+            <input id="f-164" type="date" value="2024-06-01">
+            
+          </div>
+                <div class="field">
+            <label for="f-165">Действует по</label>
+            <input id="f-165" type="date" value="2025-05-31">
+            
+          </div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Виза</button></div>
+        </fieldset>
+        <fieldset class="module-block">
+          <legend>Отказы</legend>
+          <div class="rows-editor"><div class="q-edit">
+              <div class="form-grid">
+                <label class="field">
+            <span>Страна</span>
+            <select><option></option><option>Италия</option><option>Испания</option><option selected>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+          </label>
+                <div class="field">
+            <label for="f-166">Год</label>
+            <input id="f-166" type="number" value="2023">
+            
+          </div>
+                <div class="field q-wide"><label for="r-167">Причина</label><input id="r-167" value="Не подтвердила цель поездки"></div>
+              </div>
+              <button type="button" class="link-button">Убрать</button>
+            </div></div>
+          <div class="form-actions"><button type="button" class="btn btn-sm">+ Отказ</button></div>
+        </fieldset>
+        </div>
+        <div class="form-pair">
+        <div class="field">
+          <span>Родственники или друзья за границей</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Германия<button type="button" aria-label="Убрать Германия">×</button></span></div>
+          <select aria-label="Родственники или друзья за границей"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <span>Поездки в детстве по гуманитарным программам</span>
+          
+          <select aria-label="Поездки в детстве по гуманитарным программам"><option>+ Добавить страну</option><option>Италия</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        </div>
+        <label class="checkbox"><input type="checkbox"> Депортация</label>
+        <div class="field">
+          <label for="t-168">Другое по анкете</label>
+          <textarea id="t-168" rows="2"></textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Консультация</h3><!-- key: newClient.consultation -->
+        <p class="muted small">Заполните, если человек уже рассказал о поездке. Если оставить как есть, консультации в карточке не будет.</p><!-- key: newClient.consultationHint -->
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-170">Дата консультации</label>
+            <input id="f-170" type="date" value="2026-11-28" required>
+            
+          </div>
+          <div class="field">
+            <label for="f-171">Количество заявителей</label>
+            <input id="f-171" type="number" value="2" required min="1">
+            
+          </div>
+        </div>
+        <div class="field">
+          <span>Куда планирует поездку</span>
+          <div class="chips"><span class="chip st-gray chip-removable">Италия<button type="button" aria-label="Убрать Италия">×</button></span></div>
+          <select aria-label="Куда планирует поездку"><option>+ Добавить страну</option><option>Испания</option><option>Польша</option><option>Германия</option><option>Франция</option><option>Литва</option></select>
+        </div>
+        <div class="field">
+          <label for="t-172">Вводные</label>
+          <textarea id="t-172" rows="3">Едут вдвоём с мужем в мае, Рим и Флоренция, 10 дней. Работает в ИТ по договору, справка с работы есть. Хотят подать в феврале.</textarea>
+        </div>
+        <div>
+          <button type="button" class="disclosure-title" aria-expanded="false" aria-controls="more-169">Решение, поездка и оплата</button><!-- key: newClient.consultationMore -->
+          <div id="more-169" class="form-card" hidden>
+            <div class="form-grid">
+              <label class="field">
+            <span>Решение по визе</span>
+            <select><option>не решено</option><option>Да</option><option>Нет</option><option selected>Думает</option></select>
+          </label>
+              <div class="field">
+            <label for="f-173">Связаться о решении</label>
+            <input id="f-173" type="date" value="2026-12-03" aria-describedby="f-173-h">
+            <div class="field-notes"><small id="f-173-h" class="muted small">Когда клиент обещал дать ответ. В этот день CRM напомнит узнать его решение.</small></div>
+          </div>
+              <div class="field">
+            <label for="f-174">Когда планирует поездку</label>
+            <input id="f-174" type="date" value="2027-05-10">
+            
+          </div>
+            </div>
+            <fieldset class="module-block">
+              <legend>Оплата консультации</legend>
+              <div class="row-editor">
+                <input aria-label="Сумма" inputmode="decimal" placeholder="Сумма" value="60">
+                <select class="select-narrow" aria-label="Валюта"><option selected>BYN</option><option>EUR</option><option>USD</option></select>
+                <label class="checkbox"><input type="checkbox" checked> оплачено</label>
+                <input type="date" aria-label="Дата оплаты" value="2026-11-28">
+              </div>
+              <p class="muted small">Оплата консультации засчитывается в стоимость, когда бы клиент ни пришёл в работу.</p>
+            </fieldset>
+          </div>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3">Заметка</h3><!-- key: newClient.note -->
+        <div class="field">
+          <label for="t-175" class="visually-hidden">Новая заметка</label>
+          <textarea id="t-175" rows="3" placeholder="Что обсудили, что решили, что сделать дальше">Пришла из Instagram по рекламе Италии. Просила прислать список документов в Telegram.</textarea>
+        </div>
+      </section>
+      <section class="form-section">
+        <h3 class="h3"><button type="button" class="disclosure-title" aria-expanded="false" aria-controls="pass-176">Паспорт, согласие и договор</button></h3><!-- key: newClient.paperwork -->
+        <p class="muted small">Данные со страницы паспорта нужны для анкет. Заполнить можно позже.</p><!-- key: contacts.passportFormHint -->
+        <div id="pass-176" class="form-card" hidden>
+          <h4 class="h3">Паспорт</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-177">Фамилия латиницей</label>
+            <input id="f-177" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-178">Имя латиницей</label>
+            <input id="f-178" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-179">Номер паспорта</label>
+            <input id="f-179" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-180">Личный (идентификационный) номер</label>
+            <input id="f-180" type="text" value="">
+            
+          </div>
+            <label class="field">
+            <span>Гражданство</span>
+            <select><option selected></option><option>Беларусь</option><option>Польша</option><option>Литва</option></select>
+          </label>
+            <label class="field">
+            <span>Пол</span>
+            <select><option selected></option><option>женский</option><option>мужской</option></select>
+          </label>
+            <div class="field">
+            <label for="f-181">Паспорт выдан</label>
+            <input id="f-181" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-182">Паспорт действует до</label>
+            <input id="f-182" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-183">Кем выдан</label>
+            <input id="f-183" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-184">Место рождения</label>
+            <input id="f-184" type="text" value="">
+            
+          </div>
+          </div>
+          <h4 class="h3">Согласие и договор</h4>
+          <div class="form-grid">
+            <div class="field">
+            <label for="f-185">Согласие на обработку данных подписано</label>
+            <input id="f-185" type="date" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-186">Номер договора</label>
+            <input id="f-186" type="text" value="">
+            
+          </div>
+            <div class="field">
+            <label for="f-187">Договор подписан</label>
+            <input id="f-187" type="date" value="">
+            
+          </div>
+          </div>
+        </div>
+      </section>
+      <div class="alert alert-error" role="alert">Нет связи с сервером. Проверьте интернет.</div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-p">Создать карточку</button>
+        <button type="button" class="btn">Отмена</button>
+      </div>
+    </form>
+    </section>
+  </div>
+</main>
+</body>
+</html>

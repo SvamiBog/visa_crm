@@ -38,9 +38,11 @@ from app.api.client_status import (
     tab_of,
 )
 from app.api.consultations import (
+    ConsultationIn,
     ConsultationOut,
     HintOut,
     VisaHistoryOut,
+    add_consultation,
     consultations_of,
     hints_for,
     visa_history_of,
@@ -65,7 +67,13 @@ from app.core.names import (
     tidy,
 )
 from app.core.phone import normalize_phone, phone_search_digits
-from app.core.questionnaire import Passport, Questionnaire, has_answers, has_passport
+from app.core.questionnaire import (
+    Answers,
+    PassportIn,
+    Questionnaire,
+    has_answers,
+    has_passport,
+)
 from app.models import (
     AuditAction,
     CaseStage,
@@ -121,7 +129,7 @@ class ContactFields(BaseModel):
     contract_number: Annotated[str, Field(max_length=50)] | None = None
     contract_signed_on: Day | None = None
     # Kept with the questionnaire; on a change, only the fields sent are changed.
-    passport: Passport | None = None
+    passport: PassportIn | None = None
 
     _name_parts = field_validator(*NAME_PARTS, *LATIN_PARTS)(tidy)
 
@@ -150,6 +158,19 @@ class ContactFields(BaseModel):
 
 
 class ContactIn(ContactFields):
+    # What the person told on the first conversation goes in with the card, in its one
+    # transaction (backlog 1.15.16): the questionnaire's answers (the passport comes in
+    # `passport`), the first consultation and the first note. A block left out, answers
+    # all blank or a note of spaces create nothing.
+    questionnaire: Answers | None = None
+    consultation: ConsultationIn | None = None
+    note: Annotated[str, Field(max_length=5000)] | None = None
+
+    @field_validator("note")
+    @classmethod
+    def blank_note_is_none(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
+
     @model_validator(mode="after")
     def named(self) -> "ContactIn":
         if self.last_name is None and self.first_name is None:
@@ -428,6 +449,20 @@ async def _card(session: AsyncSession, user: CurrentUser, contact: Contact) -> C
     )
 
 
+async def _add_note(
+    session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID, body: str
+) -> ContactNote:
+    """A note of the card with its log line, not committed: the card's «+ Заметка» and a
+    new client's form (backlog 1.15.16)."""
+    note = ContactNote(
+        tenant_id=user.tenant_id, contact_id=contact_id, body=body, author_id=user.id
+    )
+    session.add(note)
+    await session.flush()
+    _audit(session, AuditAction.CONTACT_NOTE_ADDED, user, contact_id, {"note": str(note.id)})
+    return note
+
+
 async def _own_note(
     session: AsyncSession, user: CurrentUser, contact_id: uuid.UUID, note_id: uuid.UUID
 ) -> ContactNote:
@@ -604,7 +639,9 @@ async def _rows(
 async def create_contact(
     body: ContactIn, user: Member, session: TenantSession, allow_shared_telegram: bool = False
 ) -> Any:
-    fields = body.model_dump(exclude={"passport", *NAME_PARTS, *LATIN_PARTS})
+    fields = body.model_dump(
+        exclude={"passport", "questionnaire", "consultation", "note", *NAME_PARTS, *LATIN_PARTS}
+    )
     await _check_refs(session, fields)
     if (conflict := await _phone_conflict(session, body.phone)) is not None:
         return conflict
@@ -617,10 +654,14 @@ async def create_contact(
         **name_fields(body.last_name, body.first_name, body.middle_name),
         **latin_fields(body.last_name_latin, body.first_name_latin),
     )
-    if body.passport is not None:
-        contact.questionnaire = Questionnaire.model_validate(body.passport.model_dump()).model_dump(
-            mode="json"
-        )
+    answers = body.questionnaire if body.questionnaire and has_answers(body.questionnaire) else None
+    if body.passport is not None or answers is not None:
+        contact.questionnaire = Questionnaire.model_validate(
+            {
+                **(body.passport.model_dump() if body.passport else {}),
+                **(answers.model_dump() if answers else {}),
+            }
+        ).model_dump(mode="json")
     session.add(contact)
     try:
         await session.flush()
@@ -633,6 +674,16 @@ async def create_contact(
         await _check_refs(session, fields)
         raise
     _audit(session, AuditAction.CONTACT_CREATED, user, contact.id)
+    # The same log lines the steps on the card would write. Nothing here opens the card
+    # for an employee's daily limit: `watch` commits, which would split the transaction;
+    # the first open of the card counts instead.
+    if answers is not None:
+        _audit(session, AuditAction.QUESTIONNAIRE_UPDATED, user, contact.id)
+    if body.consultation is not None:
+        # A failed check raises before the commit: neither the card nor any block is kept.
+        await add_consultation(session, user, contact, body.consultation)
+    if body.note is not None:
+        await _add_note(session, user, contact.id, body.note)
     await session.commit()
     await session.refresh(contact)
     return ContactOut.model_validate(contact)
@@ -823,12 +874,7 @@ async def add_note(
 ) -> NoteOut:
     contact = await _contact(session, contact_id)
     await open_card(session, user, contact.id)
-    note = ContactNote(
-        tenant_id=user.tenant_id, contact_id=contact.id, body=body.body, author_id=user.id
-    )
-    session.add(note)
-    await session.flush()
-    _audit(session, AuditAction.CONTACT_NOTE_ADDED, user, contact.id, {"note": str(note.id)})
+    note = await _add_note(session, user, contact.id, body.body)
     await session.commit()
     await session.refresh(note)
     return _note_out(note, user.email)

@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.days import Day
 from app.models import PurposeKind
 
 CountryCode = Annotated[str, Field(pattern=r"^[A-Z]{2}$")]
@@ -73,8 +74,18 @@ class Passport(BaseModel):
         return " ".join((value or "").split()) or None
 
 
-class Questionnaire(Passport):
-    """The passport is kept with the answers: its dates are what the checks look at."""
+class PassportIn(Passport):
+    """The passport as a form or the API sends it: its dates within the calendar the CRM
+    takes (app/core/days.py), refused under their field. The stored model takes any date,
+    so a card saved before the bound keeps opening (tests/test_days.py)."""
+
+    passport_issued_on: Day | None = None
+    passport_expires_on: Day | None = None
+
+
+class Answers(BaseModel):
+    """The questionnaire's answers, without the passport: what a new client's form sends
+    (backlog 1.15.16)."""
 
     visas: Annotated[list[VisaRecord], Field(max_length=50)] = []
     # Countries where relatives or friends could invite the client.
@@ -86,16 +97,24 @@ class Questionnaire(Passport):
     humanitarian_trips: Annotated[list[CountryCode], Field(max_length=10)] = []
     note: Annotated[str, Field(max_length=2000)] | None = None
 
+    @field_validator("deportation_note", "note")
+    @classmethod
+    def blank_is_none(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
+
+
+class Questionnaire(Passport, Answers):
+    """The passport is kept with the answers: its dates are what the checks look at."""
+
 
 def has_passport(questionnaire: Questionnaire) -> bool:
     """Something of the passport's data page is filled in."""
     return any(getattr(questionnaire, field) is not None for field in Passport.model_fields)
 
 
-def has_answers(questionnaire: Questionnaire) -> bool:
+def has_answers(questionnaire: Answers) -> bool:
     """Something beyond the passport is answered: every default means «not asked»."""
-    blank = Questionnaire()
+    blank = Answers()
     return any(
-        getattr(questionnaire, field) != getattr(blank, field)
-        for field in Questionnaire.model_fields.keys() - Passport.model_fields.keys()
+        getattr(questionnaire, field) != getattr(blank, field) for field in Answers.model_fields
     )

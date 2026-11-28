@@ -7,6 +7,8 @@ import { useId, useState } from "react";
 
 export type Disclosure = {
   open: boolean;
+  // Opens the part from code: a form shows a hidden field its error is under.
+  show: () => void;
   button: {
     type: "button";
     "aria-expanded": boolean;
@@ -21,6 +23,7 @@ export function useDisclosure(initiallyOpen = false): Disclosure {
   const [open, setOpen] = useState(initiallyOpen);
   return {
     open,
+    show: () => setOpen(true),
     button: {
       type: "button",
       "aria-expanded": open,
