@@ -1613,6 +1613,7 @@
   "import.reason.number_taken": "this attempt number is taken",
   "import.reason.no_window": "the country has no application window — give the last day of the window",
   "import.reason.booking_kind": "this date is not for this kind of booking",
+  "import.reason.account_ambiguous": "several accounts have this login, choose the account in the booking",
   "import.reason.other": "the row could not be read",
   "import.unknownTitle": "Values not in your lists",
   "import.unknownNote": "Channels, partners, purposes and registrars can be added to your lists, taken from a list or left empty. Fix a country, a city or a vault system in the file.",
