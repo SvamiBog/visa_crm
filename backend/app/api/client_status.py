@@ -29,10 +29,12 @@ from sqlalchemy import (
     cast,
     exists,
     func,
+    literal,
     null,
     or_,
     select,
     true,
+    union_all,
 )
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
@@ -84,28 +86,35 @@ def latest_consultation() -> Lateral:
     )
 
 
-def of_contact(contact_id: ColumnElement[uuid.UUID]) -> ColumnElement[bool]:
-    """The cases a contact goes with: their own, and those opened from their consultation
-    for someone else (pilot fix 2) — unless they are an applicant of that consultation
-    themselves: then their own case stands for them, not the family's. The same rule is
-    applied in Python to the rows of a page (`_rows` in app/api/contacts.py): keep the two
-    in step."""
+def _opened_for_someone_else(contact_id: ColumnElement[uuid.UUID]) -> ColumnElement[bool]:
+    """Joins `VisaCase` to a consultation of the contact it was opened from for someone
+    else (pilot fix 2) — unless the contact is an applicant of that consultation
+    themselves: then their own case stands for them, not the family's."""
     theirs, mine = aliased(Consultation), aliased(VisaCase)
     applicant_too = (
         exists()
         .where(mine.consultation_id == theirs.id, mine.contact_id == contact_id)
         .correlate_except(mine)
     )
-    return or_(
-        VisaCase.contact_id == contact_id,
-        # Correlated explicitly: nested in another EXISTS, the contact would otherwise be
-        # joined in again instead of taken from the outer row.
-        VisaCase.consultation_id.in_(
-            select(theirs.id)
-            .where(theirs.contact_id == contact_id, ~applicant_too)
-            .correlate_except(theirs)
-        ),
+    return and_(
+        VisaCase.consultation_id == theirs.id, theirs.contact_id == contact_id, ~applicant_too
     )
+
+
+def has_case(
+    contact_id: ColumnElement[uuid.UUID], *criteria: ColumnElement[bool]
+) -> ColumnElement[bool]:
+    """Whether the contact goes with a case that meets `criteria`: their own, or one
+    opened from their consultation for someone else. The same rule is applied in Python
+    to the rows of a page (`_rows` in app/api/contacts.py): keep the two in step.
+
+    Two EXISTS, not one with «own OR from their consultation» inside: each then finds its
+    cases by an index (contact_id, consultation_id). One condition with the OR left the
+    database no index to use, and it read every case once per contact (audit 2026-11-27,
+    H-1)."""
+    own = exists().where(VisaCase.contact_id == contact_id, *criteria)
+    family = exists().where(_opened_for_someone_else(contact_id), *criteria)
+    return or_(own, family)
 
 
 def _workspace_timezone() -> ColumnElement[str]:
@@ -172,7 +181,7 @@ def tab_of(latest: Lateral, *, with_cases: bool = True) -> ColumnElement[str]:
             (latest.c.decision == Decision.YES, Tab.CONSULT.value),
             else_=Tab.ARCHIVE.value,
         )
-    in_work = exists().where(of_contact(Contact.id), VisaCase.stage != CaseStage.RESULT)
+    in_work = has_case(Contact.id, VisaCase.stage != CaseStage.RESULT)
     any_case = exists().where(VisaCase.contact_id == Contact.id)
     covered = exists().where(covers(latest.c.id, Contact.id, latest.c.held_on, latest.c.created_at))
     return case(
@@ -188,14 +197,31 @@ def tab_of(latest: Lateral, *, with_cases: bool = True) -> ColumnElement[str]:
 def shown_case() -> Lateral:
     """The case a row of the index shows (`_rows` in app/api/contacts.py): the newest one
     in work, otherwise the newest one; the contact's own before one opened from their
-    consultation for someone else."""
+    consultation for someone else. The two kinds are read apart and put together, each by
+    its index (see `has_case`)."""
+
+    def kind(own: bool, *where: ColumnElement[bool]) -> Select:
+        return (
+            select(
+                VisaCase.id,
+                VisaCase.outcome,
+                VisaCase.submission_on,
+                VisaCase.stage,
+                VisaCase.number,
+                literal(own).label("own"),
+            )
+            .where(*where)
+            .correlate(Contact)
+        )
+
+    cases = union_all(
+        kind(True, VisaCase.contact_id == Contact.id),
+        kind(False, _opened_for_someone_else(Contact.id)),
+    ).subquery("their_cases")
     return (
-        select(VisaCase.id, VisaCase.outcome, VisaCase.submission_on)
-        .where(of_contact(Contact.id))
+        select(cases.c.id, cases.c.outcome, cases.c.submission_on)
         .order_by(
-            (VisaCase.stage == CaseStage.RESULT).asc(),
-            (VisaCase.contact_id == Contact.id).desc(),
-            VisaCase.number.desc(),
+            (cases.c.stage == CaseStage.RESULT).asc(), cases.c.own.desc(), cases.c.number.desc()
         )
         .limit(1)
         .lateral("shown")
@@ -243,7 +269,7 @@ def filter_contacts(
     with_cases: bool,
 ) -> Select:
     """Country: of a case or of the latest consultation. Stage and registrar: of a case —
-    the contact's own or one opened from their consultation (`of_contact`). Without the
+    the contact's own or one opened from their consultation (`has_case`). Without the
     «cases» module only the consultation counts: the filters by a case are left out, so
     they neither narrow the list nor tell anything about the cases."""
     if channel_id is not None:
@@ -251,16 +277,14 @@ def filter_contacts(
     if country_id is not None:
         by_consultation = any_(latest.c.destination_ids) == country_id
         if with_cases:
-            by_case = exists().where(of_contact(Contact.id), VisaCase.destination_id == country_id)
+            by_case = has_case(Contact.id, VisaCase.destination_id == country_id)
             query = query.where(or_(by_case, by_consultation))
         else:
             query = query.where(by_consultation)
     if not with_cases:
         return query
     if stage is not None:
-        query = query.where(exists().where(of_contact(Contact.id), VisaCase.stage == stage))
+        query = query.where(has_case(Contact.id, VisaCase.stage == stage))
     if registrar_id is not None:
-        query = query.where(
-            exists().where(of_contact(Contact.id), VisaCase.registrar_id == registrar_id)
-        )
+        query = query.where(has_case(Contact.id, VisaCase.registrar_id == registrar_id))
     return query
