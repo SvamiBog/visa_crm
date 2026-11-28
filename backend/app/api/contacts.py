@@ -526,7 +526,7 @@ async def _rows(
     cases: dict[uuid.UUID, list[VisaCase]] = {}
     group_sizes: dict[uuid.UUID, int] = {}
     # Cases opened from a row's consultations for someone else, and whose they are
-    # (pilot fix 2). The same rule as client_status.of_contact, which the tabs, filters and
+    # (pilot fix 2). The same rule as client_status.has_case, which the tabs, filters and
     # sorting use in SQL: keep the two in step. RLS hides what an employee does not see.
     applicants: dict[uuid.UUID, str] = {}
     if with_cases:
