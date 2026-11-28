@@ -36,7 +36,7 @@ from app.api.finances import (
 )
 from app.core.audit import record
 from app.core.days import Day
-from app.core.finance import to_base
+from app.core.finance import stored_base
 from app.core.money import Amount
 from app.core.registrar_ledger import Movement, build, is_low
 from app.models import (
@@ -447,7 +447,7 @@ async def charge_talon(
     finance.registrar_fee_amount = price.amount
     finance.registrar_fee_currency = price.currency
     finance.registrar_fee_rate = rate
-    finance.registrar_fee_base = to_base(price.amount, rate)
+    finance.registrar_fee_base = stored_base(price.amount, rate)
     finance.registrar_fee_on = day
     finance.registrar_fee_removed = False
     _audit(
