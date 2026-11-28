@@ -861,3 +861,209 @@ async def test_card_shows_no_cases_of_a_consultation_without_the_cases_module(
     with_cases = await card_with(["clients", "cases"])
     [[case]] = [c["cases"] for c in with_cases["consultations"]]
     assert case["id"] == opened.json()[0]["id"]
+
+
+# --- A new card with its first conversation (backlog 1.15.16) ----------------------------
+
+
+async def country_id(client: AsyncClient, code: str) -> str:
+    countries = (await client.get("/api/reference/countries")).json()
+    return next(c["id"] for c in countries if c["code"] == code)
+
+
+async def audit_actions(client: AsyncClient) -> list[str]:
+    return [e["action"] for e in (await client.get("/api/audit")).json()["events"]]
+
+
+async def test_a_new_card_takes_its_questionnaire_consultation_and_note_at_once(
+    client: AsyncClient, make_user: MakeUser
+):
+    """The specialist opens the card on the first conversation, and what the person told
+    her goes in with it: the questionnaire, the consultation and a note, one button."""
+    await as_specialist(client, make_user)
+    poland = await country_id(client, "PL")
+    anna = await create(
+        client,
+        passport={"passport_number": "MP1234567"},
+        questionnaire={
+            "visas": [{"kind": "schengen", "country": "PL", "valid_to": "2025-05-01"}],
+            "refusals": [{"country": "FR", "year": 2023}],
+            "deportation": False,
+            "note": "Работает в IT",
+        },
+        consultation={
+            "held_on": "2026-11-28",
+            "destination_ids": [poland],
+            "applicants": 2,
+            "notes": "Хотят в Польшу летом",
+        },
+        note="Пришла из Telegram, муж тоже поедет",
+    )
+    card = (await client.get(f"{BASE}/{anna['id']}")).json()
+    q = card["questionnaire"]
+    assert [v["country"] for v in q["visas"]] == ["PL"]
+    assert [r["country"] for r in q["refusals"]] == ["FR"]
+    assert (q["note"], q["passport_number"]) == ("Работает в IT", "MP1234567")
+    [consultation] = card["consultations"]
+    assert consultation["destination_ids"] == [poland]
+    assert (consultation["applicants"], consultation["notes"]) == (2, "Хотят в Польшу летом")
+    assert [n["body"] for n in card["notes"]] == ["Пришла из Telegram, муж тоже поедет"]
+
+
+async def test_empty_blocks_create_nothing(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    anna = await create(
+        client,
+        questionnaire={"visas": [], "refusals": [], "deportation": False, "note": "  "},
+        consultation=None,
+        note="   ",
+    )
+    card = (await client.get(f"{BASE}/{anna['id']}")).json()
+    assert (card["consultations"], card["notes"]) == ([], [])
+    assert card["questionnaire"]["visas"] == []
+    actions = await audit_actions(client)
+    assert "contacts.questionnaire_updated" not in actions
+    assert "contacts.note_added" not in actions
+
+
+async def test_the_consultation_takes_the_cards_channel(client: AsyncClient, make_user: MakeUser):
+    """The channel is typed once, in «Контакт»; the card's consultation may change it."""
+    await as_specialist(client, make_user)
+    channel = (await client.post("/api/dictionaries/channels", json={"name": "Instagram"})).json()
+    anna = await create(
+        client, lead_channel_id=channel["id"], consultation={"held_on": "2026-11-28"}
+    )
+    [consultation] = (await client.get(f"{BASE}/{anna['id']}")).json()["consultations"]
+    assert consultation["lead_channel_id"] == channel["id"]
+
+
+async def test_a_wrong_block_saves_nothing(client: AsyncClient, make_user: MakeUser):
+    """A mistake in any block keeps the whole form unsaved: no card, no log lines."""
+    await make_user("boris@example.com")
+    await login(client, "boris@example.com")
+    foreign = await client.post("/api/dictionaries/channels", json={"name": "Чужой"})
+    foreign_channel = foreign.json()["id"]
+    client.cookies.clear()
+    await as_specialist(client, make_user)
+    await client.patch("/api/dictionaries/money", json={"payment_currencies": ["USD"]})
+
+    before = await audit_actions(client)
+    held = {"held_on": "2026-11-28"}
+    wrong = [
+        ({"consultation": {**held, "applicants": 0}}, 422, "validation"),
+        ({"consultation": {**held, "fee_amount": "50"}}, 422, "validation"),
+        (
+            {"consultation": {**held, "fee_amount": "50", "fee_currency": "PLN"}},
+            422,
+            "currency_not_accepted",
+        ),
+        ({"consultation": {**held, "destination_ids": [str(uuid4())]}}, 404, "not_found"),
+        ({"consultation": {**held, "lead_channel_id": foreign_channel}}, 404, "not_found"),
+        ({"questionnaire": {"refusals": [{"country": "France"}]}}, 422, "validation"),
+        ({"note": "x" * 5001}, 422, "validation"),
+    ]
+    for block, status_code, detail in wrong:
+        body = {"first_name": "Анна", "phone": "+375290001234", "note": "заметка", **block}
+        response = await client.post(BASE, json=body)
+        assert response.status_code == status_code, (block, response.text)
+        if detail != "validation":
+            assert response.json()["detail"] == detail
+    assert await search(client) == []
+    assert await audit_actions(client) == before
+
+
+async def test_a_shared_nick_saved_anyway_keeps_every_block(
+    client: AsyncClient, make_user: MakeUser
+):
+    await as_specialist(client, make_user)
+    await create(client, telegram="anna_k_visa")
+    body = {
+        "first_name": "Мария",
+        "telegram": "anna_k_visa",
+        "questionnaire": {"deportation": True},
+        "consultation": {"held_on": "2026-11-28", "notes": "сестра Анны"},
+        "note": "общий Telegram с сестрой",
+    }
+    warned = await client.post(BASE, json=body)
+    assert warned.status_code == 409
+    assert len(await search(client)) == 1  # «Открыть карточку» creates nothing
+
+    saved = await client.post(BASE, params={"allow_shared_telegram": True}, json=body)
+    assert saved.status_code == 201, saved.text
+    card = (await client.get(f"{BASE}/{saved.json()['id']}")).json()
+    assert card["questionnaire"]["deportation"] is True
+    assert [c["notes"] for c in card["consultations"]] == ["сестра Анны"]
+    assert [n["body"] for n in card["notes"]] == ["общий Telegram с сестрой"]
+
+
+async def test_a_new_card_logs_what_the_steps_would(client: AsyncClient, make_user: MakeUser):
+    await as_specialist(client, make_user)
+    anna = await create(
+        client,
+        phone="+375290001234",
+        questionnaire={"refusals": [{"country": "FR"}]},
+        consultation={"held_on": "2026-11-28", "notes": "секрет консультации"},
+        note="секрет заметки",
+    )
+    events = (await client.get("/api/audit")).json()["events"]
+    mine = {e["action"]: e for e in events if e["action"] != "auth.login"}
+    assert set(mine) == {
+        "contacts.created",
+        "contacts.questionnaire_updated",
+        "consultations.created",
+        "contacts.note_added",
+    }
+    assert mine["contacts.created"]["target_id"] == anna["id"]
+    assert mine["contacts.questionnaire_updated"]["target_id"] == anna["id"]
+    assert mine["consultations.created"]["details"] == {"contact": anna["id"]}
+    assert mine["contacts.note_added"]["target_id"] == anna["id"]
+    assert set(mine["contacts.note_added"]["details"]) == {"note"}
+    for event in events:
+        for secret in ("Ковалёва", "375290001234", "секрет", "FR"):
+            assert secret not in str(event["details"])
+
+
+async def test_an_employee_creates_a_card_with_its_consultation(
+    client: AsyncClient, make_user: MakeUser, owner_engine: AsyncEngine
+):
+    """An employee's new card goes in whole and is theirs: the other employee and another
+    specialist do not see it. Creating spends nothing of the daily limit of cards."""
+    tenant_id = await as_specialist(client, make_user)
+    client.cookies.clear()
+    for email in ("olga@example.com", "ivan@example.com"):
+        await make_user(email, "employee", tenant_id=tenant_id)
+    async with owner_engine.begin() as conn:
+        await conn.execute(text("UPDATE users SET modules = '{clients}' WHERE role = 'employee'"))
+    await login(client, "olga@example.com")
+    created = await client.post(
+        BASE,
+        json={
+            "first_name": "Анна",
+            "questionnaire": {"deportation": True},
+            "consultation": {"held_on": "2026-11-28", "notes": "вводные"},
+            "note": "от сотрудника",
+        },
+    )
+    assert created.status_code == 201, created.text
+    contact_id = created.json()["id"]
+    async with owner_engine.connect() as conn:
+        viewed = await conn.scalar(
+            text("SELECT count(*) FROM audit_events WHERE action = 'contacts.viewed'")
+        )
+    assert viewed == 0
+    card = (await client.get(f"{BASE}/{contact_id}")).json()
+    assert card["questionnaire"]["deportation"] is True
+    assert [c["notes"] for c in card["consultations"]] == ["вводные"]
+    assert [n["body"] for n in card["notes"]] == ["от сотрудника"]
+    async with owner_engine.connect() as conn:
+        viewed = await conn.scalar(
+            text("SELECT count(*) FROM audit_events WHERE action = 'contacts.viewed'")
+        )
+    assert viewed == 1  # the first open of the card is what counts
+
+    client.cookies.clear()
+    await login(client, "ivan@example.com")
+    assert (await client.get(f"{BASE}/{contact_id}")).status_code == 404
+    client.cookies.clear()
+    await as_specialist(client, make_user, "boris2@example.com")
+    assert (await client.get(f"{BASE}/{contact_id}")).status_code == 404

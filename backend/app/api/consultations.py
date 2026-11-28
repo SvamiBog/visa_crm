@@ -11,6 +11,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, computed_field, model_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.client_status import covers
@@ -335,15 +336,16 @@ async def visa_history_of(
     ]
 
 
-# --- Endpoints -----------------------------------------------------------------------
+# --- Writing a consultation ------------------------------------------------------------
 
 
-@router.post("/contacts/{contact_id}/consultations", status_code=status.HTTP_201_CREATED)
-async def create_consultation(
-    contact_id: uuid.UUID, body: ConsultationIn, user: Member, session: TenantSession
-) -> ConsultationOut:
-    contact = await _contact(session, contact_id)
-    await open_card(session, user, contact.id)  # a consultation of the card (Т.14)
+async def add_consultation(
+    session: AsyncSession, user: CurrentUser, contact: Contact, body: ConsultationIn
+) -> Consultation:
+    """Check and add a consultation of the card, with its log line, without committing:
+    the card's own endpoint and a new client's form (backlog 1.15.16, app/api/contacts.py)
+    share it. The channel is the card's unless another is given. A failed check raises
+    before anything is written, so the caller's transaction saves nothing."""
     fields = body.model_dump()
     if fields["lead_channel_id"] is None:
         fields["lead_channel_id"] = contact.lead_channel_id
@@ -353,8 +355,27 @@ async def create_consultation(
         tenant_id=user.tenant_id, contact_id=contact.id, created_by=user.id, **fields
     )
     session.add(consultation)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # The channel removed a moment after the check: «not found», as the check says.
+        await session.rollback()
+        await _check_refs(session, fields)
+        raise
     _audit(session, AuditAction.CONSULTATION_CREATED, user, consultation)
+    return consultation
+
+
+# --- Endpoints -----------------------------------------------------------------------
+
+
+@router.post("/contacts/{contact_id}/consultations", status_code=status.HTTP_201_CREATED)
+async def create_consultation(
+    contact_id: uuid.UUID, body: ConsultationIn, user: Member, session: TenantSession
+) -> ConsultationOut:
+    contact = await _contact(session, contact_id)
+    await open_card(session, user, contact.id)  # a consultation of the card (Т.14)
+    consultation = await add_consultation(session, user, contact, body)
     await session.commit()
     await session.refresh(consultation)
     return ConsultationOut.model_validate(consultation)

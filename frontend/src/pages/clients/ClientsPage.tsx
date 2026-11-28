@@ -23,7 +23,7 @@ import { formatSort, parseSort, useSortParam } from "../../sorting";
 import { BoardView } from "./Board";
 import { cardPath, showCase } from "./cardTabs";
 import { CaseChip } from "./Cases";
-import { ContactForm } from "./ContactForm";
+import { NewClientForm } from "./NewClientForm";
 
 const PAGE_SIZE = 50;
 const VIEW_KEY = "visacrm.clientsView";
@@ -170,7 +170,7 @@ export function ClientsPage() {
       </header>
 
       {formOpen && (
-        <ContactForm
+        <NewClientForm
           onCancel={() => setFormOpen(false)}
           onSaved={(contact) => navigate(`/app/clients/${contact.id}`)}
         />
