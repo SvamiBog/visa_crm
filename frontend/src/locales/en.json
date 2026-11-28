@@ -2015,7 +2015,7 @@
   "admin.taxRateHint": "Empty means no rate is set; the specialist will set it. 0 means no tax.",
   "admin.currencyHint": "A new accounting currency recounts the specialist's amounts at the latest National Bank rate.",
   "errors.base_rate_unavailable": "The site has no National Bank rate yet for one of the currencies of your amounts, so the accounting currency cannot be changed. Try again in a few hours.",
-  "errors.base_amount_too_large": "In the new accounting currency one of the amounts would be too large, so the currency cannot be changed. Check the amounts of payments, expenses and talons, partner payouts and case prices.",
+  "errors.base_amount_too_large": "In the new accounting currency one of the amounts would be too large, so the currency cannot be changed. Check payments, expenses, talons, partner payouts and case prices.",
   "errors.tax_rate_invalid": "Enter the rate as a number from 0 to 100, for example 10.",
   "audit.action.workspace.base_currency_changed": "Accounting currency changed, amounts recounted",
   "audit.target.tax_rate": "tax rate",
